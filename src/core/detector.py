@@ -16,6 +16,7 @@ class HardwareInfo:
     ffmpeg_version: str = "Not detected"
     realesrgan_bin: Optional[str] = None
     realcugan_bin: Optional[str] = None
+    cpu_cores: int = 4
 
 
 def get_base_dir() -> str:
@@ -122,7 +123,8 @@ def get_hardware_info() -> HardwareInfo:
         ffmpeg_path=ffmpeg_path,
         ffmpeg_version=ffmpeg_ver,
         realesrgan_bin=realesrgan_bin,
-        realcugan_bin=realcugan_bin
+        realcugan_bin=realcugan_bin,
+        cpu_cores=os.cpu_count() or 4
     )
 
 
@@ -132,6 +134,7 @@ def print_doctor_report():
     print("=" * 60)
     print("           SYSTEM ENVIRONMENT DIAGNOSTIC")
     print("=" * 60)
+    print(f"CPU Logical Cores    : {hw.cpu_cores}")
     print(f"GPU Name             : {hw.gpu_name}")
     print(f"GPU VRAM             : {hw.gpu_vram_gb} GB")
     print(f"NVIDIA GPU Detected  : {'Yes' if hw.has_nvidia else 'No'}")
@@ -141,9 +144,21 @@ def print_doctor_report():
     print(f"FFmpeg Version       : {hw.ffmpeg_version}")
     print(f"Real-ESRGAN Binary   : {hw.realesrgan_bin or 'Not Found'}")
     print(f"RealCUGAN Binary     : {hw.realcugan_bin or 'Not Found'}")
+    print("-" * 60)
+    print("           LOCAL AI MODELS STORAGE (OFFLINE)")
+    print("-" * 60)
+    from src.core.ai_models import check_local_model_availability
+    models_status = check_local_model_availability(get_base_dir())
+    for mid, ok in models_status.items():
+        if mid == "auto":
+            continue
+        status_str = "Verified Local (Ready)" if ok else "Missing"
+        print(f"  {mid:<23}: {status_str}")
     print("=" * 60)
-    if hw.has_nvidia and hw.has_nvenc_hevc and hw.ffmpeg_path and hw.realesrgan_bin:
-        print("Status: Everything is optimally configured for 4K GPU upscaling.")
+    all_models_ok = all(models_status.values())
+    if hw.has_nvidia and hw.has_nvenc_hevc and hw.ffmpeg_path and hw.realesrgan_bin and all_models_ok:
+        print("Status: Everything is optimally configured for 4K GPU upscaling (100% local).")
     else:
         print("Notice: Some acceleration components were not detected.")
     print("=" * 60)
+

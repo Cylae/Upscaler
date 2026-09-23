@@ -11,6 +11,11 @@ def main():
         print_doctor_report()
         return
 
+    if "--help" in sys.argv or "-h" in sys.argv:
+        from src.cli import run_cli
+        run_cli()
+        return
+
     if "--cli" in sys.argv or "-c" in sys.argv:
         if "--cli" in sys.argv:
             sys.argv.remove("--cli")

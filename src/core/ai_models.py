@@ -71,8 +71,56 @@ AVAILABLE_MODELS: Dict[str, AIModelSpec] = {
         default_scale=2,
         recommended_for="High-volume batches",
         internal_name="models-se"
+    ),
+    "realesrgan-x4plus": AIModelSpec(
+        id="realesrgan-x4plus",
+        name="Real-ESRGAN General (High Detail)",
+        engine=ModelEngine.REALESRGAN,
+        description="Deep 16-block RRDB architecture for photorealistic textures and complex background art.",
+        supported_scales=[4],
+        default_scale=4,
+        recommended_for="Complex backgrounds and mixed animation styles",
+        internal_name="realesrgan-x4plus"
     )
 }
+
+
+def check_local_model_availability(base_dir: Optional[str] = None) -> Dict[str, bool]:
+    """
+    Verifies that all AI models are physically present on local storage.
+    Returns a dictionary mapping model_id to boolean availability.
+    """
+    import os
+    if base_dir is None:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        root = os.path.dirname(os.path.dirname(current_dir))
+    else:
+        root = base_dir
+
+    r_models = os.path.join(root, "tools", "realesrgan", "models")
+    c_pro = os.path.join(root, "tools", "realcugan", "models-pro")
+    c_se = os.path.join(root, "tools", "realcugan", "models-se")
+
+    availability = {
+        "auto": True,
+        "realesrgan-x4plus-anime": os.path.isfile(os.path.join(r_models, "realesrgan-x4plus-anime.bin")),
+        "realesr-animevideov3": (
+            os.path.isfile(os.path.join(r_models, "realesr-animevideov3-x2.bin")) and
+            os.path.isfile(os.path.join(r_models, "realesr-animevideov3-x3.bin")) and
+            os.path.isfile(os.path.join(r_models, "realesr-animevideov3-x4.bin"))
+        ),
+        "realesrgan-x4plus": os.path.isfile(os.path.join(r_models, "realesrgan-x4plus.bin")),
+        "realcugan-pro": (
+            os.path.isdir(c_pro) and
+            os.path.isfile(os.path.join(c_pro, "up2x-conservative.bin"))
+        ),
+        "realcugan-se": (
+            os.path.isdir(c_se) and
+            os.path.isfile(os.path.join(c_se, "up2x-conservative.bin"))
+        )
+    }
+    return availability
+
 
 
 def choose_best_model_for_video(width: int, height: int) -> Tuple[AIModelSpec, int]:
