@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import threading
 import time
+import uuid
 from dataclasses import dataclass
 from typing import Callable, Dict, Optional, Tuple
 
@@ -605,7 +606,9 @@ class VideoUpscalerPipeline:
 
         # Prepare workspace & temp directory
         root_temp = job.temp_dir or os.path.join(job.output_dir, ".temp_upscaler")
-        job_id = f"job_{int(time.time())}_{abs(hash(job.input_file)) % 100000}"
+        # UUID makes concurrent/restarted jobs collision-proof, even for duplicate
+        # source names started within the same clock tick.
+        job_id = f"job_{uuid.uuid4().hex}"
         work_dir = os.path.join(root_temp, job_id)
         frames_in_dir = os.path.join(work_dir, "frames_in")
         frames_out_dir = os.path.join(work_dir, "frames_out")
@@ -976,10 +979,12 @@ class VideoUpscalerPipeline:
             )
 
             log_cmd(f"[FFMPEG ENCODE] {' '.join(encode_cmd)}")
-            self._run_tracked(encode_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            encode_rc = self._run_tracked(encode_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
             if self._is_cancelled:
                 return False, "Cancelled by user."
+            if encode_rc != 0:
+                return False, f"Final video encoding failed (exit code {encode_rc})."
 
             if not os.path.isfile(part_output_file) or os.path.getsize(part_output_file) == 0:
                 return False, "Failed to encode final video."
@@ -1017,10 +1022,10 @@ class VideoUpscalerPipeline:
                     repair_cmd.extend(clean_metadata_args(include_video=False))
                     repair_cmd.append(repair_file)
                     log_cmd(f"[AUDIO REPAIR REMUX] {' '.join(repair_cmd)}")
-                    self._run_tracked(repair_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    repair_rc = self._run_tracked(repair_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     if self._is_cancelled:
                         return False, "Cancelled by user."
-                    if os.path.isfile(repair_file) and os.path.getsize(repair_file) > 0:
+                    if repair_rc == 0 and os.path.isfile(repair_file) and os.path.getsize(repair_file) > 0:
                         try:
                             rep_meta = probe_video(repair_file)
                             if rep_meta.has_audio:
@@ -1036,12 +1041,9 @@ class VideoUpscalerPipeline:
                 log_cmd(f"[AUDIO VERIFIED] Soundtrack confirmed intact in output ({final_probe.audio_codec.upper()}).")
 
             # 9. Atomic Move to Final Scene Output Destination
-            if os.path.isfile(final_output_path):
-                try:
-                    os.remove(final_output_path)
-                except OSError:
-                    pass
-            shutil.move(part_output_file, final_output_path)
+            # Both paths live below output_dir, so replace keeps the completed
+            # original intact until the new file is fully encoded and verified.
+            os.replace(part_output_file, final_output_path)
 
             total_duration_s = max(0.1, time.time() - t_file_start)
             final_size_mb = round(os.path.getsize(final_output_path) / (1024**2), 1)

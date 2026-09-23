@@ -149,7 +149,7 @@ class BatchManager:
         preview_duration_s: Optional[float] = None,
         log_callback: Optional[Callable[[str], None]] = None,
         item_callback: Optional[Callable[[QueueItem], None]] = None,
-        batch_callback: Optional[Callable[[int, int, float, str], None]] = None
+        batch_callback: Optional[Callable[..., None]] = None
     ):
         """
         Executes batch processing on queue with optional multi-worker concurrency.
@@ -235,7 +235,10 @@ class BatchManager:
                 if batch_callback:
                     with self._lock:
                         cur_completed = completed_items[0]
-                        active_progress = sum(it.progress for it in self.queue if it.status == EpisodeStatus.PROCESSING)
+                        active_progress = sum(
+                            it.progress for it in items_to_run
+                            if it.status == EpisodeStatus.PROCESSING
+                        )
                         effective_done = cur_completed + active_progress
 
                     pct = (effective_done / total_items) * 100.0 if total_items > 0 else 0.0
@@ -264,6 +267,10 @@ class BatchManager:
 
             try:
                 success, msg = pipeline.process_video(job, progress_callback=on_progress)
+            except Exception as exc:
+                # A worker exception must become a visible per-file failure rather
+                # than silently disappearing from a ThreadPoolExecutor future.
+                success, msg = False, f"Unexpected pipeline error: {type(exc).__name__}: {exc}"
             finally:
                 with self._lock:
                     self._active_pipelines.discard(pipeline)
@@ -311,19 +318,23 @@ class BatchManager:
                 except TypeError:
                     batch_callback(cur_completed, total_items, pct, f"Overall progress: {cur_completed}/{total_items} completed")
 
-        # Execute using ThreadPoolExecutor for concurrency
-        effective_workers = max(1, min(max_workers, 4))
-        if effective_workers == 1:
-            for item in items_to_run:
-                if self._stop_requested:
-                    break
-                process_single_item(item)
-        else:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=effective_workers) as executor:
-                futures = [executor.submit(process_single_item, item) for item in items_to_run]
-                for future in concurrent.futures.as_completed(futures):
+        try:
+            # Execute using ThreadPoolExecutor for concurrency
+            effective_workers = max(1, min(max_workers, 4))
+            if effective_workers == 1:
+                for item in items_to_run:
                     if self._stop_requested:
-                        executor.shutdown(wait=False, cancel_futures=True)
                         break
-
-        self._is_running = False
+                    process_single_item(item)
+            else:
+                with concurrent.futures.ThreadPoolExecutor(max_workers=effective_workers) as executor:
+                    futures = [executor.submit(process_single_item, item) for item in items_to_run]
+                    for future in concurrent.futures.as_completed(futures):
+                        # Calling result surfaces unexpected executor errors instead
+                        # of allowing a batch to falsely report completion.
+                        future.result()
+                        if self._stop_requested:
+                            executor.shutdown(wait=False, cancel_futures=True)
+                            break
+        finally:
+            self._is_running = False

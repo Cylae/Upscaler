@@ -1285,6 +1285,22 @@ class UpscalerMainWindow(QMainWindow):
             self.lbl_model_info.setText(f"ℹ️ {spec.name}: {spec.description} ({spec.recommended_for})")
         self.update_scene_preview()
 
+    def _update_auto_model_hint(self, queue: List[QueueItem]):
+        """Shows the first detected choice immediately after a scan; full details are confirmed at launch."""
+        if (self.cb_model.currentData() or "auto") != "auto" or not queue:
+            return
+        try:
+            meta = probe_video(queue[0].source_path)
+            target_preset = ("4k", "1440p", "1080p", "720p")[self.cb_resolution.currentIndex()]
+            recommendation = recommend_model_for_video(meta.width, meta.height, target_preset)
+            self.lbl_model_info.setText(
+                f"🧠 Détection IA : {recommendation.model.name} ×{recommendation.scale} — "
+                "le détail complet sera soumis à validation avant le batch."
+            )
+            self.lbl_model_info.setToolTip(recommendation.reason)
+        except Exception:
+            self.lbl_model_info.setText("🧠 Détection IA : analyse complète disponible au lancement du batch.")
+
     def toggle_expert_panel(self):
         vis = not self.grp_expert.isVisible()
         self.grp_expert.setVisible(vis)
@@ -1612,6 +1628,7 @@ class UpscalerMainWindow(QMainWindow):
         self.lbl_overall_status.setText("Indexing files...")
         queue = self.batch_manager.scan_folder(src, out, cfg, preserve_folders=preserve_folders)
         self._populate_table(queue)
+        self._update_auto_model_hint(queue)
 
     def on_settings_changed(self):
         src = self.txt_source.text().strip()

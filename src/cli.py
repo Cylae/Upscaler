@@ -15,8 +15,8 @@ def run_cli():
     parser = argparse.ArgumentParser(
         description="4K Video Enhancer for Cartoons & 2D Animation (Scene / Warez Naming)"
     )
-    parser.add_argument("--source", "-s", default=r"Z:\DL\Happy Tree Friends", help="Source folder or file path")
-    parser.add_argument("--output", "-o", default=r"Z:\DL\Happy Tree Friends (2160p)", help="Output directory")
+    parser.add_argument("--source", "-s", help="Source folder or video file path")
+    parser.add_argument("--output", "-o", help="Output directory (default: '<source> (2160p)')")
     parser.add_argument("--preset", "-p", choices=list(ENHANCEMENT_PRESETS.keys()), default=None, help="Enhancement profile preset")
     parser.add_argument("--resolution", "-r", choices=["4k", "1440p", "1080p", "720p"], default=None, help="Target resolution preset")
     parser.add_argument("--codec", "-c", choices=["hevc_nvenc", "h264_nvenc", "libx265", "libx264"], default=None, help="Video codec")
@@ -36,12 +36,38 @@ def run_cli():
     parser.add_argument("--frame-format", "-f", choices=["jpg", "png"], default=None, help="Frame I/O format (default: jpg, 2x-3x faster)")
     parser.add_argument("--doctor", action="store_true", help="Run hardware and environment diagnostic")
     parser.add_argument("--yes", "-y", action="store_true", help="Accept the displayed AI-model choice without an interactive prompt")
+    parser.add_argument("--dry-run", action="store_true", help="Scan and display the planned batch without converting files")
+    parser.add_argument("--list-presets", action="store_true", help="List the available quality profiles and exit")
 
     args = parser.parse_args()
+
+    if args.cq is not None and not 14 <= args.cq <= 28:
+        parser.error("--cq must be between 14 and 28")
+    if args.workers is not None and not 1 <= args.workers <= 4:
+        parser.error("--workers must be between 1 and 4")
+    if args.tile_size < 0:
+        parser.error("--tile-size must be zero or a positive number")
 
     if args.doctor:
         print_doctor_report()
         sys.exit(0)
+
+    if args.list_presets:
+        print("AVAILABLE QUALITY PROFILES")
+        for preset_id, preset in ENHANCEMENT_PRESETS.items():
+            print(f"- {preset_id:<22} {preset.icon} {preset.name}")
+            print(f"  {preset.description}")
+        sys.exit(0)
+
+    if not args.source:
+        parser.error("--source is required unless --doctor or --list-presets is used")
+
+    if not args.output:
+        args.output = (
+            args.source + " (2160p)"
+            if os.path.isdir(args.source)
+            else os.path.join(os.path.dirname(args.source), "(2160p)")
+        )
 
     # Resolve preset baseline
     chosen_preset = get_preset(args.preset or "cartoon_4k_master")
@@ -63,6 +89,8 @@ def run_cli():
     print(f"  Encoder     : {'NVIDIA NVENC Hardware Active' if hw.has_nvenc_hevc else 'CPU (libx265)'}")
     print(f"  Preset      : {chosen_preset.name}")
     print(f"  Audio Mode  : {audio_val.upper()} (Preserved)")
+    print(f"  Source      : {args.source}")
+    print(f"  Output      : {args.output}")
     print("=" * 70)
 
     if not os.path.exists(args.source):
@@ -113,6 +141,16 @@ def run_cli():
         model = AVAILABLE_MODELS[model_val]
         print(f"AI model selected manually: {model.name}")
         print(f"Reason: {model.description}")
+
+    print("\nBATCH PLAN")
+    print(f"  Files       : {len(queue)}")
+    print(f"  Target      : {res_val.upper()} · {codec_val} · CQ {cq_val}")
+    print(f"  Processing  : {workers_val} worker(s) · threads {args.threads} · {fmt_val.upper()} frames")
+    print(f"  Overwrite   : {'yes' if args.overwrite else 'no'}")
+
+    if args.dry_run:
+        print("\nDry run complete: no files were converted.")
+        sys.exit(0)
 
     if not args.yes:
         if not sys.stdin.isatty():

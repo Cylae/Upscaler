@@ -13,9 +13,12 @@ FORBIDDEN_PATTERNS = [
     r"\bintelligence\s+artificielle\b",
     r"\breal[\-_.]?esrgan\b",
     r"\breal[\-_.]?cugan\b",
-    r"\bupscaled\b",
-    r"\bupscaler\b",
-    r"\bupscaling\b",
+    # These are tooling fingerprints. Match them even when embedded in a
+    # user-supplied group/show tag (e.g. "MyUpscaler"), where word boundaries
+    # would otherwise leak the internal workflow into a release name.
+    r"upscaled",
+    r"upscaler",
+    r"upscaling",
 ]
 FORBIDDEN_REGEX = re.compile("|".join(FORBIDDEN_PATTERNS), re.IGNORECASE)
 
