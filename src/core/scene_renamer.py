@@ -199,5 +199,6 @@ def get_scene_relative_output_path(
     folder = os.path.dirname(rel_path)
     if folder:
         cleaned_folder_parts = [clean_scene_text(p) for p in folder.split(os.sep) if clean_scene_text(p)]
-        return os.path.join(*cleaned_folder_parts, scene_name)
+        if cleaned_folder_parts:
+            return os.path.join(*cleaned_folder_parts, scene_name)
     return scene_name

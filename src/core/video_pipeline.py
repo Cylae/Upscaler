@@ -6,7 +6,7 @@ import subprocess
 import threading
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable, Dict, List, Optional, Tuple
 
 from src.core.ai_models import (
@@ -71,7 +71,8 @@ def find_forbidden_media_metadata(filepath: str, ffprobe_bin: Optional[str] = No
         raw = subprocess.check_output(
             [bin_path, "-v", "error", "-show_entries", "format_tags:stream_tags", "-of", "json", filepath],
             text=True,
-            errors="ignore"
+            errors="ignore",
+            timeout=15,
         )
         return find_forbidden_output_markers(raw)
     except Exception:
@@ -117,6 +118,38 @@ class UpscaleJobConfig:
     # video so the clip is representative rather than a cold open).  The output file
     # receives a "[Preview Xsec]" suffix and never overwrites a full-length encode.
     preview_duration_s: Optional[float] = None
+
+
+def validate_job_config(job: UpscaleJobConfig) -> None:
+    """Fails fast on invalid programmatic jobs before creating temporary files."""
+    if not os.path.isfile(job.input_file):
+        raise ValueError(f"Input video does not exist: {job.input_file}")
+    if not job.output_dir:
+        raise ValueError("Output directory is required.")
+    if job.target_preset not in {"4k", "1440p", "1080p", "720p"}:
+        raise ValueError(f"Unsupported target resolution: {job.target_preset}")
+    if job.video_codec not in {"hevc_nvenc", "h264_nvenc", "libx265", "libx264"}:
+        raise ValueError(f"Unsupported video codec: {job.video_codec}")
+    if job.model_id not in AVAILABLE_MODELS:
+        raise ValueError(f"Unknown AI model: {job.model_id}")
+    if job.frame_format.lower() not in {"jpg", "jpeg", "png"}:
+        raise ValueError(f"Unsupported frame format: {job.frame_format}")
+    if not 14 <= job.cq_level <= 28:
+        raise ValueError("CQ level must be between 14 and 28.")
+    if job.nvenc_preset not in {f"p{index}" for index in range(1, 8)}:
+        raise ValueError(f"Unsupported NVENC preset: {job.nvenc_preset}")
+    if job.denoise_level not in {-1, 0, 1, 2, 3}:
+        raise ValueError("RealCUGAN denoise level must be between -1 and 3.")
+    if job.audio_mode not in {"copy", "aac_192k", "aac_320k", "flac"}:
+        raise ValueError(f"Unsupported audio mode: {job.audio_mode}")
+    if job.tile_size != 0 and job.tile_size < 32:
+        raise ValueError("Tile size must be 0 (auto) or at least 32 pixels.")
+    if job.threads != "auto":
+        match = re.fullmatch(r"(\d+):(\d+):(\d+)", job.threads)
+        if not match or any(int(value) < 1 for value in match.groups()):
+            raise ValueError("Threads must be 'auto' or LOAD:PROC:SAVE with positive integers.")
+    if job.preview_duration_s is not None and job.preview_duration_s <= 0:
+        raise ValueError("Preview duration must be greater than zero.")
 
 
 def get_optimal_thread_spec(threads_param: str = "auto", gpu_vram_gb: float = 0.0) -> str:
@@ -214,7 +247,7 @@ def probe_video(filepath: str) -> VideoMetadata:
         "-print_format", "json",
         filepath
     ]
-    raw = subprocess.check_output(cmd, text=True, errors="ignore")
+    raw = subprocess.check_output(cmd, text=True, errors="ignore", timeout=30)
     data = json.loads(raw)
 
     v_stream = next((s for s in data.get("streams", []) if s.get("codec_type") == "video"), None)
@@ -224,13 +257,31 @@ def probe_video(filepath: str) -> VideoMetadata:
     width = int(v_stream.get("width", 0))
     height = int(v_stream.get("height", 0))
 
-    fps_str = v_stream.get("r_frame_rate", "24/1")
-    parts = fps_str.split("/")
-    fps = float(parts[0]) / float(parts[1]) if len(parts) == 2 and float(parts[1]) > 0 else 24.0
+    fps = 0.0
+    for fps_str in (v_stream.get("avg_frame_rate"), v_stream.get("r_frame_rate")):
+        try:
+            numerator, denominator = str(fps_str).split("/", 1)
+            if float(denominator) > 0:
+                fps = float(numerator) / float(denominator)
+                if fps > 0:
+                    break
+        except (TypeError, ValueError):
+            continue
+    if fps <= 0:
+        fps = 24.0
 
-    duration = float(data.get("format", {}).get("duration", v_stream.get("duration", 0.0)))
+    duration = 0.0
+    for raw_duration in (data.get("format", {}).get("duration"), v_stream.get("duration")):
+        try:
+            duration = float(raw_duration)
+            if duration > 0:
+                break
+        except (TypeError, ValueError):
+            continue
     nb_frames_raw = v_stream.get("nb_frames")
     nb_frames = int(nb_frames_raw) if nb_frames_raw and str(nb_frames_raw).isdigit() else max(1, int(duration * fps))
+    if duration <= 0 and nb_frames > 0:
+        duration = nb_frames / fps
 
     a_streams = [s for s in data.get("streams", []) if s.get("codec_type") == "audio"]
     has_audio = len(a_streams) > 0
@@ -266,7 +317,7 @@ def probe_audio_stream(filepath: str) -> bool:
         filepath
     ]
     try:
-        raw = subprocess.check_output(cmd, text=True, errors="ignore")
+        raw = subprocess.check_output(cmd, text=True, errors="ignore", timeout=15)
         data = json.loads(raw)
         streams = data.get("streams", [])
         return len(streams) > 0
@@ -331,7 +382,8 @@ def _probe_cuda_support() -> bool:
             ["ffmpeg", "-hide_banner", "-hwaccels"],
             stderr=subprocess.STDOUT,
             text=True,
-            errors="ignore"
+            errors="ignore",
+            timeout=10,
         )
         return "cuda" in out.lower() or "cuvid" in out.lower()
     except Exception:
@@ -343,18 +395,32 @@ class VideoUpscalerPipeline:
         self.hardware = hardware or get_hardware_info()
         self._is_cancelled = False
         self._current_process: Optional[subprocess.Popen] = None
+        self._process_lock = threading.Lock()
+        self._active_processes: set[subprocess.Popen] = set()
         # Detect CUDA hwaccel once at construction — avoids repeated subprocess calls per job
         self._cuda_available: Optional[bool] = None
 
     def cancel(self):
         """Signals cancellation and kills running subprocess immediately."""
         self._is_cancelled = True
-        proc = self._current_process
-        if proc:
+        with self._process_lock:
+            processes = list(self._active_processes)
+        for proc in processes:
             try:
                 proc.kill()
             except Exception:
                 pass
+
+    def _start_process(self, cmd: list, **popen_kwargs) -> subprocess.Popen:
+        """Starts and registers a child process so cancellation reaches every stage."""
+        proc = subprocess.Popen(cmd, **popen_kwargs)
+        with self._process_lock:
+            self._active_processes.add(proc)
+        return proc
+
+    def _forget_process(self, proc: subprocess.Popen) -> None:
+        with self._process_lock:
+            self._active_processes.discard(proc)
 
     def _wait_for_process(self) -> int:
         """Waits for _current_process to finish, killing it immediately if cancelled."""
@@ -376,8 +442,14 @@ class VideoUpscalerPipeline:
 
     def _run_tracked(self, cmd: list, **popen_kwargs) -> int:
         """Launches a subprocess, tracks it in _current_process, waits with cancel support."""
-        self._current_process = subprocess.Popen(cmd, **popen_kwargs)
-        return self._wait_for_process()
+        proc = self._start_process(cmd, **popen_kwargs)
+        self._current_process = proc
+        try:
+            return self._wait_for_process()
+        finally:
+            self._forget_process(proc)
+            if self._current_process is proc:
+                self._current_process = None
 
     def reset_cancel(self):
         self._is_cancelled = False
@@ -602,6 +674,11 @@ class VideoUpscalerPipeline:
         self.reset_cancel()
         t_file_start = time.time()
 
+        try:
+            validate_job_config(job)
+        except ValueError as exc:
+            return False, f"Invalid job configuration: {exc}"
+
         # Preview mode: limit clip to `preview_duration_s` seconds, starting at 10 %
         # of the total duration so the clip is representative, not a cold open.
         # The offset is resolved after probing so we can compute 10 % of duration.
@@ -629,7 +706,9 @@ class VideoUpscalerPipeline:
         # 2. Resolve target dimensions & scene naming
         target_w, target_h, res_tag = calculate_target_dimensions(meta.width, meta.height, job.target_preset)
 
-        scene_cfg = job.scene_config or SceneNamingConfig()
+        # Every concurrent job gets an isolated naming configuration. Mutating
+        # the shared batch object here caused cross-worker naming races.
+        scene_cfg = replace(job.scene_config) if job.scene_config else SceneNamingConfig()
         scene_cfg.resolution_tag = res_tag
 
         # Set codec tag in scene name according to chosen encoder
@@ -734,9 +813,12 @@ class VideoUpscalerPipeline:
                 audio_cmd.extend(["-c:a", "copy", audio_file])
                 log_cmd(f"[FFMPEG AUDIO] {' '.join(audio_cmd)}")
                 try:
-                    proc = subprocess.Popen(audio_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    proc = self._start_process(audio_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     _audio_proc["proc"] = proc
-                    proc.wait()
+                    try:
+                        proc.wait()
+                    finally:
+                        self._forget_process(proc)
                 except Exception as exc:
                     _audio_result["error"] = str(exc)
                     return
@@ -758,9 +840,12 @@ class VideoUpscalerPipeline:
                 audio_cmd.extend(["-c:a", "aac", "-b:a", "192k", audio_file])
                 log_cmd(f"[FFMPEG AUDIO FALLBACK] {' '.join(audio_cmd)}")
                 try:
-                    proc = subprocess.Popen(audio_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    proc = self._start_process(audio_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                     _audio_proc["proc"] = proc
-                    proc.wait()
+                    try:
+                        proc.wait()
+                    finally:
+                        self._forget_process(proc)
                 except Exception as exc:
                     _audio_result["error"] = str(exc)
                     return
@@ -782,9 +867,14 @@ class VideoUpscalerPipeline:
                 )
                 log_cmd(f"[FFMPEG EXTRACT ({'CUDA' if use_hw else 'CPU'})] {' '.join(extract_cmd)}")
                 try:
-                    proc = subprocess.Popen(extract_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
-                                            text=True, errors="ignore")
-                    _, stderr_out = proc.communicate()
+                    proc = self._start_process(
+                        extract_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+                        text=True, errors="ignore"
+                    )
+                    try:
+                        _, stderr_out = proc.communicate()
+                    finally:
+                        self._forget_process(proc)
                     rc = proc.returncode
                 except Exception as exc:
                     _frames_result["error"] = str(exc)
@@ -808,8 +898,11 @@ class VideoUpscalerPipeline:
                         except OSError:
                             pass
                     try:
-                        proc = subprocess.Popen(extract_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                        proc.wait()
+                        proc = self._start_process(extract_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        try:
+                            proc.wait()
+                        finally:
+                            self._forget_process(proc)
                         rc = proc.returncode
                     except Exception as exc:
                         _frames_result["error"] = str(exc)
@@ -945,7 +1038,7 @@ class VideoUpscalerPipeline:
 
             log_cmd(f"[VULKAN AI] {' '.join(ai_cmd)}")
 
-            self._current_process = subprocess.Popen(
+            self._current_process = self._start_process(
                 ai_cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
@@ -1007,9 +1100,11 @@ class VideoUpscalerPipeline:
                                 }
                             )
 
-            self._current_process.wait()
-            if self._current_process.returncode != 0 and not self._is_cancelled:
-                return False, f"Upscaling engine error (exit code {self._current_process.returncode})"
+            ai_process = self._current_process
+            ai_process.wait()
+            self._forget_process(ai_process)
+            if ai_process.returncode != 0 and not self._is_cancelled:
+                return False, f"Upscaling engine error (exit code {ai_process.returncode})"
 
             if self._is_cancelled:
                 return False, "Cancelled by user."

@@ -2,11 +2,10 @@ import concurrent.futures
 import os
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Callable, Dict, List, Optional, Set
 
-from src.core.ai_models import AVAILABLE_MODELS, choose_best_model_for_video
 from src.core.detector import HardwareInfo, get_hardware_info
 from src.core.scene_renamer import (
     SceneNamingConfig,
@@ -15,7 +14,6 @@ from src.core.scene_renamer import (
 )
 from src.core.video_pipeline import (
     UpscaleJobConfig,
-    VideoMetadata,
     VideoUpscalerPipeline,
     format_eta,
     is_file_complete_and_valid,
@@ -82,8 +80,14 @@ class BatchManager:
             base_dir = os.path.dirname(folder_path)
         else:
             base_dir = folder_path
-            for root, _, files in os.walk(folder_path):
-                for f in sorted(files):
+            output_abs = os.path.normcase(os.path.abspath(output_dir))
+            for root, dirs, files in os.walk(folder_path):
+                dirs[:] = sorted(
+                    directory for directory in dirs
+                    if directory != ".temp_upscaler"
+                    and os.path.normcase(os.path.abspath(os.path.join(root, directory))) != output_abs
+                )
+                for f in sorted(files, key=str.casefold):
                     if os.path.splitext(f)[1].lower() in valid_exts:
                         found_files.append(os.path.join(root, f))
 
@@ -99,7 +103,15 @@ class BatchManager:
             status = EpisodeStatus.PENDING
             status_detail = "Ready"
             out_size_mb = 0.0
-            if is_file_complete_and_valid(target_full, expect_audio=True):
+            expect_audio = False
+            if os.path.isfile(target_full):
+                try:
+                    expect_audio = probe_video(fpath).has_audio
+                except Exception:
+                    # A source that cannot be probed will fail with a precise
+                    # error during processing; do not incorrectly skip it here.
+                    expect_audio = False
+            if is_file_complete_and_valid(target_full, expect_audio=expect_audio):
                 status = EpisodeStatus.SKIPPED
                 status_detail = "Already present (will be skipped)"
                 out_size_mb = round(os.path.getsize(target_full) / (1024**2), 1)
@@ -174,6 +186,8 @@ class BatchManager:
                 item.status = EpisodeStatus.CANCELLED
                 item.status_detail = "Cancelled by user"
                 item.file_eta = ""
+                with self._lock:
+                    completed_items[0] += 1
                 if item_callback:
                     item_callback(item)
                 return
@@ -279,6 +293,11 @@ class BatchManager:
                 if "Already completed" in msg:
                     item.status = EpisodeStatus.SKIPPED
                     item.status_detail = "Already present"
+                elif preview_duration_s is not None:
+                    # A short preview must not mark the full episode complete;
+                    # otherwise the next batch silently omits that episode.
+                    item.status = EpisodeStatus.PENDING
+                    item.status_detail = f"Preview completed: {os.path.basename(msg)}"
                 else:
                     item.status = EpisodeStatus.COMPLETED
                     if not item.status_detail.startswith("Completed in"):
@@ -298,6 +317,8 @@ class BatchManager:
                     item.status = EpisodeStatus.FAILED
                     item.status_detail = f"Error: {msg}"
                     item.error_message = msg
+                with self._lock:
+                    completed_items[0] += 1
 
             if item_callback:
                 item_callback(item)

@@ -5,6 +5,7 @@ import json
 import os
 import re
 import tempfile
+import threading
 import time
 import unicodedata
 import urllib.error
@@ -127,10 +128,17 @@ class TVMazeClient:
     def _write_cache(self, key: str, payload) -> None:
         os.makedirs(self.cache_dir, exist_ok=True)
         destination = self._cache_path(key)
-        temporary = destination + ".part"
-        with open(temporary, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle, ensure_ascii=False)
-        os.replace(temporary, destination)
+        temporary = f"{destination}.{os.getpid()}.{threading.get_ident()}.part"
+        try:
+            with open(temporary, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, ensure_ascii=False)
+            os.replace(temporary, destination)
+        finally:
+            try:
+                if os.path.exists(temporary):
+                    os.remove(temporary)
+            except OSError:
+                pass
 
     def _request_json(self, path: str, params: Optional[Dict[str, object]] = None, cache_key: str = ""):
         if cache_key:
@@ -147,14 +155,18 @@ class TVMazeClient:
         try:
             with urllib.request.urlopen(request, timeout=self.timeout) as response:
                 payload = json.loads(response.read().decode("utf-8"))
-            if cache_key:
-                self._write_cache(cache_key, payload)
-            return payload
         except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
             stale = self._read_cache(cache_key, allow_stale=True) if cache_key else None
             if stale is not None:
                 return stale
             raise MetadataLookupError(f"TVmaze indisponible: {exc}") from exc
+        if cache_key:
+            try:
+                self._write_cache(cache_key, payload)
+            except OSError:
+                # Metadata remains usable when the cache directory is read-only.
+                pass
+        return payload
 
     def search_shows(self, query: str) -> List[ShowCandidate]:
         cleaned_query = sanitize_metadata_text(query, 200)
@@ -200,7 +212,10 @@ class TVMazeClient:
         show = self._request_json(f"/shows/{show_id}")
         episodes = self._request_json(f"/shows/{show_id}/episodes", {"specials": 1})
         bundle = {"show": show, "episodes": episodes}
-        self._write_cache(cache_key, bundle)
+        try:
+            self._write_cache(cache_key, bundle)
+        except OSError:
+            pass
         self._memory[show_id] = bundle
         return bundle
 
@@ -272,4 +287,3 @@ class TVMazeClient:
             network=sanitize_metadata_text(network_data.get("name"), 120),
             source_url=sanitize_metadata_text(episode.get("url"), 500),
         )
-

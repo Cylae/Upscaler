@@ -1,5 +1,6 @@
 import argparse
 import os
+import re
 import sys
 import time
 
@@ -28,6 +29,7 @@ def run_cli():
     parser.add_argument("--audio-mode", choices=["copy", "aac_192k", "aac_320k", "flac"], default=None, help="Audio handling mode (default: copy)")
     parser.add_argument("--tile-size", type=int, default=0, help="Tile size in pixels (0 = auto / full VRAM)")
     parser.add_argument("--group", "-g", default="CYLAE", help="Scene release group tag (e.g. CYLAE)")
+    parser.add_argument("--show-name", default="Happy Tree Friends", help="Show name used in generated release filenames")
     parser.add_argument("--source-tag", default="WEB-DL", choices=["WEB-DL", "WEBRip", "UHD.WEB-DL", "REMASTER"], help="Scene source tag")
     parser.add_argument("--overwrite", action="store_true", help="Overwrite already existing files")
     parser.add_argument("--limit", type=int, default=0, help="Limit number of episodes to process (0 = all)")
@@ -47,6 +49,12 @@ def run_cli():
         parser.error("--workers must be between 1 and 4")
     if args.tile_size < 0:
         parser.error("--tile-size must be zero or a positive number")
+    if args.limit < 0:
+        parser.error("--limit must be zero or a positive number")
+    if args.threads != "auto":
+        match = re.fullmatch(r"(\d+):(\d+):(\d+)", args.threads)
+        if not match or any(int(value) < 1 for value in match.groups()):
+            parser.error("--threads must be 'auto' or LOAD:PROC:SAVE with positive integers")
 
     if args.doctor:
         print_doctor_report()
@@ -62,13 +70,6 @@ def run_cli():
     if not args.source:
         parser.error("--source is required unless --doctor or --list-presets is used")
 
-    if not args.output:
-        args.output = (
-            args.source + " (2160p)"
-            if os.path.isdir(args.source)
-            else os.path.join(os.path.dirname(args.source), "(2160p)")
-        )
-
     # Resolve preset baseline
     chosen_preset = get_preset(args.preset or "cartoon_4k_master")
     res_val = args.resolution or chosen_preset.target_preset
@@ -81,6 +82,15 @@ def run_cli():
     audio_val = args.audio_mode or chosen_preset.audio_mode
     workers_val = args.workers if args.workers is not None else chosen_preset.workers
     fmt_val = args.frame_format or chosen_preset.frame_format
+
+    if not args.output:
+        output_tag = "2160p" if res_val == "4k" else res_val
+        if os.path.isdir(args.source):
+            args.output = f"{args.source} ({output_tag})"
+        else:
+            source_parent = os.path.dirname(os.path.abspath(args.source))
+            source_stem = os.path.splitext(os.path.basename(args.source))[0]
+            args.output = os.path.join(source_parent, f"{source_stem} ({output_tag})")
 
     hw = get_hardware_info()
     print("=" * 70)
@@ -98,7 +108,7 @@ def run_cli():
         sys.exit(1)
 
     scene_cfg = SceneNamingConfig(
-        show_name="Happy.Tree.Friends",
+        show_name=args.show_name,
         resolution_tag="2160p" if res_val == "4k" else res_val,
         source_tag=args.source_tag,
         audio_tag="AAC2.0",
@@ -170,31 +180,43 @@ def run_cli():
             print(f"[{item.index}/{len(queue)}] {item.target_scene_name} -> Already present (skipped)")
         elif item.status == EpisodeStatus.FAILED:
             print(f"\n[{item.index}/{len(queue)}] ERROR: {item.error_message}")
+        elif item.status == EpisodeStatus.CANCELLED:
+            print(f"\n[{item.index}/{len(queue)}] CANCELLED")
 
     t0 = time.time()
-    bm.run_batch(
-        output_dir=args.output,
-        base_dir=args.source if os.path.isdir(args.source) else os.path.dirname(args.source),
-        target_preset=res_val,
-        video_codec=codec_val,
-        model_id=model_val,
-        scene_config=scene_cfg,
-        preserve_folders=True,
-        overwrite=args.overwrite,
-        threads=args.threads,
-        frame_format=fmt_val,
-        max_workers=workers_val,
-        cq_level=cq_val,
-        nvenc_preset=p_val,
-        enable_tta=tta_val,
-        denoise_level=denoise_val,
-        audio_mode=audio_val,
-        tile_size=args.tile_size,
-        item_callback=on_item_updated
-    )
+    try:
+        bm.run_batch(
+            output_dir=args.output,
+            base_dir=args.source if os.path.isdir(args.source) else os.path.dirname(os.path.abspath(args.source)),
+            target_preset=res_val,
+            video_codec=codec_val,
+            model_id=model_val,
+            scene_config=scene_cfg,
+            preserve_folders=True,
+            overwrite=args.overwrite,
+            threads=args.threads,
+            frame_format=fmt_val,
+            max_workers=workers_val,
+            cq_level=cq_val,
+            nvenc_preset=p_val,
+            enable_tta=tta_val,
+            denoise_level=denoise_val,
+            audio_mode=audio_val,
+            tile_size=args.tile_size,
+            item_callback=on_item_updated
+        )
+    except KeyboardInterrupt:
+        bm.stop()
+        print("\nBatch cancelled by user.")
+        return 130
 
     total_time = round(time.time() - t0, 1)
-    print(f"\nProcessing finished in {total_time}s.")
+    failed = sum(1 for item in queue if item.status == EpisodeStatus.FAILED)
+    cancelled = sum(1 for item in queue if item.status == EpisodeStatus.CANCELLED)
+    completed = sum(1 for item in queue if item.status == EpisodeStatus.COMPLETED)
+    skipped = sum(1 for item in queue if item.status == EpisodeStatus.SKIPPED)
+    print(f"\nProcessing finished in {total_time}s: {completed} completed, {skipped} skipped, {failed} failed.")
+    return 130 if cancelled else (1 if failed else 0)
 
 
 if __name__ == "__main__":

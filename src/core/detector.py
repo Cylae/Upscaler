@@ -36,13 +36,19 @@ def detect_ffmpeg() -> Tuple[Optional[str], str, bool, bool]:
     has_h264_nvenc = False
 
     try:
-        output = subprocess.check_output([ffmpeg_path, "-version"], stderr=subprocess.STDOUT, text=True, errors="ignore")
+        output = subprocess.check_output(
+            [ffmpeg_path, "-version"], stderr=subprocess.STDOUT,
+            text=True, errors="ignore", timeout=10
+        )
         first_line = output.splitlines()[0] if output else ""
         if "ffmpeg version" in first_line:
             version_str = first_line.split("Copyright")[0].strip()
 
         # Check encoders
-        enc_output = subprocess.check_output([ffmpeg_path, "-encoders"], stderr=subprocess.STDOUT, text=True, errors="ignore")
+        enc_output = subprocess.check_output(
+            [ffmpeg_path, "-encoders"], stderr=subprocess.STDOUT,
+            text=True, errors="ignore", timeout=15
+        )
         if "hevc_nvenc" in enc_output:
             has_hevc_nvenc = True
         if "h264_nvenc" in enc_output:
@@ -65,7 +71,8 @@ def detect_gpu() -> Tuple[str, float, bool]:
             ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
             stderr=subprocess.DEVNULL,
             text=True,
-            errors="ignore"
+            errors="ignore",
+            timeout=10,
         ).strip()
         if smi_out:
             lines = smi_out.splitlines()
@@ -81,7 +88,10 @@ def detect_gpu() -> Tuple[str, float, bool]:
     # Fallback to PowerShell Win32_VideoController
     try:
         ps_cmd = "Get-CimInstance Win32_VideoController | Select-Object -First 1 Name, AdapterRAM | ConvertTo-Json"
-        ps_out = subprocess.check_output(["powershell", "-Command", ps_cmd], stderr=subprocess.DEVNULL, text=True, errors="ignore")
+        ps_out = subprocess.check_output(
+            ["powershell", "-NoProfile", "-Command", ps_cmd],
+            stderr=subprocess.DEVNULL, text=True, errors="ignore", timeout=10
+        )
         import json
         data = json.loads(ps_out)
         gpu_name = data.get("Name", "Unknown")
@@ -118,8 +128,8 @@ def get_hardware_info() -> HardwareInfo:
         gpu_name=gpu_name,
         gpu_vram_gb=gpu_vram,
         has_nvidia=has_nvidia,
-        has_nvenc_hevc=has_hevc,
-        has_nvenc_h264=has_h264,
+        has_nvenc_hevc=has_nvidia and has_hevc,
+        has_nvenc_h264=has_nvidia and has_h264,
         ffmpeg_path=ffmpeg_path,
         ffmpeg_version=ffmpeg_ver,
         realesrgan_bin=realesrgan_bin,
@@ -161,4 +171,3 @@ def print_doctor_report():
     else:
         print("Notice: Some acceleration components were not detected.")
     print("=" * 60)
-

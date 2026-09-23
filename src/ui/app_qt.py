@@ -389,6 +389,65 @@ QTextEdit#txtConsole {
     color: #38bdf8;
     padding: 8px;
 }
+
+/* macOS-inspired visual system: compact surfaces, soft elevation, and a
+   single blue accent that remains legible on Windows and Linux as well. */
+QMainWindow, QWidget {
+    background-color: #1c1c1e;
+    color: #f5f5f7;
+    /* Segoe UI is present on supported Windows hosts and provides reliable
+       Latin/Unicode coverage; macOS character comes from spacing and surface,
+       not from selecting an unavailable SF font on Windows. */
+    font-family: "Segoe UI", Arial, sans-serif;
+    font-size: 13px;
+}
+QGroupBox, QFrame#macPanel {
+    background-color: #2c2c2e;
+    border: 1px solid #48484a;
+    border-radius: 12px;
+}
+QGroupBox::title { color: #f5f5f7; left: 12px; padding: 0 7px; }
+QLineEdit, QComboBox, QSpinBox {
+    background-color: #3a3a3c;
+    border: 1px solid #545458;
+    border-radius: 8px;
+    padding: 7px 10px;
+    color: #ffffff;
+}
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
+    border: 2px solid #0a84ff;
+    background-color: #3a3a3c;
+}
+QPushButton {
+    background-color: #3a3a3c;
+    border: 1px solid #545458;
+    border-radius: 9px;
+    padding: 7px 13px;
+    color: #ffffff;
+}
+QPushButton:hover { background-color: #48484a; border-color: #636366; }
+QPushButton#btnStart { background-color: #0a84ff; border-color: #409cff; border-radius: 10px; }
+QPushButton#btnStart:hover { background-color: #409cff; }
+QPushButton#btnPreview, QPushButton#btnScan { background-color: #0a84ff; border-color: #409cff; border-radius: 10px; }
+QPushButton#btnPreview:hover, QPushButton#btnScan:hover { background-color: #409cff; }
+QPushButton#btnStop { background-color: #ff453a; border-color: #ff6961; border-radius: 10px; }
+QTableWidget {
+    background-color: #2c2c2e;
+    alternate-background-color: #323234;
+    border: 1px solid #48484a;
+    border-radius: 12px;
+    gridline-color: #3a3a3c;
+    selection-background-color: #0a5fc2;
+}
+QTableWidget QHeaderView::section { background-color: #3a3a3c; color: #aeaeb2; border: 0; border-bottom: 1px solid #545458; padding: 9px; }
+QProgressBar { background-color: #3a3a3c; border: 0; border-radius: 6px; min-height: 12px; }
+QProgressBar::chunk { background-color: #0a84ff; border-radius: 6px; }
+QCheckBox::indicator { border-radius: 5px; background-color: #3a3a3c; border-color: #636366; }
+QCheckBox::indicator:checked { background-color: #0a84ff; border-color: #409cff; }
+QMenu, QMessageBox { background-color: #2c2c2e; border: 1px solid #545458; border-radius: 10px; }
+QToolTip { background-color: #3a3a3c; border: 1px solid #636366; border-radius: 7px; color: #ffffff; }
+QScrollBar:vertical, QScrollBar:horizontal { background: transparent; }
+QScrollBar::handle:vertical, QScrollBar::handle:horizontal { background: #636366; border-radius: 3px; }
 """
 
 
@@ -708,39 +767,43 @@ class UpscaleWorker(QThread):
         self.preview_duration_s = preview_duration_s
 
     def run(self):
-        self.bm.run_batch(
-            output_dir=self.output_dir,
-            base_dir=self.base_dir,
-            target_preset=self.target_preset,
-            video_codec=self.video_codec,
-            model_id=self.model_id,
-            scene_config=self.scene_config,
-            preserve_folders=self.preserve_folders,
-            overwrite=self.overwrite,
-            threads=self.threads,
-            frame_format=self.frame_format,
-            max_workers=self.max_workers,
-            cq_level=self.cq_level,
-            nvenc_preset=self.nvenc_preset,
-            enable_tta=self.enable_tta,
-            denoise_level=self.denoise_level,
-            audio_mode=self.audio_mode,
-            tile_size=self.tile_size,
-            target_indices=self.target_indices,
-            preview_duration_s=self.preview_duration_s,
-            log_callback=lambda msg: self.log_signal.emit(msg),
-            item_callback=lambda item: self.item_updated.emit(item),
-            batch_callback=lambda cur, tot, pct, status, eta="": self.batch_updated.emit(cur, tot, pct, status, eta)
-        )
-        self.finished_signal.emit()
+        try:
+            self.bm.run_batch(
+                output_dir=self.output_dir,
+                base_dir=self.base_dir,
+                target_preset=self.target_preset,
+                video_codec=self.video_codec,
+                model_id=self.model_id,
+                scene_config=self.scene_config,
+                preserve_folders=self.preserve_folders,
+                overwrite=self.overwrite,
+                threads=self.threads,
+                frame_format=self.frame_format,
+                max_workers=self.max_workers,
+                cq_level=self.cq_level,
+                nvenc_preset=self.nvenc_preset,
+                enable_tta=self.enable_tta,
+                denoise_level=self.denoise_level,
+                audio_mode=self.audio_mode,
+                tile_size=self.tile_size,
+                target_indices=self.target_indices,
+                preview_duration_s=self.preview_duration_s,
+                log_callback=lambda msg: self.log_signal.emit(msg),
+                item_callback=lambda item: self.item_updated.emit(item),
+                batch_callback=lambda cur, tot, pct, status, eta="": self.batch_updated.emit(cur, tot, pct, status, eta)
+            )
+        except Exception as exc:
+            self.log_signal.emit(f"[ERROR] Batch worker crashed: {type(exc).__name__}: {exc}")
+        finally:
+            self.finished_signal.emit()
 
 
 class UpscalerMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Video Enhancer 4K — Animation & Cartoon Edition")
-        self.resize(1260, 800)
-        self.setMinimumSize(1020, 620)
+        self.resize(1280, 840)
+        self.setMinimumSize(900, 640)
         self.setAcceptDrops(True)
 
         self.hardware = get_hardware_info()
@@ -765,20 +828,31 @@ class UpscalerMainWindow(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         main_layout = QVBoxLayout(central)
-        main_layout.setContentsMargins(16, 14, 16, 14)
-        main_layout.setSpacing(10)
+        self.main_layout = main_layout
+        main_layout.setContentsMargins(18, 16, 18, 16)
+        main_layout.setSpacing(12)
 
         # 1. Header Banner
         header = QFrame()
-        header.setStyleSheet("background-color: #111827; border: 1px solid #1f2937; border-radius: 8px;")
+        header.setObjectName("macPanel")
         h_layout = QHBoxLayout(header)
-        h_layout.setContentsMargins(14, 10, 14, 10)
+        h_layout.setContentsMargins(16, 12, 16, 12)
+        h_layout.setSpacing(10)
+
+        traffic_lights = QHBoxLayout()
+        traffic_lights.setSpacing(6)
+        for color in ("#ff5f57", "#febc2e", "#28c840"):
+            dot = QLabel()
+            dot.setFixedSize(12, 12)
+            dot.setStyleSheet(f"background-color: {color}; border-radius: 6px;")
+            traffic_lights.addWidget(dot)
+        h_layout.addLayout(traffic_lights)
 
         title_box = QVBoxLayout()
         lbl_title = QLabel("Video Enhancer 4K — Animation & Cartoon Edition")
-        lbl_title.setStyleSheet("font-size: 17px; font-weight: 700; color: #38bdf8;")
-        lbl_sub = QLabel("Autonomous batch upscaling, line reconstruction, and standardized Scene / Warez release compliance")
-        lbl_sub.setStyleSheet("font-size: 12px; color: #94a3b8;")
+        lbl_title.setStyleSheet("font-size: 17px; font-weight: 700; color: #ffffff;")
+        lbl_sub = QLabel("Upscaling local • contrôle qualité • export normalisé")
+        lbl_sub.setStyleSheet("font-size: 12px; color: #aeaeb2;")
         title_box.addWidget(lbl_title)
         title_box.addWidget(lbl_sub)
         h_layout.addLayout(title_box)
@@ -789,17 +863,17 @@ class UpscalerMainWindow(QMainWindow):
         chips_layout = QHBoxLayout()
         chips_layout.setSpacing(8)
 
-        lbl_gpu = QLabel(f"● {self.hardware.gpu_name} ({self.hardware.gpu_vram_gb} GB)")
-        lbl_gpu.setStyleSheet("color: #10b981; font-weight: 600; font-size: 11px; padding: 4px 8px; background-color: #064e3b; border: 1px solid #059669; border-radius: 5px;")
-        chips_layout.addWidget(lbl_gpu)
+        self.lbl_gpu = QLabel(f"● {self.hardware.gpu_name} ({self.hardware.gpu_vram_gb} GB)")
+        self.lbl_gpu.setStyleSheet("color: #30d158; font-weight: 600; font-size: 11px; padding: 4px 8px; background-color: #173b28; border: 1px solid #2d6a43; border-radius: 7px;")
+        chips_layout.addWidget(self.lbl_gpu)
 
         nvenc_text = "NVENC H.265 Active" if self.hardware.has_nvenc_hevc else "CPU x265"
-        lbl_enc = QLabel(nvenc_text)
-        lbl_enc.setStyleSheet("color: #38bdf8; font-weight: 600; font-size: 11px; padding: 4px 8px; background-color: #0c4a6e; border: 1px solid #0284c7; border-radius: 5px;")
-        chips_layout.addWidget(lbl_enc)
+        self.lbl_encoder = QLabel(nvenc_text)
+        self.lbl_encoder.setStyleSheet("color: #64d2ff; font-weight: 600; font-size: 11px; padding: 4px 8px; background-color: #163647; border: 1px solid #29647f; border-radius: 7px;")
+        chips_layout.addWidget(self.lbl_encoder)
 
         self.lbl_audio = QLabel("● Audio: Lossless Stream Copy (Guaranteed)")
-        self.lbl_audio.setStyleSheet("color: #10b981; font-weight: 600; font-size: 11px; padding: 4px 8px; background-color: #064e3b; border: 1px solid #059669; border-radius: 5px;")
+        self.lbl_audio.setStyleSheet("color: #30d158; font-weight: 600; font-size: 11px; padding: 4px 8px; background-color: #173b28; border: 1px solid #2d6a43; border-radius: 7px;")
         chips_layout.addWidget(self.lbl_audio)
 
         btn_doctor = QPushButton("🩺 Hardware Doctor")
@@ -875,7 +949,7 @@ class UpscalerMainWindow(QMainWindow):
         row_presets = QHBoxLayout()
         row_presets.setSpacing(10)
         lbl_preset_title = QLabel("🎯 Quality Profile:")
-        lbl_preset_title.setStyleSheet("font-weight: 700; color: #38bdf8;")
+        lbl_preset_title.setStyleSheet("font-weight: 700; color: #64d2ff;")
         row_presets.addWidget(lbl_preset_title)
 
         self.cb_preset = QComboBox()
@@ -887,18 +961,19 @@ class UpscalerMainWindow(QMainWindow):
 
         self.lbl_preview_name = QLabel("Release Sample: Happy.Tree.Friends.S01E01.Spin.Fun.Knowin.Ya.2160p.WEB-DL.AAC2.0.H.265-CYLAE.mp4")
         self.lbl_preview_name.setToolTip("Standardized Scene release filename preview generated dynamically based on active settings.")
-        self.lbl_preview_name.setStyleSheet("background-color: #0f172a; border: 1px dashed #0284c7; border-radius: 6px; padding: 6px 12px; color: #38bdf8; font-family: monospace; font-size: 11px;")
+        self.lbl_preview_name.setStyleSheet("background-color: #242426; border: 1px solid #545458; border-radius: 8px; padding: 7px 12px; color: #64d2ff; font-family: 'Cascadia Mono', monospace; font-size: 11px;")
         row_presets.addWidget(self.lbl_preview_name, 2)
         cfg_layout.addLayout(row_presets)
 
         # Profile description banner
         self.lbl_preset_desc = QLabel("")
-        self.lbl_preset_desc.setStyleSheet("color: #94a3b8; font-size: 11px; font-style: italic; padding-left: 4px;")
+        self.lbl_preset_desc.setStyleSheet("color: #aeaeb2; font-size: 11px; padding-left: 4px;")
         cfg_layout.addWidget(self.lbl_preset_desc)
 
-        # Row 4: Core Settings
+        # Row 4: Core Settings. Two balanced rows remain readable at the
+        # minimum window width instead of compressing every control at once.
         row_settings = QHBoxLayout()
-        row_settings.setSpacing(12)
+        row_settings.setSpacing(10)
 
         # Resolution
         row_settings.addWidget(QLabel("Resolution:"))
@@ -925,33 +1000,38 @@ class UpscalerMainWindow(QMainWindow):
         self.cb_model.currentIndexChanged.connect(self.on_model_changed)
         row_settings.addWidget(self.cb_model)
 
+        row_settings.addStretch()
+        cfg_layout.addLayout(row_settings)
+
+        row_options = QHBoxLayout()
+        row_options.setSpacing(12)
+
         # Checkboxes
         self.chk_preserve_folders = QCheckBox("Preserve subfolders")
         self.chk_preserve_folders.setToolTip("Replicate source subfolder hierarchy (e.g. Season 01/) inside the output folder.")
         self.chk_preserve_folders.setChecked(True)
-        row_settings.addWidget(self.chk_preserve_folders)
+        row_options.addWidget(self.chk_preserve_folders)
 
         self.chk_overwrite = QCheckBox("Overwrite existing")
         self.chk_overwrite.setToolTip("Re-process and overwrite files that already exist in the output directory.")
         self.chk_overwrite.setChecked(False)
-        row_settings.addWidget(self.chk_overwrite)
+        row_options.addWidget(self.chk_overwrite)
 
-        row_settings.addStretch()
+        row_options.addStretch()
 
         self.btn_toggle_expert = QPushButton("⚙️  Advanced & Expert Controls ▼")
         self.btn_toggle_expert.setObjectName("btnToggleExpert")
         self.btn_toggle_expert.setToolTip("Show/hide fine-tuning controls: CQ factor, NVENC preset, threads, tile size, and audio modes.")
         self.btn_toggle_expert.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_toggle_expert.clicked.connect(self.toggle_expert_panel)
-        row_settings.addWidget(self.btn_toggle_expert)
-
-        cfg_layout.addLayout(row_settings)
+        row_options.addWidget(self.btn_toggle_expert)
+        cfg_layout.addLayout(row_options)
 
         # ----------------------------------------------------
         # EXPANDABLE EXPERT & POWER USER PANEL
         # ----------------------------------------------------
         self.grp_expert = QGroupBox("⚙️ Advanced & Expert Controls")
-        self.grp_expert.setStyleSheet("background-color: #0c1220; border: 1px solid #1e293b; border-radius: 8px; margin-top: 6px; padding: 10px;")
+        self.grp_expert.setStyleSheet("background-color: #242426; border: 1px solid #48484a; border-radius: 10px; margin-top: 6px; padding: 12px;")
         expert_layout = QVBoxLayout(self.grp_expert)
         expert_layout.setSpacing(10)
 
@@ -969,7 +1049,7 @@ class UpscalerMainWindow(QMainWindow):
         row_exp_1.addWidget(self.slider_cq)
 
         self.lbl_cq_val = QLabel("CQ 19 (Visually Lossless)")
-        self.lbl_cq_val.setStyleSheet("color: #38bdf8; font-weight: 700; font-size: 11px;")
+        self.lbl_cq_val.setStyleSheet("color: #64d2ff; font-weight: 700; font-size: 11px;")
         row_exp_1.addWidget(self.lbl_cq_val)
 
         row_exp_1.addWidget(QLabel("NVENC Preset:"))
@@ -1115,7 +1195,7 @@ class UpscalerMainWindow(QMainWindow):
 
         # Dynamic model description banner
         self.lbl_model_info = QLabel("")
-        self.lbl_model_info.setStyleSheet("color: #94a3b8; font-size: 11px; font-style: italic; padding-left: 2px;")
+        self.lbl_model_info.setStyleSheet("color: #aeaeb2; font-size: 11px; padding: 3px 2px;")
         cfg_layout.addWidget(self.lbl_model_info)
         self.on_preset_changed()
 
@@ -1167,7 +1247,8 @@ class UpscalerMainWindow(QMainWindow):
 
         stat_bar.addStretch()
 
-        stat_bar.addWidget(QLabel("🔍 Search:"))
+        self.lbl_search = QLabel("🔍 Search:")
+        stat_bar.addWidget(self.lbl_search)
         self.txt_filter = QLineEdit()
         self.txt_filter.setPlaceholderText("Filter by name or season...")
         self.txt_filter.setToolTip("Filter queue by episode name, season, or filename.")
@@ -1210,18 +1291,18 @@ class UpscalerMainWindow(QMainWindow):
 
         # 4. Progress and Controls Bottom Bar
         bottom_bar = QFrame()
-        bottom_bar.setStyleSheet("background-color: #111827; border: 1px solid #1f2937; border-radius: 8px; padding: 6px;")
+        bottom_bar.setObjectName("macPanel")
         b_layout = QVBoxLayout(bottom_bar)
         b_layout.setSpacing(8)
 
         status_row = QHBoxLayout()
         self.lbl_overall_status = QLabel("Ready to process.")
-        self.lbl_overall_status.setStyleSheet("font-weight: 600; color: #f8fafc;")
+        self.lbl_overall_status.setStyleSheet("font-weight: 600; color: #f5f5f7;")
         status_row.addWidget(self.lbl_overall_status)
         status_row.addStretch()
 
         self.lbl_eta = QLabel("")
-        self.lbl_eta.setStyleSheet("color: #38bdf8; font-weight: 700; font-size: 13px; padding: 2px 8px; background-color: #0c4a6e; border-radius: 5px;")
+        self.lbl_eta.setStyleSheet("color: #64d2ff; font-weight: 700; font-size: 12px; padding: 4px 9px; background-color: #163647; border-radius: 7px;")
         status_row.addWidget(self.lbl_eta)
         b_layout.addLayout(status_row)
 
@@ -1294,6 +1375,40 @@ class UpscalerMainWindow(QMainWindow):
                     "automatiquement rapprochés vers le poids disponible le plus proche."
                 )
         self.update_scene_preview()
+
+    def resizeEvent(self, event):
+        """Keep the header useful on compact windows instead of clipping controls."""
+        width = event.size().width()
+        if hasattr(self, "lbl_audio"):
+            self.lbl_audio.setVisible(width >= 1180)
+        if hasattr(self, "lbl_gpu"):
+            self.lbl_gpu.setVisible(width >= 1020)
+        if hasattr(self, "lbl_encoder"):
+            self.lbl_encoder.setVisible(width >= 940)
+        if hasattr(self, "btn_preview_clip"):
+            compact = width < 1060
+            margin = 12 if compact else 18
+            self.main_layout.setContentsMargins(margin, 12 if compact else 16, margin, 12 if compact else 16)
+            self.main_layout.setSpacing(10 if compact else 12)
+            self.btn_preview_clip.setText("🎬 Aperçu" if compact else "🎬  Render Preview Clip")
+            self.btn_preview.setText("⚡ Test 1 épisode" if compact else "⚡  Test 1 Episode (Full)")
+            self.btn_start.setText("▶ LANCER" if compact else "▶  START BATCH PROCESSING")
+            self.btn_stop.setText("⏹" if compact else "⏹  STOP")
+            self.lbl_search.setVisible(not compact)
+            self.txt_filter.setMaximumWidth(140 if compact else 220)
+            if compact:
+                self.btn_stat_all.setText("Tout")
+                self.btn_stat_ready.setText("Prêts")
+                self.btn_stat_completed.setText("Faits")
+                self.btn_stat_skipped.setText("Ignorés")
+                self.btn_stat_failed.setText("Erreurs")
+            else:
+                self.btn_stat_all.setText(f"All: {len(self.batch_manager.queue)}")
+                self.btn_stat_ready.setText(f"Ready: {sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.PENDING)}")
+                self.btn_stat_completed.setText(f"Completed: {sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.COMPLETED)}")
+                self.btn_stat_skipped.setText(f"Skipped: {sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.SKIPPED)}")
+                self.btn_stat_failed.setText(f"Errors: {sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.FAILED)}")
+        super().resizeEvent(event)
 
     def _update_auto_model_hint(self, queue: List[QueueItem]):
         """Shows the first detected choice immediately after a scan; full details are confirmed at launch."""
@@ -1968,7 +2083,7 @@ class UpscalerMainWindow(QMainWindow):
         completed_count = sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.COMPLETED)
         skipped_count = sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.SKIPPED)
         failed_count = sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.FAILED)
-        ready_count = len(self.batch_manager.queue) - completed_count - skipped_count - failed_count
+        ready_count = sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.PENDING)
 
         self.btn_stat_ready.setText(f"Ready: {ready_count}")
         self.btn_stat_completed.setText(f"Completed: {completed_count}")
@@ -1995,9 +2110,17 @@ class UpscalerMainWindow(QMainWindow):
         if hasattr(self, 'btn_preview_clip'):
             self.btn_preview_clip.setEnabled(True)
         self.btn_stop.setEnabled(False)
-        self.lbl_overall_status.setText("Batch processing completed.")
+        failed_count = sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.FAILED)
+        cancelled_count = sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.CANCELLED)
+        if cancelled_count:
+            self.lbl_overall_status.setText(f"Traitement arrêté ({cancelled_count} annulé(s)).")
+        elif failed_count:
+            self.lbl_overall_status.setText(f"Traitement terminé avec {failed_count} erreur(s).")
+        else:
+            self.lbl_overall_status.setText("Traitement terminé avec succès.")
         self.lbl_eta.setText("")
-        self.progress_bar.setValue(100)
+        if not cancelled_count:
+            self.progress_bar.setValue(100)
         try:
             QApplication.beep()
         except Exception:
