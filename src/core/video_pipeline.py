@@ -257,6 +257,39 @@ def is_file_complete_and_valid(filepath: str, expect_audio: bool = False) -> boo
         return False
 
 
+def validate_encoded_video(
+    filepath: str,
+    expected_width: int,
+    expected_height: int,
+    expect_audio: bool = False,
+    metadata: Optional[VideoMetadata] = None,
+) -> Tuple[bool, str]:
+    """Validates that FFmpeg produced a playable video, not just a non-empty file.
+
+    This is deliberately stricter than a size check: an audio-only MP4 can be a
+    few megabytes large but is not a successful video render.
+    """
+    if not os.path.isfile(filepath) or os.path.getsize(filepath) == 0:
+        return False, "Encoder did not create an output file."
+    if metadata is None:
+        try:
+            meta = probe_video(filepath)
+        except Exception as exc:
+            return False, f"Final output has no readable video stream: {exc}"
+    else:
+        meta = metadata
+    if meta.width != expected_width or meta.height != expected_height:
+        return False, (
+            f"Final output resolution is {meta.width}x{meta.height}, expected "
+            f"{expected_width}x{expected_height}."
+        )
+    if meta.duration <= 0 or meta.nb_frames <= 0:
+        return False, "Final output contains no video frames."
+    if expect_audio and not meta.has_audio:
+        return False, "Final output is missing its expected audio stream."
+    return True, ""
+
+
 def _probe_cuda_support() -> bool:
     """Returns True if FFmpeg was compiled with CUDA/cuvid hwaccel support."""
     try:
@@ -936,6 +969,17 @@ class VideoUpscalerPipeline:
             if self._is_cancelled:
                 return False, "Cancelled by user."
 
+            output_frames = [
+                name for name in os.listdir(frames_out_dir)
+                if name.startswith("frame_") and name.endswith(f".{frame_ext}")
+                and os.path.getsize(os.path.join(frames_out_dir, name)) > 0
+            ]
+            if len(output_frames) != total_extracted:
+                return False, (
+                    "Upscaling produced an incomplete frame sequence "
+                    f"({len(output_frames)}/{total_extracted} frames)."
+                )
+
             # ------------------------------------------------------------------
             # 8. Encode to Target Resolution with Hardware NVENC (Multithreaded)
             # ------------------------------------------------------------------
@@ -989,6 +1033,13 @@ class VideoUpscalerPipeline:
             if not os.path.isfile(part_output_file) or os.path.getsize(part_output_file) == 0:
                 return False, "Failed to encode final video."
 
+            if not meta.has_audio:
+                valid_video, validation_error = validate_encoded_video(
+                    part_output_file, target_w, target_h, expect_audio=False
+                )
+                if not valid_video:
+                    return False, validation_error
+
             # 8b. Strict Audio Preservation Integrity Check & Auto-Repair Pass
             if meta.has_audio:
                 needs_repair = False
@@ -1035,10 +1086,22 @@ class VideoUpscalerPipeline:
                             pass
 
                 # Final strict guarantee check:
-                final_probe = probe_video(part_output_file)
+                try:
+                    final_probe = probe_video(part_output_file)
+                except Exception as exc:
+                    return False, f"Audio integrity check failed: final video stream is unreadable ({exc})."
                 if not final_probe.has_audio:
                     return False, "Audio integrity check failed: Soundtrack is missing from final output file."
                 log_cmd(f"[AUDIO VERIFIED] Soundtrack confirmed intact in output ({final_probe.audio_codec.upper()}).")
+                valid_video, validation_error = validate_encoded_video(
+                    part_output_file,
+                    target_w,
+                    target_h,
+                    expect_audio=True,
+                    metadata=final_probe,
+                )
+                if not valid_video:
+                    return False, validation_error
 
             # 9. Atomic Move to Final Scene Output Destination
             # Both paths live below output_dir, so replace keeps the completed
