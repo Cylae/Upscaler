@@ -7,7 +7,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Callable, Dict, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from src.core.ai_models import (
     AVAILABLE_MODELS,
@@ -168,6 +168,40 @@ def _auto_tile_size(gpu_vram_gb: float) -> int:
         return 100  # Small tiles for low-VRAM GPUs
     else:
         return 64   # Conservative fallback (integrated / very old GPU)
+
+
+def resolve_realcugan_options(models_dir: str, requested_scale: int, requested_denoise: int) -> Tuple[int, int, str]:
+    """Resolves a RealCUGAN request against the weights actually installed.
+
+    RealCUGAN Pro distributions are often intentionally sparse (this bundle has
+    2x/3x and denoise -1/0/3 only). Selecting a missing variant makes the native
+    binary fail late and leaves users with an opaque exit code. This resolver
+    chooses the nearest available variant and returns a user-facing explanation.
+    """
+    available: Dict[int, List[int]] = {}
+    noise_names = {-1: "no-denoise", 0: "conservative", 1: "denoise1x", 2: "denoise2x", 3: "denoise3x"}
+    for scale in (1, 2, 3, 4):
+        levels = [
+            level for level, name in noise_names.items()
+            if os.path.isfile(os.path.join(models_dir, f"up{scale}x-{name}.param"))
+            and os.path.isfile(os.path.join(models_dir, f"up{scale}x-{name}.bin"))
+        ]
+        if levels:
+            available[scale] = levels
+
+    if not available:
+        raise ValueError(f"No valid RealCUGAN weights found in {models_dir}")
+
+    scale = requested_scale if requested_scale in available else min(available, key=lambda value: abs(value - requested_scale))
+    levels = available[scale]
+    denoise = requested_denoise if requested_denoise in levels else min(levels, key=lambda value: abs(value - requested_denoise))
+
+    changes = []
+    if scale != requested_scale:
+        changes.append(f"scale {requested_scale}x → {scale}x")
+    if denoise != requested_denoise:
+        changes.append(f"denoise {requested_denoise} → {denoise}")
+    return scale, denoise, "; ".join(changes)
 
 
 def probe_video(filepath: str) -> VideoMetadata:
@@ -879,6 +913,18 @@ class VideoUpscalerPipeline:
                 if not os.path.isdir(models_dir):
                     return False, f"Local RealCUGAN models directory not found: {models_dir}"
 
+                try:
+                    chosen_scale, effective_denoise, adjustment = resolve_realcugan_options(
+                        models_dir,
+                        chosen_scale,
+                        job.denoise_level if job.denoise_level is not None else -1,
+                    )
+                except ValueError as exc:
+                    return False, str(exc)
+                if adjustment:
+                    log_cmd(f"[REALCUGAN] Requested variant unavailable; using {adjustment} based on installed weights.")
+                    report(0.20, f"RealCUGAN compatibility adjustment: {adjustment}")
+
                 ai_cmd = [
                     bin_path,
                     "-i", frames_in_dir,
@@ -893,8 +939,7 @@ class VideoUpscalerPipeline:
                     ai_cmd.extend(["-t", str(effective_tile_size)])
                 if job.enable_tta:
                     ai_cmd.append("-x")
-                if job.denoise_level is not None and job.denoise_level >= -1:
-                    ai_cmd.extend(["-n", str(job.denoise_level)])
+                ai_cmd.extend(["-n", str(effective_denoise)])
             else:
                 return False, f"Unknown engine: {selected_model.engine}"
 

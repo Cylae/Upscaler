@@ -1283,6 +1283,16 @@ class UpscalerMainWindow(QMainWindow):
         spec = AVAILABLE_MODELS.get(m_id)
         if spec:
             self.lbl_model_info.setText(f"ℹ️ {spec.name}: {spec.description} ({spec.recommended_for})")
+        if m_id == "realcugan-pro":
+            self.lbl_model_info.setText(
+                "ℹ️ RealCUGAN Pro : le bundle installé prend en charge ×2/×3 et les niveaux "
+                "de débruitage -1, 0 et 3. Les niveaux indisponibles sont ajustés automatiquement."
+            )
+            if hasattr(self, "cb_denoise"):
+                self.cb_denoise.setToolTip(
+                    "RealCUGAN Pro installé : niveaux -1, 0 et 3. Les niveaux 1 et 2 sont "
+                    "automatiquement rapprochés vers le poids disponible le plus proche."
+                )
         self.update_scene_preview()
 
     def _update_auto_model_hint(self, queue: List[QueueItem]):

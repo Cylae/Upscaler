@@ -65,7 +65,9 @@ AVAILABLE_MODELS: Dict[str, AIModelSpec] = {
         name="RealCUGAN Pro (Advanced Restoration)",
         engine=ModelEngine.REALCUGAN,
         description="Specialized model for anime and cartoon illustration with fine denoise control.",
-        supported_scales=[2, 3, 4],
+        # The bundled Pro weights ship only 2x and 3x variants. Advertising
+        # 4x caused the engine to look for a model file that does not exist.
+        supported_scales=[2, 3],
         default_scale=2,
         recommended_for="Anime and cartoons with residual noise",
         internal_name="models-pro"
