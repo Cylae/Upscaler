@@ -41,18 +41,25 @@ from src.core.video_pipeline import probe_video
 
 
 DARK_STYLESHEET = """
+/* ==========================================================================
+   macOS Human Interface Guidelines (HIG) Dark Mode Design System
+   ========================================================================== */
+
 QMainWindow, QWidget {
-    background-color: #0b0f19;
-    color: #f8fafc;
-    font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+    background-color: #1e1e1e;
+    color: #f5f5f7;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
     font-size: 13px;
+    selection-background-color: #0a84ff;
+    selection-color: #ffffff;
 }
 
-QGroupBox {
-    background-color: #111827;
-    border: 1px solid #1f2937;
-    border-radius: 8px;
-    margin-top: 14px;
+/* Elevated card surfaces (macOS Finder / System Settings panel style) */
+QGroupBox, QFrame#macPanel {
+    background-color: #252528;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    margin-top: 10px;
     padding: 14px;
     font-weight: 600;
 }
@@ -62,21 +69,23 @@ QGroupBox::title {
     subcontrol-position: top left;
     left: 14px;
     padding: 0 6px;
-    color: #38bdf8;
+    color: #0a84ff;
+    font-weight: 700;
 }
 
-QLineEdit, QComboBox {
-    background-color: #1a2234;
-    border: 1px solid #334155;
-    border-radius: 6px;
+/* Controls & Inputs (macOS dark textfields & select popups) */
+QLineEdit, QComboBox, QSpinBox {
+    background-color: #1c1c1e;
+    border: 1px solid #3a3a3c;
+    border-radius: 8px;
     padding: 7px 10px;
-    color: #f8fafc;
-    selection-background-color: #0284c7;
+    color: #f5f5f7;
+    selection-background-color: #0a84ff;
 }
 
-QLineEdit:focus, QComboBox:focus {
-    border: 1px solid #38bdf8;
-    background-color: #1e293b;
+QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
+    border: 1px solid #0a84ff;
+    background-color: #242426;
 }
 
 QComboBox::drop-down {
@@ -85,218 +94,290 @@ QComboBox::drop-down {
 }
 
 QComboBox QAbstractItemView {
-    background-color: #1e293b;
-    border: 1px solid #334155;
-    selection-background-color: #0369a1;
-    color: #f8fafc;
+    background-color: #2c2c2e;
+    border: 1px solid #3a3a3c;
+    selection-background-color: #0a84ff;
+    selection-color: #ffffff;
+    color: #f5f5f7;
     padding: 4px;
+    border-radius: 8px;
 }
 
+/* Standard Buttons (macOS push button style) */
 QPushButton {
-    background-color: #1e293b;
-    border: 1px solid #334155;
-    border-radius: 6px;
+    background-color: #323236;
+    border: 1px solid #48484a;
+    border-radius: 8px;
     padding: 7px 14px;
     font-weight: 600;
-    color: #f8fafc;
+    color: #f5f5f7;
 }
 
 QPushButton:hover {
-    background-color: #334155;
-    border-color: #475569;
+    background-color: #3a3a3e;
+    border-color: #545458;
 }
 
 QPushButton:pressed {
-    background-color: #0f172a;
+    background-color: #252528;
 }
 
+QPushButton:disabled {
+    background-color: #242426;
+    border-color: #323236;
+    color: #636366;
+}
+
+/* Primary Action - Apple Green (macOS Run / Start Batch) */
 QPushButton#btnStart {
-    background-color: #059669;
-    border: 1px solid #10b981;
+    background-color: #30d158;
+    border: 1px solid #34c759;
     color: #ffffff;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 700;
-    padding: 10px 22px;
-    border-radius: 7px;
+    padding: 9px 22px;
+    border-radius: 8px;
 }
 
 QPushButton#btnStart:hover {
-    background-color: #10b981;
+    background-color: #34c759;
 }
 
-QPushButton#btnPreview {
-    background-color: #0284c7;
-    border: 1px solid #38bdf8;
+QPushButton#btnStart:pressed {
+    background-color: #248a3d;
+}
+
+QPushButton#btnStart:disabled {
+    background-color: #28282a;
+    border-color: #38383a;
+    color: #636366;
+}
+
+/* Secondary Action - Apple Blue (Render Preview Clip) */
+QPushButton#btnPreviewClip {
+    background-color: #0a84ff;
+    border: 1px solid #409cff;
     color: #ffffff;
-    font-size: 14px;
+    font-size: 12px;
     font-weight: 700;
-    padding: 10px 20px;
-    border-radius: 7px;
+    padding: 9px 18px;
+    border-radius: 8px;
+}
+
+QPushButton#btnPreviewClip:hover {
+    background-color: #409cff;
+}
+
+QPushButton#btnPreviewClip:pressed {
+    background-color: #0071e3;
+}
+
+QPushButton#btnPreviewClip:disabled {
+    background-color: #28282a;
+    border-color: #38383a;
+    color: #636366;
+}
+
+/* Tertiary Action - Apple Indigo (Test 1 Episode) */
+QPushButton#btnPreview {
+    background-color: #5e5ce6;
+    border: 1px solid #7d7aff;
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 9px 18px;
+    border-radius: 8px;
 }
 
 QPushButton#btnPreview:hover {
-    background-color: #0ea5e9;
-    border-color: #7dd3fc;
+    background-color: #706ef5;
+}
+
+QPushButton#btnPreview:pressed {
+    background-color: #4b48d6;
 }
 
 QPushButton#btnPreview:disabled {
-    background-color: #1e293b;
-    border-color: #334155;
-    color: #64748b;
+    background-color: #28282a;
+    border-color: #38383a;
+    color: #636366;
 }
 
+/* Destructive / Cancel Action - Apple Red (Stop Processing) */
 QPushButton#btnStop {
-    background-color: #b91c1c;
-    border: 1px solid #ef4444;
+    background-color: #ff453a;
+    border: 1px solid #ff6961;
     color: #ffffff;
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 700;
-    padding: 10px 22px;
-    border-radius: 7px;
+    padding: 9px 22px;
+    border-radius: 8px;
 }
 
 QPushButton#btnStop:hover {
-    background-color: #dc2626;
+    background-color: #ff6961;
 }
 
+QPushButton#btnStop:pressed {
+    background-color: #d70015;
+}
+
+QPushButton#btnStop:disabled {
+    background-color: #28282a;
+    border-color: #38383a;
+    color: #636366;
+}
+
+/* Toolbar Action (Scan / Select Folder) */
 QPushButton#btnScan {
-    background-color: #0284c7;
-    border: 1px solid #38bdf8;
+    background-color: #0a84ff;
+    border: 1px solid #409cff;
     color: #ffffff;
     font-weight: 600;
+    border-radius: 8px;
 }
 
 QPushButton#btnScan:hover {
-    background-color: #0369a1;
+    background-color: #409cff;
 }
 
+/* Filter Stat Pills (macOS Segmented Control / Capsule badges) */
 QPushButton.statPill {
-    background-color: #161e2e;
-    border: 1px solid #26334d;
+    background-color: #2c2c2e;
+    border: 1px solid #3a3a3c;
     border-radius: 12px;
     padding: 4px 12px;
     font-size: 12px;
     font-weight: 600;
-    color: #94a3b8;
+    color: #aeaeb2;
 }
 
 QPushButton.statPill:hover {
-    background-color: #1e293b;
-    color: #f8fafc;
-    border-color: #38bdf8;
+    background-color: #3a3a3c;
+    color: #f5f5f7;
+    border-color: #0a84ff;
 }
 
 QPushButton.statPill:checked {
-    background-color: #0369a1;
+    background-color: #0a84ff;
     color: #ffffff;
-    border-color: #38bdf8;
+    border-color: #0a84ff;
 }
 
 QPushButton.statPillError {
-    background-color: #2a1215;
-    border: 1px solid #7f1d1d;
+    background-color: rgba(255, 69, 58, 0.15);
+    border: 1px solid rgba(255, 69, 58, 0.35);
     border-radius: 12px;
     padding: 4px 12px;
     font-size: 12px;
     font-weight: 600;
-    color: #f87171;
+    color: #ff453a;
 }
 
 QPushButton.statPillError:hover {
-    background-color: #3b171c;
-    border-color: #ef4444;
-    color: #fca5a5;
+    background-color: rgba(255, 69, 58, 0.25);
+    border-color: #ff453a;
+    color: #ff6961;
 }
 
 QPushButton.statPillError:checked {
-    background-color: #991b1b;
+    background-color: #ff453a;
     color: #ffffff;
-    border-color: #ef4444;
+    border-color: #ff453a;
 }
 
+/* Table Widget (macOS Finder List View) */
 QTableWidget {
-    background-color: #111827;
-    border: 1px solid #1f2937;
-    border-radius: 8px;
-    gridline-color: #1f2937;
-    selection-background-color: #075985;
+    background-color: #1e1e1e;
+    alternate-background-color: #252528;
+    border: 1px solid #38383a;
+    border-radius: 10px;
+    gridline-color: transparent;
+    selection-background-color: #0a84ff;
     selection-color: #ffffff;
 }
 
 QTableWidget QHeaderView::section {
-    background-color: #0f172a;
-    color: #94a3b8;
-    padding: 8px;
-    border: 1px solid #1f2937;
+    background-color: #252528;
+    color: #8e8e93;
+    padding: 7px 8px;
+    border: none;
+    border-bottom: 1px solid #38383a;
     font-weight: 600;
+    font-size: 11px;
 }
 
+/* Progress Bar (macOS Slim Pill Track) */
 QProgressBar {
-    background-color: #111827;
-    border: 1px solid #1f2937;
-    border-radius: 6px;
+    background-color: #2c2c2e;
+    border: none;
+    border-radius: 5px;
     text-align: center;
     color: #ffffff;
     font-weight: 600;
+    min-height: 10px;
 }
 
 QProgressBar::chunk {
-    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0284c7, stop:1 #38bdf8);
+    background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0a84ff, stop:1 #30d158);
     border-radius: 5px;
 }
 
+/* Checkbox (macOS Toggle indicator) */
 QCheckBox {
-    color: #cbd5e1;
-    spacing: 6px;
+    color: #aeaeb2;
+    spacing: 8px;
 }
 
 QCheckBox::indicator {
     width: 16px;
     height: 16px;
-    border: 1px solid #475569;
+    border: 1px solid #48484a;
     border-radius: 4px;
-    background-color: #1a2234;
+    background-color: #2c2c2e;
 }
 
 QCheckBox::indicator:checked {
-    background-color: #0284c7;
-    border-color: #38bdf8;
+    background-color: #0a84ff;
+    border-color: #0a84ff;
 }
 
-QMenu {
-    background-color: #1e293b;
-    border: 1px solid #334155;
-    border-radius: 6px;
-    padding: 4px;
+/* Menus & Dialog Alerts (macOS Translucent Dark styling) */
+QMenu, QMessageBox {
+    background-color: #2c2c2e;
+    border: 1px solid #3a3a3c;
+    border-radius: 10px;
+    padding: 6px;
 }
 
 QMenu::item {
     padding: 6px 20px 6px 12px;
-    border-radius: 4px;
-    color: #f8fafc;
+    border-radius: 6px;
+    color: #f5f5f7;
 }
 
 QMenu::item:selected {
-    background-color: #0284c7;
+    background-color: #0a84ff;
     color: #ffffff;
 }
 
+/* Scrollbars (macOS Overlay Scrollbar feel) */
 QScrollBar:vertical {
     border: none;
-    background: #0b0f19;
-    width: 7px;
+    background: transparent;
+    width: 8px;
     margin: 0px;
-    border-radius: 3px;
+    border-radius: 4px;
 }
 
 QScrollBar::handle:vertical {
-    background: #334155;
-    min-height: 20px;
-    border-radius: 3px;
+    background: #48484a;
+    min-height: 24px;
+    border-radius: 4px;
 }
 
 QScrollBar::handle:vertical:hover {
-    background: #475569;
+    background: #636366;
 }
 
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
@@ -305,149 +386,88 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
 
 QScrollBar:horizontal {
     border: none;
-    background: #0b0f19;
-    height: 7px;
+    background: transparent;
+    height: 8px;
     margin: 0px;
-    border-radius: 3px;
+    border-radius: 4px;
 }
 
 QScrollBar::handle:horizontal {
-    background: #334155;
-    min-width: 20px;
-    border-radius: 3px;
+    background: #48484a;
+    min-width: 24px;
+    border-radius: 4px;
 }
 
 QScrollBar::handle:horizontal:hover {
-    background: #475569;
+    background: #636366;
 }
 
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
     width: 0px;
 }
 
+/* Tooltips (macOS Cocoa HUD tooltips) */
 QToolTip {
-    background-color: #1e293b;
-    color: #f8fafc;
-    border: 1px solid #475569;
-    border-radius: 5px;
-    padding: 6px;
+    background-color: #2c2c2e;
+    color: #f5f5f7;
+    border: 1px solid #3a3a3c;
+    border-radius: 6px;
+    padding: 6px 10px;
     font-size: 12px;
 }
 
+/* Sliders (macOS slider control) */
 QSlider::groove:horizontal {
-    height: 6px;
-    background: #1e293b;
-    border-radius: 3px;
+    height: 4px;
+    background: #3a3a3c;
+    border-radius: 2px;
 }
 
 QSlider::sub-page:horizontal {
-    background: #0284c7;
-    border-radius: 3px;
+    background: #0a84ff;
+    border-radius: 2px;
 }
 
 QSlider::handle:horizontal {
-    background: #38bdf8;
+    background: #ffffff;
     width: 16px;
-    margin-top: -5px;
-    margin-bottom: -5px;
+    margin-top: -6px;
+    margin-bottom: -6px;
     border-radius: 8px;
+    border: 1px solid #48484a;
 }
 
 QSlider::handle:horizontal:hover {
-    background: #7dd3fc;
+    background: #f5f5f7;
+    border-color: #0a84ff;
 }
 
-QSpinBox {
-    background-color: #1a2234;
-    border: 1px solid #334155;
-    border-radius: 6px;
-    padding: 5px 8px;
-    color: #f8fafc;
-}
-
+/* Expert Panel Toggle */
 QPushButton#btnToggleExpert {
-    background-color: #161e2e;
-    border: 1px solid #26334d;
-    border-radius: 6px;
+    background-color: #2c2c2e;
+    border: 1px solid #3a3a3c;
+    border-radius: 8px;
     padding: 5px 12px;
-    color: #38bdf8;
+    color: #0a84ff;
     font-weight: 600;
     font-size: 12px;
 }
 
 QPushButton#btnToggleExpert:hover {
-    background-color: #1e293b;
-    border-color: #38bdf8;
+    background-color: #3a3a3c;
+    border-color: #0a84ff;
 }
 
+/* Terminal Console (macOS Terminal dark style) */
 QTextEdit#txtConsole {
-    background-color: #050811;
-    border: 1px solid #1e293b;
-    border-radius: 6px;
-    font-family: 'Consolas', 'Cascadia Code', monospace;
+    background-color: #141416;
+    border: 1px solid #2c2c2e;
+    border-radius: 8px;
+    font-family: 'SF Mono', 'Cascadia Mono', 'Consolas', monospace;
     font-size: 11px;
-    color: #38bdf8;
+    color: #0a84ff;
     padding: 8px;
 }
-
-/* macOS-inspired visual system: compact surfaces, soft elevation, and a
-   single blue accent that remains legible on Windows and Linux as well. */
-QMainWindow, QWidget {
-    background-color: #1c1c1e;
-    color: #f5f5f7;
-    /* Segoe UI is present on supported Windows hosts and provides reliable
-       Latin/Unicode coverage; macOS character comes from spacing and surface,
-       not from selecting an unavailable SF font on Windows. */
-    font-family: "Segoe UI", Arial, sans-serif;
-    font-size: 13px;
-}
-QGroupBox, QFrame#macPanel {
-    background-color: #2c2c2e;
-    border: 1px solid #48484a;
-    border-radius: 12px;
-}
-QGroupBox::title { color: #f5f5f7; left: 12px; padding: 0 7px; }
-QLineEdit, QComboBox, QSpinBox {
-    background-color: #3a3a3c;
-    border: 1px solid #545458;
-    border-radius: 8px;
-    padding: 7px 10px;
-    color: #ffffff;
-}
-QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
-    border: 2px solid #0a84ff;
-    background-color: #3a3a3c;
-}
-QPushButton {
-    background-color: #3a3a3c;
-    border: 1px solid #545458;
-    border-radius: 9px;
-    padding: 7px 13px;
-    color: #ffffff;
-}
-QPushButton:hover { background-color: #48484a; border-color: #636366; }
-QPushButton#btnStart { background-color: #0a84ff; border-color: #409cff; border-radius: 10px; }
-QPushButton#btnStart:hover { background-color: #409cff; }
-QPushButton#btnPreview, QPushButton#btnScan { background-color: #0a84ff; border-color: #409cff; border-radius: 10px; }
-QPushButton#btnPreview:hover, QPushButton#btnScan:hover { background-color: #409cff; }
-QPushButton#btnStop { background-color: #ff453a; border-color: #ff6961; border-radius: 10px; }
-QTableWidget {
-    background-color: #2c2c2e;
-    alternate-background-color: #323234;
-    border: 1px solid #48484a;
-    border-radius: 12px;
-    gridline-color: #3a3a3c;
-    selection-background-color: #0a5fc2;
-}
-QTableWidget QHeaderView::section { background-color: #3a3a3c; color: #aeaeb2; border: 0; border-bottom: 1px solid #545458; padding: 9px; }
-QProgressBar { background-color: #3a3a3c; border: 0; border-radius: 6px; min-height: 12px; }
-QProgressBar::chunk { background-color: #0a84ff; border-radius: 6px; }
-QCheckBox::indicator { border-radius: 5px; background-color: #3a3a3c; border-color: #636366; }
-QCheckBox::indicator:checked { background-color: #0a84ff; border-color: #409cff; }
-QMenu, QMessageBox { background-color: #2c2c2e; border: 1px solid #545458; border-radius: 10px; }
-QToolTip { background-color: #3a3a3c; border: 1px solid #636366; border-radius: 7px; color: #ffffff; }
-QScrollBar:vertical, QScrollBar:horizontal { background: transparent; }
-QScrollBar::handle:vertical, QScrollBar::handle:horizontal { background: #636366; border-radius: 3px; }
 """
 
 
@@ -459,22 +479,22 @@ class LogViewerDialog(QDialog):
     during a batch job. It receives new lines via append_line().
     """
 
-    # CSS color tokens keyed by log-line prefix
+    # CSS color tokens keyed by log-line prefix (macOS HIG Dark Mode Palette)
     _COLORS = {
-        "[FFMPEG AUDIO]": "#f59e0b",       # amber
-        "[FFMPEG AUDIO FALLBACK]": "#f97316",
-        "[FFMPEG EXTRACT": "#818cf8",      # indigo
-        "[FFMPEG ENCODE]": "#a78bfa",      # violet
-        "[VULKAN AI]": "#34d399",          # emerald
-        "[AUDIO REPAIR": "#fb7185",        # rose
-        "[AUDIO VERIFIED]": "#10b981",     # green
-        "[AUDIO WARNING]": "#fbbf24",      # yellow
-        "[AUDIO]": "#10b981",
-        "[FRAMES]": "#60a5fa",             # blue
-        "[ERROR]": "#f87171",             # red
-        "[WARNING]": "#fbbf24",
+        "[FFMPEG AUDIO]": "#ff9f0a",       # Apple Orange
+        "[FFMPEG AUDIO FALLBACK]": "#ff9f0a",
+        "[FFMPEG EXTRACT": "#5e5ce6",      # Apple Indigo
+        "[FFMPEG ENCODE]": "#bf5af2",      # Apple Purple
+        "[VULKAN AI]": "#30d158",          # Apple Green
+        "[AUDIO REPAIR": "#ff453a",        # Apple Red
+        "[AUDIO VERIFIED]": "#30d158",     # Apple Green
+        "[AUDIO WARNING]": "#ffd60a",      # Apple Yellow
+        "[AUDIO]": "#30d158",
+        "[FRAMES]": "#0a84ff",             # Apple Blue
+        "[ERROR]": "#ff453a",             # Apple Red
+        "[WARNING]": "#ffd60a",           # Apple Yellow
     }
-    _DEFAULT_COLOR = "#94a3b8"             # slate-400 for uncategorised lines
+    _DEFAULT_COLOR = "#8e8e93"             # Apple Muted Slate             # slate-400 for uncategorised lines
 
     def __init__(self, log_buffer: list, parent=None):
         super().__init__(parent)
@@ -494,13 +514,13 @@ class LogViewerDialog(QDialog):
         toolbar.setSpacing(8)
 
         lbl_title = QLabel("🖥️ Live Engine Logs")
-        lbl_title.setStyleSheet("font-size: 14px; font-weight: 700; color: #38bdf8;")
+        lbl_title.setStyleSheet("font-size: 14px; font-weight: 700; color: #0a84ff;")
         toolbar.addWidget(lbl_title)
 
         toolbar.addStretch()
 
         lbl_filter = QLabel("Filter:")
-        lbl_filter.setStyleSheet("color: #94a3b8; font-size: 12px;")
+        lbl_filter.setStyleSheet("color: #8e8e93; font-size: 12px;")
         toolbar.addWidget(lbl_filter)
 
         self.txt_filter = QLineEdit()
@@ -513,22 +533,22 @@ class LogViewerDialog(QDialog):
         self.btn_autoscroll = QPushButton("⬇ Auto-scroll: ON")
         self.btn_autoscroll.setCheckable(True)
         self.btn_autoscroll.setChecked(True)
-        self.btn_autoscroll.setStyleSheet("padding: 4px 10px; font-size: 11px; font-weight: 600; color: #34d399; border-color: #059669;")
+        self.btn_autoscroll.setStyleSheet("padding: 4px 12px; font-size: 11px; font-weight: 600; color: #30d158; border: 1px solid #30d158; border-radius: 6px;")
         self.btn_autoscroll.toggled.connect(self._toggle_autoscroll)
         toolbar.addWidget(self.btn_autoscroll)
 
         btn_copy_all = QPushButton("📋 Copy All")
-        btn_copy_all.setStyleSheet("padding: 4px 10px; font-size: 11px;")
+        btn_copy_all.setStyleSheet("padding: 4px 12px; font-size: 11px; border-radius: 6px;")
         btn_copy_all.clicked.connect(self._copy_all)
         toolbar.addWidget(btn_copy_all)
 
         btn_export = QPushButton("💾 Export Log...")
-        btn_export.setStyleSheet("padding: 4px 10px; font-size: 11px;")
+        btn_export.setStyleSheet("padding: 4px 12px; font-size: 11px; border-radius: 6px;")
         btn_export.clicked.connect(self._export_log)
         toolbar.addWidget(btn_export)
 
         btn_clear = QPushButton("🧹 Clear")
-        btn_clear.setStyleSheet("padding: 4px 10px; font-size: 11px;")
+        btn_clear.setStyleSheet("padding: 4px 12px; font-size: 11px; border-radius: 6px;")
         btn_clear.clicked.connect(self._clear_logs)
         toolbar.addWidget(btn_clear)
 
@@ -538,13 +558,13 @@ class LogViewerDialog(QDialog):
         legend = QHBoxLayout()
         legend.setSpacing(12)
         _categories = [
-            ("FFmpeg Extract", "#818cf8"),
-            ("FFmpeg Encode", "#a78bfa"),
-            ("Audio", "#10b981"),
-            ("Vulkan AI", "#34d399"),
-            ("Audio Repair", "#fb7185"),
-            ("Warning", "#fbbf24"),
-            ("Error", "#f87171"),
+            ("FFmpeg Extract", "#5e5ce6"),
+            ("FFmpeg Encode", "#bf5af2"),
+            ("Audio", "#30d158"),
+            ("Vulkan AI", "#30d158"),
+            ("Audio Repair", "#ff453a"),
+            ("Warning", "#ffd60a"),
+            ("Error", "#ff453a"),
         ]
         for name, color in _categories:
             dot = QLabel(f"● {name}")
@@ -562,7 +582,7 @@ class LogViewerDialog(QDialog):
 
         # ── Status bar ───────────────────────────────────────────────────────
         self.lbl_count = QLabel("0 lines")
-        self.lbl_count.setStyleSheet("color: #64748b; font-size: 11px;")
+        self.lbl_count.setStyleSheet("color: #8e8e93; font-size: 11px;")
         layout.addWidget(self.lbl_count, 0, Qt.AlignmentFlag.AlignRight)
 
         # Populate from existing buffer
@@ -627,10 +647,14 @@ class LogViewerDialog(QDialog):
     def _toggle_autoscroll(self, checked: bool):
         self._auto_scroll = checked
         self.btn_autoscroll.setText(f"⬇ Auto-scroll: {'ON' if checked else 'OFF'}")
-        color = "#34d399" if checked else "#64748b"
-        self.btn_autoscroll.setStyleSheet(
-            f"padding: 4px 10px; font-size: 11px; font-weight: 600; color: {color};"
-        )
+        if checked:
+            self.btn_autoscroll.setStyleSheet(
+                "padding: 4px 12px; font-size: 11px; font-weight: 600; color: #30d158; border: 1px solid #30d158; border-radius: 6px;"
+            )
+        else:
+            self.btn_autoscroll.setStyleSheet(
+                "padding: 4px 12px; font-size: 11px; font-weight: 600; color: #8e8e93; border: 1px solid #3a3a3c; border-radius: 6px;"
+            )
 
     def _copy_all(self):
         QApplication.clipboard().setText("\n".join(self._log_buffer))
@@ -649,9 +673,12 @@ class LogViewerDialog(QDialog):
                 self.lbl_count.setText(f"Export failed: {e}")
 
     def _clear_logs(self):
-        self._log_buffer.clear()
-        self.txt_log.clear()
-        self._update_count()
+        if self.parent() and hasattr(self.parent(), "clear_all_logs"):
+            self.parent().clear_all_logs()
+        else:
+            self._log_buffer.clear()
+            self.txt_log.clear()
+            self._update_count()
 
 
 class DoctorDialog(QDialog):
@@ -667,7 +694,7 @@ class DoctorDialog(QDialog):
         layout.setSpacing(12)
 
         title = QLabel("🩺 Hardware & Environment Diagnostic")
-        title.setStyleSheet("font-size: 16px; font-weight: 700; color: #38bdf8;")
+        title.setStyleSheet("font-size: 16px; font-weight: 700; color: #0a84ff;")
         layout.addWidget(title)
 
         hw = get_hardware_info()
@@ -676,7 +703,7 @@ class DoctorDialog(QDialog):
 
         text_edit = QTextEdit()
         text_edit.setReadOnly(True)
-        text_edit.setStyleSheet("background-color: #111827; border: 1px solid #1f2937; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 12px;")
+        text_edit.setStyleSheet("background-color: #141416; border: 1px solid #38383a; border-radius: 10px; padding: 12px; font-family: 'SF Mono', 'Cascadia Mono', monospace; font-size: 12px; color: #f5f5f7;")
 
         lines = [
             "=" * 55,
@@ -713,6 +740,27 @@ class DoctorDialog(QDialog):
         btn_close = QPushButton("Close")
         btn_close.clicked.connect(self.accept)
         layout.addWidget(btn_close, 0, Qt.AlignmentFlag.AlignRight)
+
+
+class ModelHintWorker(QThread):
+    hint_ready = pyqtSignal(str, str)
+
+    def __init__(self, source_path: str, target_preset: str):
+        super().__init__()
+        self.source_path = source_path
+        self.target_preset = target_preset
+
+    def run(self):
+        try:
+            meta = probe_video(self.source_path)
+            recommendation = recommend_model_for_video(meta.width, meta.height, self.target_preset)
+            text = (
+                f"🧠 Détection IA : {recommendation.model.name} ×{recommendation.scale} — "
+                "le détail complet sera soumis à validation avant le batch."
+            )
+            self.hint_ready.emit(text, recommendation.reason)
+        except Exception:
+            self.hint_ready.emit("🧠 Détection IA : analyse complète disponible au lancement du batch.", "")
 
 
 class UpscaleWorker(QThread):
@@ -813,6 +861,12 @@ class UpscalerMainWindow(QMainWindow):
         self._log_buffer: list = []            # shared log buffer (all sessions)
         self._last_cli_cmd: str = ""
         self._log_viewer: Optional[LogViewerDialog] = None  # singleton dialog
+        self._hint_worker: Optional[ModelHintWorker] = None
+
+        self._settings_timer = QTimer(self)
+        self._settings_timer.setSingleShot(True)
+        self._settings_timer.setInterval(350)
+        self._settings_timer.timeout.connect(self._do_settings_changed)
 
         self._init_ui()
         self.setStyleSheet(DARK_STYLESHEET)
@@ -841,18 +895,18 @@ class UpscalerMainWindow(QMainWindow):
 
         traffic_lights = QHBoxLayout()
         traffic_lights.setSpacing(6)
-        for color in ("#ff5f57", "#febc2e", "#28c840"):
+        for color, border in (("#ff5f56", "#e0443e"), ("#ffbd2e", "#dea123"), ("#27c93f", "#1aab29")):
             dot = QLabel()
             dot.setFixedSize(12, 12)
-            dot.setStyleSheet(f"background-color: {color}; border-radius: 6px;")
+            dot.setStyleSheet(f"background-color: {color}; border: 1px solid {border}; border-radius: 6px;")
             traffic_lights.addWidget(dot)
         h_layout.addLayout(traffic_lights)
 
         title_box = QVBoxLayout()
         lbl_title = QLabel("Video Enhancer 4K — Animation & Cartoon Edition")
-        lbl_title.setStyleSheet("font-size: 17px; font-weight: 700; color: #ffffff;")
+        lbl_title.setStyleSheet("font-size: 16px; font-weight: 700; color: #ffffff; letter-spacing: -0.2px;")
         lbl_sub = QLabel("Upscaling local • contrôle qualité • export normalisé")
-        lbl_sub.setStyleSheet("font-size: 12px; color: #aeaeb2;")
+        lbl_sub.setStyleSheet("font-size: 12px; color: #8e8e93;")
         title_box.addWidget(lbl_title)
         title_box.addWidget(lbl_sub)
         h_layout.addLayout(title_box)
@@ -864,20 +918,20 @@ class UpscalerMainWindow(QMainWindow):
         chips_layout.setSpacing(8)
 
         self.lbl_gpu = QLabel(f"● {self.hardware.gpu_name} ({self.hardware.gpu_vram_gb} GB)")
-        self.lbl_gpu.setStyleSheet("color: #30d158; font-weight: 600; font-size: 11px; padding: 4px 8px; background-color: #173b28; border: 1px solid #2d6a43; border-radius: 7px;")
+        self.lbl_gpu.setStyleSheet("color: #30d158; font-weight: 600; font-size: 11px; padding: 4px 10px; background-color: rgba(48, 209, 88, 0.12); border: 1px solid rgba(48, 209, 88, 0.3); border-radius: 12px;")
         chips_layout.addWidget(self.lbl_gpu)
 
         nvenc_text = "NVENC H.265 Active" if self.hardware.has_nvenc_hevc else "CPU x265"
         self.lbl_encoder = QLabel(nvenc_text)
-        self.lbl_encoder.setStyleSheet("color: #64d2ff; font-weight: 600; font-size: 11px; padding: 4px 8px; background-color: #163647; border: 1px solid #29647f; border-radius: 7px;")
+        self.lbl_encoder.setStyleSheet("color: #0a84ff; font-weight: 600; font-size: 11px; padding: 4px 10px; background-color: rgba(10, 132, 255, 0.12); border: 1px solid rgba(10, 132, 255, 0.3); border-radius: 12px;")
         chips_layout.addWidget(self.lbl_encoder)
 
         self.lbl_audio = QLabel("● Audio: Lossless Stream Copy (Guaranteed)")
-        self.lbl_audio.setStyleSheet("color: #30d158; font-weight: 600; font-size: 11px; padding: 4px 8px; background-color: #173b28; border: 1px solid #2d6a43; border-radius: 7px;")
+        self.lbl_audio.setStyleSheet("color: #30d158; font-weight: 600; font-size: 11px; padding: 4px 10px; background-color: rgba(48, 209, 88, 0.12); border: 1px solid rgba(48, 209, 88, 0.3); border-radius: 12px;")
         chips_layout.addWidget(self.lbl_audio)
 
         btn_doctor = QPushButton("🩺 Hardware Doctor")
-        btn_doctor.setStyleSheet("padding: 4px 10px; font-size: 11px; font-weight: 600;")
+        btn_doctor.setStyleSheet("padding: 4px 12px; font-size: 11px; font-weight: 600; border-radius: 12px; background-color: #2c2c2e; border: 1px solid #3a3a3c; color: #f5f5f7;")
         btn_doctor.clicked.connect(self.show_doctor_dialog)
         chips_layout.addWidget(btn_doctor)
 
@@ -888,7 +942,7 @@ class UpscalerMainWindow(QMainWindow):
         self.btn_open_logs.setToolTip("Open the live engine log viewer. Shows FFmpeg, Vulkan AI, and audio pipeline commands with color coding.")
         self.btn_open_logs.setStyleSheet(
             "padding: 4px 12px; font-size: 11px; font-weight: 600;"
-            "background-color: #0f172a; border: 1px solid #334155; border-radius: 5px; color: #94a3b8;"
+            "background-color: #2c2c2e; border: 1px solid #3a3a3c; border-radius: 12px; color: #aeaeb2;"
         )
         self.btn_open_logs.clicked.connect(self._open_log_viewer)
         h_layout.addWidget(self.btn_open_logs)
@@ -898,7 +952,8 @@ class UpscalerMainWindow(QMainWindow):
         # 2. Paths & Config Group
         grp_config = QGroupBox("Processing & Enhancement Configuration")
         cfg_layout = QVBoxLayout(grp_config)
-        cfg_layout.setSpacing(9)
+        cfg_layout.setContentsMargins(14, 16, 14, 14)
+        cfg_layout.setSpacing(10)
 
         # Path row 1: Source
         row_src = QHBoxLayout()
@@ -949,7 +1004,7 @@ class UpscalerMainWindow(QMainWindow):
         row_presets = QHBoxLayout()
         row_presets.setSpacing(10)
         lbl_preset_title = QLabel("🎯 Quality Profile:")
-        lbl_preset_title.setStyleSheet("font-weight: 700; color: #64d2ff;")
+        lbl_preset_title.setStyleSheet("font-weight: 700; color: #0a84ff;")
         row_presets.addWidget(lbl_preset_title)
 
         self.cb_preset = QComboBox()
@@ -961,13 +1016,13 @@ class UpscalerMainWindow(QMainWindow):
 
         self.lbl_preview_name = QLabel("Release Sample: Happy.Tree.Friends.S01E01.Spin.Fun.Knowin.Ya.2160p.WEB-DL.AAC2.0.H.265-CYLAE.mp4")
         self.lbl_preview_name.setToolTip("Standardized Scene release filename preview generated dynamically based on active settings.")
-        self.lbl_preview_name.setStyleSheet("background-color: #242426; border: 1px solid #545458; border-radius: 8px; padding: 7px 12px; color: #64d2ff; font-family: 'Cascadia Mono', monospace; font-size: 11px;")
+        self.lbl_preview_name.setStyleSheet("background-color: #1c1c1e; border: 1px solid #3a3a3c; border-radius: 8px; padding: 7px 12px; color: #0a84ff; font-family: 'SF Mono', 'Cascadia Mono', monospace; font-size: 11px;")
         row_presets.addWidget(self.lbl_preview_name, 2)
         cfg_layout.addLayout(row_presets)
 
         # Profile description banner
         self.lbl_preset_desc = QLabel("")
-        self.lbl_preset_desc.setStyleSheet("color: #aeaeb2; font-size: 11px; padding-left: 4px;")
+        self.lbl_preset_desc.setStyleSheet("color: #8e8e93; font-size: 11px; padding-left: 4px;")
         cfg_layout.addWidget(self.lbl_preset_desc)
 
         # Row 4: Core Settings. Two balanced rows remain readable at the
@@ -1031,7 +1086,7 @@ class UpscalerMainWindow(QMainWindow):
         # EXPANDABLE EXPERT & POWER USER PANEL
         # ----------------------------------------------------
         self.grp_expert = QGroupBox("⚙️ Advanced & Expert Controls")
-        self.grp_expert.setStyleSheet("background-color: #242426; border: 1px solid #48484a; border-radius: 10px; margin-top: 6px; padding: 12px;")
+        self.grp_expert.setStyleSheet("background-color: #252528; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; margin-top: 6px; padding: 14px;")
         expert_layout = QVBoxLayout(self.grp_expert)
         expert_layout.setSpacing(10)
 
@@ -1049,7 +1104,7 @@ class UpscalerMainWindow(QMainWindow):
         row_exp_1.addWidget(self.slider_cq)
 
         self.lbl_cq_val = QLabel("CQ 19 (Visually Lossless)")
-        self.lbl_cq_val.setStyleSheet("color: #64d2ff; font-weight: 700; font-size: 11px;")
+        self.lbl_cq_val.setStyleSheet("color: #0a84ff; font-weight: 700; font-size: 11px;")
         row_exp_1.addWidget(self.lbl_cq_val)
 
         row_exp_1.addWidget(QLabel("NVENC Preset:"))
@@ -1166,7 +1221,7 @@ class UpscalerMainWindow(QMainWindow):
         # Expert Row 4: Live Engine Console & CLI Inspector
         console_bar = QHBoxLayout()
         lbl_con_title = QLabel("🖥️ Live Engine Logs & Raw CLI Inspector")
-        lbl_con_title.setStyleSheet("font-weight: 700; color: #38bdf8; font-size: 11px;")
+        lbl_con_title.setStyleSheet("font-weight: 700; color: #0a84ff; font-size: 11px;")
         console_bar.addWidget(lbl_con_title)
         console_bar.addStretch()
 
@@ -1177,9 +1232,9 @@ class UpscalerMainWindow(QMainWindow):
         console_bar.addWidget(self.btn_copy_cli)
 
         self.btn_clear_console = QPushButton("🧹 Clear Logs")
-        self.btn_clear_console.setToolTip("Clear the log console.")
+        self.btn_clear_console.setToolTip("Clear all engine logs and reset the logs counter.")
         self.btn_clear_console.setStyleSheet("padding: 3px 10px; font-size: 11px;")
-        self.btn_clear_console.clicked.connect(lambda: self.txt_console.clear())
+        self.btn_clear_console.clicked.connect(self.clear_all_logs)
         console_bar.addWidget(self.btn_clear_console)
         expert_layout.addLayout(console_bar)
 
@@ -1195,7 +1250,7 @@ class UpscalerMainWindow(QMainWindow):
 
         # Dynamic model description banner
         self.lbl_model_info = QLabel("")
-        self.lbl_model_info.setStyleSheet("color: #aeaeb2; font-size: 11px; padding: 3px 2px;")
+        self.lbl_model_info.setStyleSheet("color: #8e8e93; font-size: 11px; padding: 3px 2px;")
         cfg_layout.addWidget(self.lbl_model_info)
         self.on_preset_changed()
 
@@ -1293,26 +1348,28 @@ class UpscalerMainWindow(QMainWindow):
         bottom_bar = QFrame()
         bottom_bar.setObjectName("macPanel")
         b_layout = QVBoxLayout(bottom_bar)
-        b_layout.setSpacing(8)
+        b_layout.setContentsMargins(16, 12, 16, 12)
+        b_layout.setSpacing(10)
 
         status_row = QHBoxLayout()
         self.lbl_overall_status = QLabel("Ready to process.")
-        self.lbl_overall_status.setStyleSheet("font-weight: 600; color: #f5f5f7;")
+        self.lbl_overall_status.setStyleSheet("font-weight: 600; color: #f5f5f7; font-size: 13px;")
         status_row.addWidget(self.lbl_overall_status)
         status_row.addStretch()
 
         self.lbl_eta = QLabel("")
-        self.lbl_eta.setStyleSheet("color: #64d2ff; font-weight: 700; font-size: 12px; padding: 4px 9px; background-color: #163647; border-radius: 7px;")
+        self.lbl_eta.setStyleSheet("color: #0a84ff; font-weight: 700; font-size: 12px; padding: 4px 10px; background-color: rgba(10, 132, 255, 0.12); border: 1px solid rgba(10, 132, 255, 0.25); border-radius: 8px;")
         status_row.addWidget(self.lbl_eta)
         b_layout.addLayout(status_row)
 
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
-        self.progress_bar.setFixedHeight(22)
+        self.progress_bar.setFixedHeight(12)
         b_layout.addWidget(self.progress_bar)
 
         btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
 
         # Preview clip duration selector
         self.spin_preview_dur = QSpinBox()
@@ -1325,7 +1382,7 @@ class UpscalerMainWindow(QMainWindow):
         btn_row.addWidget(self.spin_preview_dur)
 
         self.btn_preview_clip = QPushButton("🎬  Render Preview Clip")
-        self.btn_preview_clip.setObjectName("btnPreview")
+        self.btn_preview_clip.setObjectName("btnPreviewClip")
         self.btn_preview_clip.setToolTip(
             "Upscale a short clip (default 30 s) from 10% into the video. "
             "The output file is saved with a [Preview Xsec] suffix — it never overwrites the full encode."
@@ -1396,35 +1453,38 @@ class UpscalerMainWindow(QMainWindow):
             self.btn_stop.setText("⏹" if compact else "⏹  STOP")
             self.lbl_search.setVisible(not compact)
             self.txt_filter.setMaximumWidth(140 if compact else 220)
+            n_all = len(self.batch_manager.queue)
+            n_ready = sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.PENDING)
+            n_done = sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.COMPLETED)
+            n_skip = sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.SKIPPED)
+            n_err = sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.FAILED)
             if compact:
-                self.btn_stat_all.setText("Tout")
-                self.btn_stat_ready.setText("Prêts")
-                self.btn_stat_completed.setText("Faits")
-                self.btn_stat_skipped.setText("Ignorés")
-                self.btn_stat_failed.setText("Erreurs")
+                self.btn_stat_all.setText(f"Tout: {n_all}")
+                self.btn_stat_ready.setText(f"Prêts: {n_ready}")
+                self.btn_stat_completed.setText(f"Faits: {n_done}")
+                self.btn_stat_skipped.setText(f"Ignorés: {n_skip}")
+                self.btn_stat_failed.setText(f"Err: {n_err}")
             else:
-                self.btn_stat_all.setText(f"All: {len(self.batch_manager.queue)}")
-                self.btn_stat_ready.setText(f"Ready: {sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.PENDING)}")
-                self.btn_stat_completed.setText(f"Completed: {sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.COMPLETED)}")
-                self.btn_stat_skipped.setText(f"Skipped: {sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.SKIPPED)}")
-                self.btn_stat_failed.setText(f"Errors: {sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.FAILED)}")
+                self.btn_stat_all.setText(f"All: {n_all}")
+                self.btn_stat_ready.setText(f"Ready: {n_ready}")
+                self.btn_stat_completed.setText(f"Completed: {n_done}")
+                self.btn_stat_skipped.setText(f"Skipped: {n_skip}")
+                self.btn_stat_failed.setText(f"Errors: {n_err}")
         super().resizeEvent(event)
 
     def _update_auto_model_hint(self, queue: List[QueueItem]):
-        """Shows the first detected choice immediately after a scan; full details are confirmed at launch."""
+        """Detects best model choice in a background thread so UI never freezes."""
         if (self.cb_model.currentData() or "auto") != "auto" or not queue:
             return
-        try:
-            meta = probe_video(queue[0].source_path)
-            target_preset = ("4k", "1440p", "1080p", "720p")[self.cb_resolution.currentIndex()]
-            recommendation = recommend_model_for_video(meta.width, meta.height, target_preset)
-            self.lbl_model_info.setText(
-                f"🧠 Détection IA : {recommendation.model.name} ×{recommendation.scale} — "
-                "le détail complet sera soumis à validation avant le batch."
-            )
-            self.lbl_model_info.setToolTip(recommendation.reason)
-        except Exception:
-            self.lbl_model_info.setText("🧠 Détection IA : analyse complète disponible au lancement du batch.")
+        target_preset = ("4k", "1440p", "1080p", "720p")[self.cb_resolution.currentIndex()]
+        self._hint_worker = ModelHintWorker(queue[0].source_path, target_preset)
+        self._hint_worker.hint_ready.connect(self._on_hint_ready)
+        self._hint_worker.start()
+
+    def _on_hint_ready(self, text: str, reason: str):
+        self.lbl_model_info.setText(text)
+        if reason:
+            self.lbl_model_info.setToolTip(reason)
 
     def toggle_expert_panel(self):
         vis = not self.grp_expert.isVisible()
@@ -1551,6 +1611,8 @@ class UpscalerMainWindow(QMainWindow):
         timestamped = f"[{timestamp}]  {msg}"
         self._last_cli_cmd = msg
         self._log_buffer.append(timestamped)
+        if len(self._log_buffer) > 5000:
+            del self._log_buffer[:-5000]
 
         # Update badge
         count = len(self._log_buffer)
@@ -1558,7 +1620,7 @@ class UpscalerMainWindow(QMainWindow):
         if count > 0:
             self.btn_open_logs.setStyleSheet(
                 "padding: 4px 12px; font-size: 11px; font-weight: 600;"
-                "background-color: #0c1e38; border: 1px solid #0284c7; border-radius: 5px; color: #38bdf8;"
+                "background-color: rgba(10, 132, 255, 0.15); border: 1px solid #0a84ff; border-radius: 12px; color: #0a84ff;"
             )
 
         # Forward to open log viewer dialog
@@ -1575,6 +1637,20 @@ class UpscalerMainWindow(QMainWindow):
                 cursor.select(cursor.SelectionType.BlockUnderCursor)
                 cursor.removeSelectedText()
                 cursor.deleteChar()
+
+    def clear_all_logs(self):
+        """Clears the shared log buffer, inline console, and resets the Logs badge."""
+        self._log_buffer.clear()
+        if hasattr(self, 'txt_console'):
+            self.txt_console.clear()
+        self.btn_open_logs.setText("📋 Logs (0)")
+        self.btn_open_logs.setStyleSheet(
+            "padding: 4px 12px; font-size: 11px; font-weight: 600;"
+            "background-color: #2c2c2e; border: 1px solid #3a3a3c; border-radius: 12px; color: #aeaeb2;"
+        )
+        if self._log_viewer and self._log_viewer.isVisible():
+            self._log_viewer.txt_log.clear()
+            self._log_viewer._update_count()
 
     def _open_log_viewer(self):
         """Opens (or raises) the singleton LogViewerDialog."""
@@ -1756,6 +1832,11 @@ class UpscalerMainWindow(QMainWindow):
         self._update_auto_model_hint(queue)
 
     def on_settings_changed(self):
+        self.update_scene_preview()
+        if hasattr(self, "_settings_timer"):
+            self._settings_timer.start()
+
+    def _do_settings_changed(self):
         src = self.txt_source.text().strip()
         out = self.txt_output.text().strip()
         if src and os.path.exists(src):
@@ -1859,6 +1940,7 @@ class UpscalerMainWindow(QMainWindow):
     def apply_table_filters(self):
         search_text = self.txt_filter.text().lower().strip()
         mode = self._current_filter_mode
+        q_len = len(self.batch_manager.queue)
 
         for r in range(self.table.rowCount()):
             # Text search match
@@ -1873,7 +1955,7 @@ class UpscalerMainWindow(QMainWindow):
 
             # Stat pill filter match
             status_match = True
-            if r < len(self.batch_manager.queue):
+            if r < q_len:
                 q_status = self.batch_manager.queue[r].status
                 if mode == "ready":
                     status_match = (q_status == EpisodeStatus.PENDING)
@@ -1883,6 +1965,8 @@ class UpscalerMainWindow(QMainWindow):
                     status_match = (q_status == EpisodeStatus.SKIPPED)
                 elif mode == "failed":
                     status_match = (q_status == EpisodeStatus.FAILED)
+            elif mode != "all":
+                status_match = False
 
             self.table.setRowHidden(r, not (text_match and status_match))
 

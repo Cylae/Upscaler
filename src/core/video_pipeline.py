@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import re
 import shutil
@@ -27,7 +28,12 @@ from src.core.scene_renamer import (
 
 def format_eta(seconds: Optional[float]) -> str:
     """Formats a duration in seconds into clean human-readable text (e.g. '45s', '1m 24s', '2h 15m')."""
-    if seconds is None or seconds < 0 or seconds > 86400 * 365 or not (seconds == seconds):
+    if seconds is None:
+        return "--"
+    try:
+        if math.isnan(seconds) or math.isinf(seconds) or seconds < 0 or seconds > 86400 * 365:
+            return "--"
+    except (TypeError, ValueError):
         return "--"
     s = int(round(seconds))
     if s < 60:
@@ -772,11 +778,15 @@ class VideoUpscalerPipeline:
             _preview_dur_s: Optional[float] = None
             if _preview_mode:
                 _preview_dur_s = float(job.preview_duration_s)  # type: ignore[arg-type]
-                # Start at ~10 % into the video (avoids cold opens / recaps)
-                _preview_start_s = max(0.0, meta.duration * 0.10)
-                # Clamp: don't start so late that we'd run past the end
-                max_start = max(0.0, meta.duration - _preview_dur_s - 1.0)
-                _preview_start_s = min(_preview_start_s, max_start)
+                if meta.duration and meta.duration > 0:
+                    _preview_dur_s = min(_preview_dur_s, meta.duration)
+                    # Start at ~10 % into the video (avoids cold opens / recaps)
+                    _preview_start_s = max(0.0, meta.duration * 0.10)
+                    # Clamp: don't start so late that we'd run past the end
+                    max_start = max(0.0, meta.duration - _preview_dur_s - 1.0)
+                    _preview_start_s = min(_preview_start_s, max_start)
+                else:
+                    _preview_start_s = 0.0
                 log_cmd(
                     f"[PREVIEW] Rendering {_preview_dur_s:.0f}s clip starting at "
                     f"{format_eta(_preview_start_s)} "
