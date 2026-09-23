@@ -20,6 +20,14 @@ class AIModelSpec:
     internal_name: str  # Parameter name passed to binary
 
 
+@dataclass(frozen=True)
+class ModelRecommendation:
+    """Automatic model decision together with an explanation for the user."""
+    model: AIModelSpec
+    scale: int
+    reason: str
+
+
 # Curated catalog of models for Cartoons / 2D Animation
 AVAILABLE_MODELS: Dict[str, AIModelSpec] = {
     "auto": AIModelSpec(
@@ -123,24 +131,50 @@ def check_local_model_availability(base_dir: Optional[str] = None) -> Dict[str, 
 
 
 
-def choose_best_model_for_video(width: int, height: int) -> Tuple[AIModelSpec, int]:
+def recommend_model_for_video(
+    width: int,
+    height: int,
+    target_preset: str = "4k",
+) -> ModelRecommendation:
+    """Recommends an animation model from source geometry and requested output.
+
+    The source resolution is the most reliable signal available before decoding:
+    heavily enlarged SD benefits from the stronger line reconstruction model, while
+    HD and larger sources benefit from AnimeVideo V3's temporal consistency.
     """
-    Automatically selects the optimal model and scale factor based on video dimensions:
-    - 720p (1280x720): 1280 * 3 = 3840, 720 * 3 = 2160 -> Exact native 4K UHD.
-      AnimeVideoV3 in scale 3 is ~2x faster, preserves clean line sharpness,
-      and matches the 4K pixel grid.
-    - 480p (640x480 or 720x480): RealESRGAN Anime 6B (scale 4) produces the crispest linework
-      and eliminates severe compression artifacts, then scales cleanly to 4K.
-    """
+    target_w, target_h, _ = calculate_target_dimensions(width, height, target_preset)
+    required_scale = max(target_w / max(1, width), target_h / max(1, height))
+    source_label = f"{width}×{height}"
+
     if width <= 960 or height <= 576:
-        # SD resolution (480p / 576p)
-        return AVAILABLE_MODELS["realesrgan-x4plus-anime"], 4
-    elif width <= 1366 and height <= 768:
-        # HD 720p resolution
-        return AVAILABLE_MODELS["realesr-animevideov3"], 3
-    else:
-        # 1080p or other resolution
-        return AVAILABLE_MODELS["realesr-animevideov3"], 2
+        return ModelRecommendation(
+            AVAILABLE_MODELS["realesrgan-x4plus-anime"],
+            4,
+            f"Source SD ({source_label}) : agrandissement important vers {target_w}×{target_h}. "
+            "Real-ESRGAN Anime 6B est privilégié pour reconstruire les contours et réduire les artefacts de compression.",
+        )
+
+    if width <= 1366 and height <= 768:
+        scale = 3 if required_scale > 2 else 2
+        return ModelRecommendation(
+            AVAILABLE_MODELS["realesr-animevideov3"],
+            scale,
+            f"Source HD ({source_label}) : le facteur {scale}× couvre proprement la cible {target_w}×{target_h}. "
+            "AnimeVideo V3 est choisi pour préserver la cohérence temporelle et limiter le scintillement.",
+        )
+
+    return ModelRecommendation(
+        AVAILABLE_MODELS["realesr-animevideov3"],
+        2,
+        f"Source {source_label} déjà détaillée : une montée modérée avant redimensionnement vers "
+        f"{target_w}×{target_h} évite une sur-accentuation. AnimeVideo V3 préserve la stabilité entre les images.",
+    )
+
+
+def choose_best_model_for_video(width: int, height: int, target_preset: str = "4k") -> Tuple[AIModelSpec, int]:
+    """Backward-compatible shorthand for :func:`recommend_model_for_video`."""
+    recommendation = recommend_model_for_video(width, height, target_preset)
+    return recommendation.model, recommendation.scale
 
 
 def calculate_target_dimensions(

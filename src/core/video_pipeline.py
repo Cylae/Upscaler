@@ -594,7 +594,9 @@ class VideoUpscalerPipeline:
 
         # 4. Resolve Model
         if job.model_id == "auto" or job.model_id not in AVAILABLE_MODELS:
-            selected_model, chosen_scale = choose_best_model_for_video(meta.width, meta.height)
+            selected_model, chosen_scale = choose_best_model_for_video(
+                meta.width, meta.height, job.target_preset
+            )
         else:
             selected_model = AVAILABLE_MODELS[job.model_id]
             chosen_scale = selected_model.default_scale

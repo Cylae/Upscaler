@@ -3,11 +3,12 @@ import os
 import sys
 import time
 
-from src.core.ai_models import AVAILABLE_MODELS
+from src.core.ai_models import AVAILABLE_MODELS, recommend_model_for_video
 from src.core.batch_manager import BatchManager, EpisodeStatus, QueueItem
 from src.core.detector import get_hardware_info, print_doctor_report
 from src.core.presets import ENHANCEMENT_PRESETS, get_preset
 from src.core.scene_renamer import SceneNamingConfig
+from src.core.video_pipeline import probe_video
 
 
 def run_cli():
@@ -34,6 +35,7 @@ def run_cli():
     parser.add_argument("--threads", "-t", default="auto", help="Engine load:proc:save threads (e.g. auto, 4:4:4, 2:4:2)")
     parser.add_argument("--frame-format", "-f", choices=["jpg", "png"], default=None, help="Frame I/O format (default: jpg, 2x-3x faster)")
     parser.add_argument("--doctor", action="store_true", help="Run hardware and environment diagnostic")
+    parser.add_argument("--yes", "-y", action="store_true", help="Accept the displayed AI-model choice without an interactive prompt")
 
     args = parser.parse_args()
 
@@ -91,6 +93,35 @@ def run_cli():
 
     print(f"Found {len(queue)} episode(s) to process.")
     print(f"Destination folder: {args.output}\n")
+
+    if model_val == "auto":
+        recommendations = {}
+        for item in queue:
+            try:
+                meta = probe_video(item.source_path)
+                rec = recommend_model_for_video(meta.width, meta.height, res_val)
+                key = (rec.model.name, rec.scale, rec.reason)
+                recommendations[key] = recommendations.get(key, 0) + 1
+            except Exception as exc:
+                print(f"Warning: unable to analyse '{item.relative_source_path}': {exc}")
+
+        print("AI MODEL AUTO-DETECTION")
+        for (name, scale, reason), count in recommendations.items():
+            print(f"- {name} ({scale}x) — {count} file(s)")
+            print(f"  Reason: {reason}")
+    else:
+        model = AVAILABLE_MODELS[model_val]
+        print(f"AI model selected manually: {model.name}")
+        print(f"Reason: {model.description}")
+
+    if not args.yes:
+        if not sys.stdin.isatty():
+            print("Error: model validation requires an interactive terminal. Re-run with --yes to accept the displayed choice.")
+            sys.exit(2)
+        confirmation = input("Start batch with this AI model selection? [y/N]: ").strip().lower()
+        if confirmation not in ("y", "yes", "o", "oui"):
+            print("Batch cancelled: AI model selection was not validated.")
+            sys.exit(0)
 
     def on_item_updated(item: QueueItem):
         if item.status == EpisodeStatus.PROCESSING:

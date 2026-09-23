@@ -19,6 +19,7 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QMenu,
+    QMessageBox,
     QProgressBar,
     QPushButton,
     QSlider,
@@ -31,11 +32,12 @@ from PyQt6.QtWidgets import (
     QWidget
 )
 
-from src.core.ai_models import AVAILABLE_MODELS, check_local_model_availability
+from src.core.ai_models import AVAILABLE_MODELS, check_local_model_availability, recommend_model_for_video
 from src.core.batch_manager import BatchManager, EpisodeStatus, QueueItem
 from src.core.detector import HardwareInfo, get_base_dir, get_hardware_info
 from src.core.presets import ENHANCEMENT_PRESETS, get_preset
 from src.core.scene_renamer import SceneNamingConfig
+from src.core.video_pipeline import probe_video
 
 
 DARK_STYLESHEET = """
@@ -1777,6 +1779,54 @@ class UpscalerMainWindow(QMainWindow):
         dur = float(self.spin_preview_dur.value())
         self.start_processing(target_indices=[target_idx], preview_duration_s=dur)
 
+    def _confirm_model_choice(self, model_id: str, target_preset: str, target_indices: Optional[List[int]]) -> bool:
+        """Shows the automatic-model rationale and requires approval before work starts."""
+        items = [
+            item for item in self.batch_manager.queue
+            if not target_indices or item.index in target_indices
+        ]
+        if model_id != "auto":
+            model = AVAILABLE_MODELS[model_id]
+            text = (
+                f"Modèle sélectionné manuellement : <b>{model.name}</b>.<br><br>"
+                f"{model.description}<br><br>"
+                f"Le même modèle sera appliqué à {len(items)} fichier(s)."
+            )
+        else:
+            groups: Dict[tuple, List[str]] = {}
+            unreadable = 0
+            for item in items:
+                try:
+                    meta = probe_video(item.source_path)
+                    recommendation = recommend_model_for_video(meta.width, meta.height, target_preset)
+                    key = (recommendation.model.name, recommendation.scale, recommendation.reason)
+                    groups.setdefault(key, []).append(item.relative_source_path)
+                except Exception:
+                    unreadable += 1
+
+            lines = ["<b>Détection automatique des modèles IA</b>", ""]
+            for (name, scale, reason), files in groups.items():
+                sample = ", ".join(files[:2])
+                more = f" (+{len(files) - 2})" if len(files) > 2 else ""
+                lines.extend([
+                    f"<b>{name}</b> — échelle {scale}× ({len(files)} fichier(s))",
+                    reason,
+                    f"Exemples : {sample}{more}",
+                    "",
+                ])
+            if unreadable:
+                lines.append(f"{unreadable} fichier(s) non analysable(s) : le réglage automatique par défaut sera utilisé.")
+            text = "<br>".join(lines)
+
+        answer = QMessageBox.question(
+            self,
+            "Validation du modèle IA",
+            text + "<br><br><b>Lancer la conversion avec ces choix ?</b>",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
     def start_processing(self, target_indices: Optional[List[int]] = None, preview_duration_s: Optional[float] = None):
         if not self.batch_manager.queue:
             self.lbl_overall_status.setText("No episodes in queue.")
@@ -1795,6 +1845,9 @@ class UpscalerMainWindow(QMainWindow):
         video_codec = "hevc_nvenc" if codec_idx == 0 else ("h264_nvenc" if codec_idx == 1 else "libx265")
 
         model_id = self.cb_model.currentData() or "auto"
+        if not self._confirm_model_choice(model_id, target_preset, target_indices):
+            self.lbl_overall_status.setText("Conversion annulée : choix du modèle IA non validé.")
+            return
         scene_cfg = self.get_current_scene_config()
         preserve_folders = self.chk_preserve_folders.isChecked()
         overwrite = self.chk_overwrite.isChecked()
