@@ -84,13 +84,23 @@ AVAILABLE_MODELS: Dict[str, AIModelSpec] = {
     ),
     "realesrgan-x4plus": AIModelSpec(
         id="realesrgan-x4plus",
-        name="Real-ESRGAN General (High Detail)",
+        name="Real-ESRGAN General (Live-Action / Realism)",
         engine=ModelEngine.REALESRGAN,
         description="Deep 16-block RRDB architecture for photorealistic textures and complex background art.",
         supported_scales=[4],
         default_scale=4,
-        recommended_for="Complex backgrounds and mixed animation styles",
+        recommended_for="Live-action video, complex backgrounds and mixed styles",
         internal_name="realesrgan-x4plus"
+    ),
+    "realesrnet-x4plus": AIModelSpec(
+        id="realesrnet-x4plus",
+        name="Real-ESRNet (Clean Realism / No GAN)",
+        engine=ModelEngine.REALESRGAN,
+        description="Focuses purely on PSNR without GAN hallucination. Best for clean, smooth upscale of live-action without inventing details.",
+        supported_scales=[4],
+        default_scale=4,
+        recommended_for="Live-action video where faithful restoration is preferred over artificial sharpness",
+        internal_name="realesrnet-x4plus"
     )
 }
 
@@ -120,6 +130,7 @@ def check_local_model_availability(base_dir: Optional[str] = None) -> Dict[str, 
             os.path.isfile(os.path.join(r_models, "realesr-animevideov3-x4.bin"))
         ),
         "realesrgan-x4plus": os.path.isfile(os.path.join(r_models, "realesrgan-x4plus.bin")),
+        "realesrnet-x4plus": os.path.isfile(os.path.join(r_models, "realesrnet-x4plus.bin")),
         "realcugan-pro": (
             os.path.isdir(c_pro) and
             os.path.isfile(os.path.join(c_pro, "up2x-conservative.bin"))
