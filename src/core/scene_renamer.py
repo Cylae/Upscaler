@@ -39,6 +39,7 @@ def strip_forbidden_output_markers(s: str) -> str:
 
 @dataclass
 class SceneNamingConfig:
+    naming_mode: str = "scene"  # "scene", "clean" (e.g. Original_4K.mp4), "original"
     show_name: str = "Happy.Tree.Friends"
     resolution_tag: str = "2160p"
     source_tag: str = "WEB-DL"
@@ -46,6 +47,7 @@ class SceneNamingConfig:
     codec_tag: str = "H.265"
     group_tag: str = "CYLAE"
     container: str = ".mp4"  # or .mkv
+    custom_suffix: str = ""
 
 
 def sanitize_title_word(word: str) -> str:
@@ -184,21 +186,72 @@ def format_scene_name(
     return filename
 
 
+def format_clean_name(
+    filepath: str,
+    resolution_tag: str = "2160p",
+    container: str = ".mp4",
+    custom_suffix: str = ""
+) -> str:
+    """Formats a clean, human-friendly output filename without scene jargon: VideoName_4K.mp4."""
+    stem, orig_ext = os.path.splitext(os.path.basename(filepath))
+    clean_stem = strip_forbidden_output_markers(stem).strip()
+    if not clean_stem:
+        clean_stem = "video"
+
+    ext = container if (container and container.startswith(".")) else f".{container or orig_ext.lstrip('.') or 'mp4'}"
+    
+    if custom_suffix:
+        tag = custom_suffix if custom_suffix.startswith("_") else f"_{custom_suffix}"
+    else:
+        res = resolution_tag.lower().replace("2160p", "4K").replace("1440p", "1440p").replace("1080p", "1080p").replace("720p", "720p")
+        tag = f"_{res}" if res else "_4K"
+
+    clean_filename = f"{clean_stem}{tag}{ext}"
+    if find_forbidden_output_markers(clean_filename):
+        clean_filename = clean_scene_text(clean_stem) + f"{tag}{ext}"
+    return clean_filename
+
+
+def format_output_name(
+    filepath: str,
+    base_dir: Optional[str] = None,
+    config: Optional[SceneNamingConfig] = None
+) -> str:
+    """Formats output filename based on selected naming mode (clean, scene, or original)."""
+    cfg = config or SceneNamingConfig()
+    mode = getattr(cfg, "naming_mode", "scene")
+
+    if mode == "clean":
+        return format_clean_name(filepath, cfg.resolution_tag, cfg.container, cfg.custom_suffix)
+    elif mode == "original":
+        stem, orig_ext = os.path.splitext(os.path.basename(filepath))
+        ext = cfg.container if cfg.container else orig_ext
+        return f"{stem}{ext}"
+    else:
+        return format_scene_name(filepath, base_dir, cfg)
+
+
 def get_scene_relative_output_path(
     filepath: str,
     base_dir: Optional[str] = None,
     config: Optional[SceneNamingConfig] = None,
     preserve_folders: bool = True
 ) -> str:
-    """Returns the relative path under the output directory (preserving season folder structure if desired)."""
-    scene_name = format_scene_name(filepath, base_dir, config)
+    """Returns the relative path under the output directory (preserving folder structure if desired)."""
+    cfg = config or SceneNamingConfig()
+    mode = getattr(cfg, "naming_mode", "scene")
+    target_name = format_output_name(filepath, base_dir, cfg)
+
     if not preserve_folders or not base_dir:
-        return scene_name
+        return target_name
 
     rel_path = os.path.relpath(filepath, base_dir)
     folder = os.path.dirname(rel_path)
     if folder:
-        cleaned_folder_parts = [clean_scene_text(p) for p in folder.split(os.sep) if clean_scene_text(p)]
+        if mode == "scene":
+            cleaned_folder_parts = [clean_scene_text(p) for p in folder.split(os.sep) if clean_scene_text(p)]
+        else:
+            cleaned_folder_parts = [p for p in folder.split(os.sep) if p]
         if cleaned_folder_parts:
-            return os.path.join(*cleaned_folder_parts, scene_name)
-    return scene_name
+            return os.path.join(*cleaned_folder_parts, target_name)
+    return target_name

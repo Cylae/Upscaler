@@ -152,8 +152,8 @@ def recommend_model_for_video(
         return ModelRecommendation(
             AVAILABLE_MODELS["realesrgan-x4plus-anime"],
             4,
-            f"Source SD ({source_label}) : agrandissement important vers {target_w}×{target_h}. "
-            "Real-ESRGAN Anime 6B est privilégié pour reconstruire les contours et réduire les artefacts de compression.",
+            f"SD source ({source_label}): significant upscale to {target_w}×{target_h}. "
+            "Real-ESRGAN Anime 6B is favored for reconstructing contours and reducing compression artifacts.",
         )
 
     if width <= 1366 and height <= 768:
@@ -161,15 +161,15 @@ def recommend_model_for_video(
         return ModelRecommendation(
             AVAILABLE_MODELS["realesr-animevideov3"],
             scale,
-            f"Source HD ({source_label}) : le facteur {scale}× couvre proprement la cible {target_w}×{target_h}. "
-            "AnimeVideo V3 est choisi pour préserver la cohérence temporelle et limiter le scintillement.",
+            f"HD source ({source_label}): {scale}× scale neatly covers the {target_w}×{target_h} target. "
+            "AnimeVideo V3 is chosen to preserve temporal consistency and limit flickering.",
         )
 
     return ModelRecommendation(
         AVAILABLE_MODELS["realesr-animevideov3"],
         2,
-        f"Source {source_label} déjà détaillée : une montée modérée avant redimensionnement vers "
-        f"{target_w}×{target_h} évite une sur-accentuation. AnimeVideo V3 préserve la stabilité entre les images.",
+        f"{source_label} source already detailed: a moderate upscale before resizing to "
+        f"{target_w}×{target_h} avoids over-sharpening. AnimeVideo V3 preserves stability between frames.",
     )
 
 
@@ -185,37 +185,55 @@ def calculate_target_dimensions(
     target_preset: str = "4k"
 ) -> Tuple[int, int, str]:
     """
-    Calculates target width and height maintaining original aspect ratio.
-    Supported presets: '4k' (2160p), '1440p', '1080p', '720p'.
+    Calculates target width and height maintaining original aspect ratio without distortion.
+    Supported presets: '4k' (2160p), '1440p', '1080p', '720p', '2x', '4x'.
     Returns (width, height, tag).
     """
-    aspect = orig_w / max(1, orig_h)
-    is_4_3 = 1.25 <= aspect <= 1.45
+    orig_w = max(2, orig_w)
+    orig_h = max(2, orig_h)
+    aspect = orig_w / float(orig_h)
 
-    if target_preset == "4k":
-        target_h = 2160
-        target_w = 2880 if is_4_3 else 3840
-        tag = "2160p"
-    elif target_preset == "1440p":
-        target_h = 1440
-        target_w = 1920 if is_4_3 else 2560
-        tag = "1440p"
-    elif target_preset == "1080p":
-        target_h = 1080
-        target_w = 1440 if is_4_3 else 1920
-        tag = "1080p"
-    elif target_preset == "720p":
-        target_h = 720
-        target_w = 960 if is_4_3 else 1280
-        tag = "720p"
+    preset_clean = (target_preset or "4k").lower().strip()
+
+    if preset_clean in ("2x", "x2"):
+        target_w = orig_w * 2
+        target_h = orig_h * 2
+        tag = f"{target_h}p"
+    elif preset_clean in ("4x", "x4"):
+        target_w = orig_w * 4
+        target_h = orig_h * 4
+        tag = f"{target_h}p"
     else:
-        # Default 4K
-        target_h = 2160
-        target_w = 2880 if is_4_3 else 3840
-        tag = "2160p"
+        # Standard height benchmarks
+        if preset_clean in ("4k", "2160p", "uhd"):
+            base_h, max_w, tag = 2160, 3840, "2160p"
+        elif preset_clean in ("1440p", "qhd", "2k"):
+            base_h, max_w, tag = 1440, 2560, "1440p"
+        elif preset_clean in ("1080p", "fhd"):
+            base_h, max_w, tag = 1080, 1920, "1080p"
+        elif preset_clean in ("720p", "hd"):
+            base_h, max_w, tag = 720, 1280, "720p"
+        else:
+            base_h, max_w, tag = 2160, 3840, "2160p"
 
-    # Make dimensions even (required by H.264/H.265 encoders)
-    target_w = target_w - (target_w % 2)
-    target_h = target_h - (target_h % 2)
+        # Aspect ratio preservation:
+        # If aspect ratio is wider than standard 16:9 (e.g. 21:9 cinemascope like 2.35 or 2.40:1)
+        # constrain max width to standard UHD width and compute proportional height
+        # to prevent black bar stretching / distortion.
+        if aspect > (16.0 / 9.0 + 0.05):
+            target_w = max_w
+            target_h = int(round(target_w / aspect))
+        elif aspect < 1.0:
+            # Vertical / portrait video (e.g. 9:16)
+            target_h = base_h
+            target_w = int(round(target_h * aspect))
+        else:
+            # Standard landscape (16:9, 16:10, 4:3, etc.)
+            target_h = base_h
+            target_w = int(round(target_h * aspect))
+
+    # Make dimensions even (mandatory for H.264 / H.265 / NVENC)
+    target_w = max(2, target_w - (target_w % 2))
+    target_h = max(2, target_h - (target_h % 2))
 
     return target_w, target_h, tag

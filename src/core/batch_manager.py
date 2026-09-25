@@ -10,6 +10,7 @@ from src.core.detector import HardwareInfo, get_hardware_info
 from src.core.scene_renamer import (
     SceneNamingConfig,
     format_scene_name,
+    format_output_name,
     get_scene_relative_output_path
 )
 from src.core.video_pipeline import (
@@ -17,7 +18,8 @@ from src.core.video_pipeline import (
     VideoUpscalerPipeline,
     format_eta,
     is_file_complete_and_valid,
-    probe_video
+    probe_video,
+    cleanup_stale_temp_directories
 )
 
 
@@ -68,11 +70,14 @@ class BatchManager:
         scene_config: Optional[SceneNamingConfig] = None,
         preserve_folders: bool = True
     ) -> List[QueueItem]:
-        """Scans input folder recursively and builds queue with Scene names."""
+        """Scans input folder recursively and builds queue."""
         self.queue.clear()
         cfg = scene_config or SceneNamingConfig()
 
-        valid_exts = {".mp4", ".mkv", ".avi", ".mov", ".m4v", ".wmv"}
+        # Clean up stale temp directories in output dir if any
+        cleanup_stale_temp_directories(output_dir)
+
+        valid_exts = {".mp4", ".mkv", ".avi", ".mov", ".m4v", ".webm", ".flv", ".ts", ".wmv"}
         found_files: List[str] = []
 
         if os.path.isfile(folder_path):
@@ -93,7 +98,7 @@ class BatchManager:
 
         for idx, fpath in enumerate(found_files, start=1):
             rel_path = os.path.relpath(fpath, base_dir)
-            scene_name = format_scene_name(fpath, base_dir, cfg)
+            target_name = format_output_name(fpath, base_dir, cfg)
             rel_out = get_scene_relative_output_path(fpath, base_dir, cfg, preserve_folders=preserve_folders)
             target_full = os.path.join(output_dir, rel_out)
 
@@ -106,10 +111,8 @@ class BatchManager:
             expect_audio = False
             if os.path.isfile(target_full):
                 try:
-                    expect_audio = probe_video(fpath).has_audio
+                    expect_audio = probe_video(fpath, self.hardware.ffprobe_path).has_audio
                 except Exception:
-                    # A source that cannot be probed will fail with a precise
-                    # error during processing; do not incorrectly skip it here.
                     expect_audio = False
             if is_file_complete_and_valid(target_full, expect_audio=expect_audio):
                 status = EpisodeStatus.SKIPPED
@@ -120,7 +123,7 @@ class BatchManager:
                 index=idx,
                 source_path=fpath,
                 relative_source_path=rel_path,
-                target_scene_name=scene_name,
+                target_scene_name=target_name,
                 target_full_path=target_full,
                 file_size_mb=size_mb,
                 output_size_mb=out_size_mb,
@@ -130,6 +133,79 @@ class BatchManager:
             self.queue.append(item)
 
         return self.queue
+
+    def add_files(
+        self,
+        file_paths: List[str],
+        output_dir: str,
+        scene_config: Optional[SceneNamingConfig] = None,
+        preserve_folders: bool = False
+    ) -> List[QueueItem]:
+        """Appends individual files to the queue without clearing existing items."""
+        cfg = scene_config or SceneNamingConfig()
+        valid_exts = {".mp4", ".mkv", ".avi", ".mov", ".m4v", ".webm", ".flv", ".ts", ".wmv"}
+        existing_sources = {it.source_path for it in self.queue}
+
+        start_idx = len(self.queue) + 1
+        for fpath in file_paths:
+            if fpath in existing_sources or not os.path.isfile(fpath):
+                continue
+            if os.path.splitext(fpath)[1].lower() not in valid_exts:
+                continue
+
+            base_dir = os.path.dirname(fpath)
+            rel_path = os.path.basename(fpath)
+            target_name = format_output_name(fpath, base_dir, cfg)
+            rel_out = get_scene_relative_output_path(fpath, base_dir, cfg, preserve_folders=preserve_folders)
+            target_full = os.path.join(output_dir, rel_out)
+
+            size_mb = round(os.path.getsize(fpath) / (1024**2), 1) if os.path.exists(fpath) else 0.0
+
+            status = EpisodeStatus.PENDING
+            status_detail = "Ready"
+            out_size_mb = 0.0
+            expect_audio = False
+            if os.path.isfile(target_full):
+                try:
+                    expect_audio = probe_video(fpath, self.hardware.ffprobe_path).has_audio
+                except Exception:
+                    expect_audio = False
+            if is_file_complete_and_valid(target_full, expect_audio=expect_audio):
+                status = EpisodeStatus.SKIPPED
+                status_detail = "Already present (will be skipped)"
+                out_size_mb = round(os.path.getsize(target_full) / (1024**2), 1)
+
+            item = QueueItem(
+                index=start_idx,
+                source_path=fpath,
+                relative_source_path=rel_path,
+                target_scene_name=target_name,
+                target_full_path=target_full,
+                file_size_mb=size_mb,
+                output_size_mb=out_size_mb,
+                status=status,
+                status_detail=status_detail
+            )
+            self.queue.append(item)
+            existing_sources.add(fpath)
+            start_idx += 1
+
+        self.reindex_queue()
+        return self.queue
+
+    def reindex_queue(self):
+        """Re-indexes queue items 1..N sequentially."""
+        for idx, it in enumerate(self.queue, start=1):
+            it.index = idx
+
+    def remove_items_by_indices(self, indices: Set[int]):
+        """Removes queue items whose indices are in the set and reindexes."""
+        self.queue = [it for it in self.queue if it.index not in indices]
+        self.reindex_queue()
+
+    def clear_queue(self):
+        """Clears all items in queue."""
+        self.queue.clear()
 
     def stop(self):
         """Requests cancellation of all active pipelines and stops the batch."""

@@ -40,7 +40,7 @@ class ShowCandidate:
 
     @property
     def display_name(self) -> str:
-        year = self.premiered[:4] if self.premiered else "année inconnue"
+        year = self.premiered[:4] if self.premiered else "unknown year"
         detail = " · ".join(part for part in (year, self.network, self.country) if part)
         return f"{self.name} — {detail}" if detail else self.name
 

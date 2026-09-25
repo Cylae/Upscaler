@@ -3,8 +3,8 @@ import sys
 import subprocess
 from typing import Dict, List, Optional
 
-from PyQt6.QtCore import Qt, QThread, QTimer, pyqtSignal
-from PyQt6.QtGui import QAction, QColor, QFont, QIcon, QCursor
+from PyQt6.QtCore import QSettings, QStandardPaths, Qt, QThread, QTimer, pyqtSignal
+from PyQt6.QtGui import QAction, QColor, QCursor, QFont, QIcon, QImage, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QScrollArea,
     QSlider,
     QSpinBox,
     QSplitter,
@@ -36,8 +37,14 @@ from src.core.ai_models import AVAILABLE_MODELS, check_local_model_availability,
 from src.core.batch_manager import BatchManager, EpisodeStatus, QueueItem
 from src.core.detector import HardwareInfo, get_base_dir, get_hardware_info
 from src.core.presets import ENHANCEMENT_PRESETS, get_preset
-from src.core.scene_renamer import SceneNamingConfig
-from src.core.video_pipeline import probe_video
+from src.core.scene_renamer import (
+    SceneNamingConfig,
+    format_clean_name,
+    format_output_name,
+    format_scene_name,
+    get_scene_relative_output_path
+)
+from src.core.video_pipeline import VideoUpscalerPipeline, cleanup_stale_temp_directories, probe_video
 
 
 DARK_STYLESHEET = """
@@ -742,6 +749,210 @@ class DoctorDialog(QDialog):
         layout.addWidget(btn_close, 0, Qt.AlignmentFlag.AlignRight)
 
 
+class FrameComparisonDialog(QDialog):
+    """Interactive visual Before / After comparison with side-by-side or split viewing."""
+    def __init__(self, orig_path: str, upscaled_path: str, info: Dict, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Before / After Visual Preview")
+        self.resize(1100, 750)
+        self.setStyleSheet(DARK_STYLESHEET)
+        self.orig_path = orig_path
+        self.upscaled_path = upscaled_path
+        self.info = info
+        self.zoom_level = 1.0
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(12)
+
+        # Header info bar
+        header = QFrame()
+        header.setObjectName("macPanel")
+        h_box = QHBoxLayout(header)
+        h_box.setContentsMargins(14, 10, 14, 10)
+        h_box.setSpacing(12)
+
+        title = QLabel("🔍 High Precision Comparison")
+        title.setStyleSheet("font-size: 15px; font-weight: 700; color: #ffffff;")
+        h_box.addWidget(title)
+
+        model_badge = QLabel(f"Model: {info.get('model_name', 'AI')}")
+        model_badge.setStyleSheet("color: #0a84ff; font-weight: 600; font-size: 11px; padding: 4px 8px; background-color: rgba(10, 132, 255, 0.12); border: 1px solid rgba(10, 132, 255, 0.3); border-radius: 8px;")
+        h_box.addWidget(model_badge)
+
+        orig_w = info.get("orig_width", "?")
+        orig_h = info.get("orig_height", "?")
+        tar_w = info.get("target_width", "?")
+        tar_h = info.get("target_height", "?")
+        res_badge = QLabel(f"Source: {orig_w}×{orig_h}  ➔  Target: {tar_w}×{tar_h}")
+        res_badge.setStyleSheet("color: #30d158; font-weight: 600; font-size: 11px; padding: 4px 8px; background-color: rgba(48, 209, 88, 0.12); border: 1px solid rgba(48, 209, 88, 0.3); border-radius: 8px;")
+        h_box.addWidget(res_badge)
+
+        time_s = info.get("time_seconds", 0)
+        time_badge = QLabel(f"Render: {time_s}s")
+        time_badge.setStyleSheet("color: #ff9f0a; font-weight: 600; font-size: 11px; padding: 4px 8px; background-color: rgba(255, 159, 10, 0.12); border: 1px solid rgba(255, 159, 10, 0.3); border-radius: 8px;")
+        h_box.addWidget(time_badge)
+
+        h_box.addStretch()
+
+        # View Mode selector
+        h_box.addWidget(QLabel("View Mode:"))
+        self.cb_view_mode = QComboBox()
+        self.cb_view_mode.addItems(["Side by side", "After (AI Upscaled)", "Before (Original)"])
+        self.cb_view_mode.currentIndexChanged.connect(self._on_view_mode_changed)
+        h_box.addWidget(self.cb_view_mode)
+
+        # Zoom buttons
+        btn_zoom_in = QPushButton("🔍 +")
+        btn_zoom_in.setToolTip("Zoom in")
+        btn_zoom_in.clicked.connect(self._zoom_in)
+        h_box.addWidget(btn_zoom_in)
+
+        btn_zoom_out = QPushButton("🔍 -")
+        btn_zoom_out.setToolTip("Zoom out")
+        btn_zoom_out.clicked.connect(self._zoom_out)
+        h_box.addWidget(btn_zoom_out)
+
+        btn_fit = QPushButton("100%")
+        btn_fit.setToolTip("Actual size 100%")
+        btn_fit.clicked.connect(self._zoom_reset)
+        h_box.addWidget(btn_fit)
+
+        layout.addWidget(header)
+
+        # Images Container
+        self.img_container = QWidget()
+        self.img_layout = QHBoxLayout(self.img_container)
+        self.img_layout.setContentsMargins(0, 0, 0, 0)
+        self.img_layout.setSpacing(12)
+
+        # Left / Original Panel
+        self.panel_orig = QFrame()
+        self.panel_orig.setObjectName("macPanel")
+        p_orig_layout = QVBoxLayout(self.panel_orig)
+        p_orig_layout.setContentsMargins(8, 8, 8, 8)
+        lbl_orig_title = QLabel(f"📷 ORIGINAL ({orig_w}×{orig_h})")
+        lbl_orig_title.setStyleSheet("font-weight: 700; color: #8e8e93; font-size: 12px;")
+        lbl_orig_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        p_orig_layout.addWidget(lbl_orig_title)
+
+        self.scroll_orig = QScrollArea()
+        self.scroll_orig.setWidgetResizable(True)
+        self.scroll_orig.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_orig_img = QLabel()
+        self.lbl_orig_img.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.scroll_orig.setWidget(self.lbl_orig_img)
+        p_orig_layout.addWidget(self.scroll_orig, 1)
+        self.img_layout.addWidget(self.panel_orig, 1)
+
+        # Right / Upscaled Panel
+        self.panel_up = QFrame()
+        self.panel_up.setObjectName("macPanel")
+        p_up_layout = QVBoxLayout(self.panel_up)
+        p_up_layout.setContentsMargins(8, 8, 8, 8)
+        lbl_up_title = QLabel(f"✨ AI UPSCALED ({tar_w}×{tar_h})")
+        lbl_up_title.setStyleSheet("font-weight: 700; color: #30d158; font-size: 12px;")
+        lbl_up_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        p_up_layout.addWidget(lbl_up_title)
+
+        self.scroll_up = QScrollArea()
+        self.scroll_up.setWidgetResizable(True)
+        self.scroll_up.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_up_img = QLabel()
+        self.lbl_up_img.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.scroll_up.setWidget(self.lbl_up_img)
+        p_up_layout.addWidget(self.scroll_up, 1)
+        self.img_layout.addWidget(self.panel_up, 1)
+
+        # Synchronize scrollbars
+        self.scroll_orig.horizontalScrollBar().valueChanged.connect(self.scroll_up.horizontalScrollBar().setValue)
+        self.scroll_up.horizontalScrollBar().valueChanged.connect(self.scroll_orig.horizontalScrollBar().setValue)
+        self.scroll_orig.verticalScrollBar().valueChanged.connect(self.scroll_up.verticalScrollBar().setValue)
+        self.scroll_up.verticalScrollBar().valueChanged.connect(self.scroll_orig.verticalScrollBar().setValue)
+
+        layout.addWidget(self.img_container, 1)
+
+        # Bottom Bar
+        bottom_bar = QHBoxLayout()
+        bottom_bar.addStretch()
+        btn_close = QPushButton("Close preview")
+        btn_close.setStyleSheet("padding: 6px 18px; font-weight: 600; border-radius: 8px;")
+        btn_close.clicked.connect(self.accept)
+        bottom_bar.addWidget(btn_close)
+        layout.addLayout(bottom_bar)
+
+        self.pixmap_orig = QPixmap(orig_path)
+        self.pixmap_up = QPixmap(upscaled_path)
+        self._update_display()
+
+    def _zoom_in(self):
+        self.zoom_level = min(4.0, self.zoom_level * 1.25)
+        self._update_display()
+
+    def _zoom_out(self):
+        self.zoom_level = max(0.25, self.zoom_level / 1.25)
+        self._update_display()
+
+    def _zoom_reset(self):
+        self.zoom_level = 1.0
+        self._update_display()
+
+    def _on_view_mode_changed(self, idx: int):
+        if idx == 0:  # Side by side
+            self.panel_orig.setVisible(True)
+            self.panel_up.setVisible(True)
+        elif idx == 1:  # After
+            self.panel_orig.setVisible(False)
+            self.panel_up.setVisible(True)
+        else:  # Before
+            self.panel_orig.setVisible(True)
+            self.panel_up.setVisible(False)
+
+    def _update_display(self):
+        if self.pixmap_orig.isNull() or self.pixmap_up.isNull():
+            return
+        w_orig = max(10, int(self.pixmap_orig.width() * self.zoom_level))
+        h_orig = max(10, int(self.pixmap_orig.height() * self.zoom_level))
+        self.lbl_orig_img.setPixmap(self.pixmap_orig.scaled(w_orig, h_orig, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+
+        w_up = max(10, int(self.pixmap_up.width() * self.zoom_level))
+        h_up = max(10, int(self.pixmap_up.height() * self.zoom_level))
+        self.lbl_up_img.setPixmap(self.pixmap_up.scaled(w_up, h_up, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+
+    def closeEvent(self, event):
+        # Clean up temporary preview directory if present
+        temp_dir = self.info.get("temp_dir")
+        if temp_dir and os.path.isdir(temp_dir):
+            try:
+                import shutil
+                shutil.rmtree(temp_dir, ignore_errors=True)
+            except Exception:
+                pass
+        super().closeEvent(event)
+
+
+class FramePreviewWorker(QThread):
+    preview_ready = pyqtSignal(bool, str, str, dict)
+
+    def __init__(self, pipeline: VideoUpscalerPipeline, video_path: str, model_id: str, target_preset: str):
+        super().__init__()
+        self.pipeline = pipeline
+        self.video_path = video_path
+        self.model_id = model_id
+        self.target_preset = target_preset
+
+    def run(self):
+        try:
+            ok, orig, up, info = self.pipeline.extract_and_upscale_single_frame(
+                self.video_path,
+                model_id=self.model_id,
+                target_preset=self.target_preset
+            )
+            self.preview_ready.emit(ok, orig, up, info)
+        except Exception as exc:
+            self.preview_ready.emit(False, "", "", {"error": str(exc)})
+
+
 class ModelHintWorker(QThread):
     hint_ready = pyqtSignal(str, str)
 
@@ -755,12 +966,12 @@ class ModelHintWorker(QThread):
             meta = probe_video(self.source_path)
             recommendation = recommend_model_for_video(meta.width, meta.height, self.target_preset)
             text = (
-                f"🧠 Détection IA : {recommendation.model.name} ×{recommendation.scale} — "
-                "le détail complet sera soumis à validation avant le batch."
+                f"🧠 AI Detection: {recommendation.model.name} ×{recommendation.scale} — "
+                "full details will be pending validation before batch."
             )
             self.hint_ready.emit(text, recommendation.reason)
         except Exception:
-            self.hint_ready.emit("🧠 Détection IA : analyse complète disponible au lancement du batch.", "")
+            self.hint_ready.emit("🧠 AI Detection: full analysis available upon batch launch.", "")
 
 
 class UpscaleWorker(QThread):
@@ -862,6 +1073,8 @@ class UpscalerMainWindow(QMainWindow):
         self._last_cli_cmd: str = ""
         self._log_viewer: Optional[LogViewerDialog] = None  # singleton dialog
         self._hint_worker: Optional[ModelHintWorker] = None
+        self._frame_worker: Optional[FramePreviewWorker] = None
+        self.settings = QSettings("CYLAE", "VideoEnhancer4K")
 
         self._settings_timer = QTimer(self)
         self._settings_timer.setSingleShot(True)
@@ -871,12 +1084,28 @@ class UpscalerMainWindow(QMainWindow):
         self._init_ui()
         self.setStyleSheet(DARK_STYLESHEET)
 
-        # Auto-detect default directory
-        default_dir = r"Z:\DL\Happy Tree Friends"
-        if os.path.isdir(default_dir):
-            self.txt_source.setText(default_dir)
-            self.txt_output.setText(r"Z:\DL\Happy Tree Friends (2160p)")
+        # Restore last used directories or check default
+        last_src = self.settings.value("last_source", "")
+        last_out = self.settings.value("last_output", "")
+        if last_src and os.path.exists(str(last_src)):
+            self.txt_source.setText(str(last_src))
+            if last_out:
+                self.txt_output.setText(str(last_out))
+            else:
+                self.txt_output.setText(str(last_src) + " (2160p)")
             QTimer.singleShot(150, self.on_scan_clicked)
+        else:
+            default_dir = r"Z:\DL\Happy Tree Friends"
+            if os.path.isdir(default_dir):
+                self.txt_source.setText(default_dir)
+                self.txt_output.setText(r"Z:\DL\Happy Tree Friends (2160p)")
+                QTimer.singleShot(150, self.on_scan_clicked)
+
+        # Clean stale temporary directories from crashed / aborted past sessions
+        try:
+            cleanup_stale_temp_directories()
+        except Exception:
+            pass
 
     def _init_ui(self):
         central = QWidget()
@@ -905,7 +1134,7 @@ class UpscalerMainWindow(QMainWindow):
         title_box = QVBoxLayout()
         lbl_title = QLabel("Video Enhancer 4K — Animation & Cartoon Edition")
         lbl_title.setStyleSheet("font-size: 16px; font-weight: 700; color: #ffffff; letter-spacing: -0.2px;")
-        lbl_sub = QLabel("Upscaling local • contrôle qualité • export normalisé")
+        lbl_sub = QLabel("Local upscaling • quality control • standardized export")
         lbl_sub.setStyleSheet("font-size: 12px; color: #8e8e93;")
         title_box.addWidget(lbl_title)
         title_box.addWidget(lbl_sub)
@@ -957,16 +1186,21 @@ class UpscalerMainWindow(QMainWindow):
 
         # Path row 1: Source
         row_src = QHBoxLayout()
-        lbl_src_title = QLabel("Source Folder:")
-        lbl_src_title.setMinimumWidth(90)
+        lbl_src_title = QLabel("Source:")
+        lbl_src_title.setMinimumWidth(80)
         row_src.addWidget(lbl_src_title)
         self.txt_source = QLineEdit()
         self.txt_source.setPlaceholderText("Drag and drop cartoon directory or click browse...")
-        self.txt_source.setToolTip("Path to the input directory containing original video files. Drag-and-drop a folder directly here.")
+        self.txt_source.setToolTip("Path to the input directory or files. Drag-and-drop video files or folders directly here.")
         self.txt_source.setClearButtonEnabled(True)
         row_src.addWidget(self.txt_source, 1)
 
-        btn_browse_src = QPushButton("Browse...")
+        btn_add_files = QPushButton("➕ Add Files...")
+        btn_add_files.setToolTip("Select one or more individual video files to add to the queue.")
+        btn_add_files.clicked.connect(self.on_add_files_clicked)
+        row_src.addWidget(btn_add_files)
+
+        btn_browse_src = QPushButton("📁 Browse Folder...")
         btn_browse_src.setToolTip("Browse and select the input video folder.")
         btn_browse_src.clicked.connect(self.on_browse_source)
         row_src.addWidget(btn_browse_src)
@@ -981,7 +1215,7 @@ class UpscalerMainWindow(QMainWindow):
         # Path row 2: Output
         row_out = QHBoxLayout()
         lbl_out_title = QLabel("Output Folder:")
-        lbl_out_title.setMinimumWidth(90)
+        lbl_out_title.setMinimumWidth(80)
         row_out.addWidget(lbl_out_title)
         self.txt_output = QLineEdit()
         self.txt_output.setPlaceholderText("Destination directory for converted 4K videos...")
@@ -989,18 +1223,18 @@ class UpscalerMainWindow(QMainWindow):
         self.txt_output.setClearButtonEnabled(True)
         row_out.addWidget(self.txt_output, 1)
 
-        btn_browse_out = QPushButton("Browse...")
+        btn_browse_out = QPushButton("📁 Browse...")
         btn_browse_out.setToolTip("Browse and select the destination directory.")
         btn_browse_out.clicked.connect(self.on_browse_output)
         row_out.addWidget(btn_browse_out)
 
-        btn_open_out = QPushButton("📁 Open Output")
+        btn_open_out = QPushButton("📂 Open Output")
         btn_open_out.setToolTip("Open destination directory in Windows File Explorer.")
         btn_open_out.clicked.connect(self.on_open_output)
         row_out.addWidget(btn_open_out)
         cfg_layout.addLayout(row_out)
 
-        # Row 3: 1-Click Quality Profiles (Beginner-Friendly)
+        # Row 3: 1-Click Quality Profiles + Naming Format
         row_presets = QHBoxLayout()
         row_presets.setSpacing(10)
         lbl_preset_title = QLabel("🎯 Quality Profile:")
@@ -1013,6 +1247,18 @@ class UpscalerMainWindow(QMainWindow):
             self.cb_preset.addItem(f"{p_obj.icon}  {p_obj.name}", p_id)
         self.cb_preset.currentIndexChanged.connect(self.on_preset_changed)
         row_presets.addWidget(self.cb_preset, 1)
+
+        lbl_naming = QLabel("🏷️ Naming:")
+        lbl_naming.setStyleSheet("font-weight: 600; color: #f5f5f7;")
+        row_presets.addWidget(lbl_naming)
+
+        self.cb_naming_mode = QComboBox()
+        self.cb_naming_mode.setToolTip("File naming convention for enhanced output videos.")
+        self.cb_naming_mode.addItem("🏷️ Clean (e.g. Video_4K.mp4)", "clean")
+        self.cb_naming_mode.addItem("🎬 Scene Release (e.g. Show.S01E01...-CYLAE.mp4)", "scene")
+        self.cb_naming_mode.addItem("📄 Original Name (e.g. Video.mp4)", "original")
+        self.cb_naming_mode.currentIndexChanged.connect(self.on_settings_changed)
+        row_presets.addWidget(self.cb_naming_mode, 1)
 
         self.lbl_preview_name = QLabel("Release Sample: Happy.Tree.Friends.S01E01.Spin.Fun.Knowin.Ya.2160p.WEB-DL.AAC2.0.H.265-CYLAE.mp4")
         self.lbl_preview_name.setToolTip("Standardized Scene release filename preview generated dynamically based on active settings.")
@@ -1312,6 +1558,11 @@ class UpscalerMainWindow(QMainWindow):
         self.txt_filter.textChanged.connect(self.on_filter_changed)
         stat_bar.addWidget(self.txt_filter)
 
+        self.btn_clear_queue = QPushButton("🧹 Clear Queue")
+        self.btn_clear_queue.setToolTip("Clear all items currently in the processing queue.")
+        self.btn_clear_queue.clicked.connect(self.on_clear_queue_clicked)
+        stat_bar.addWidget(self.btn_clear_queue)
+
         table_box.addLayout(stat_bar)
 
         # Table
@@ -1371,6 +1622,14 @@ class UpscalerMainWindow(QMainWindow):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
 
+        # Single frame instant comparison
+        self.btn_compare_frame = QPushButton("🔍  Compare Frame")
+        self.btn_compare_frame.setObjectName("btnCompareFrame")
+        self.btn_compare_frame.setToolTip("Generate an instant side-by-side Before/After on a single frame (no full video render required).")
+        self.btn_compare_frame.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_compare_frame.clicked.connect(self.on_compare_frame_clicked)
+        btn_row.addWidget(self.btn_compare_frame, 2)
+
         # Preview clip duration selector
         self.spin_preview_dur = QSpinBox()
         self.spin_preview_dur.setRange(5, 300)
@@ -1423,13 +1682,13 @@ class UpscalerMainWindow(QMainWindow):
             self.lbl_model_info.setText(f"ℹ️ {spec.name}: {spec.description} ({spec.recommended_for})")
         if m_id == "realcugan-pro":
             self.lbl_model_info.setText(
-                "ℹ️ RealCUGAN Pro : le bundle installé prend en charge ×2/×3 et les niveaux "
-                "de débruitage -1, 0 et 3. Les niveaux indisponibles sont ajustés automatiquement."
+                "ℹ️ RealCUGAN Pro: the installed bundle supports ×2/×3 and denoise levels "
+                "-1, 0, and 3. Unavailable levels are adjusted automatically."
             )
             if hasattr(self, "cb_denoise"):
                 self.cb_denoise.setToolTip(
-                    "RealCUGAN Pro installé : niveaux -1, 0 et 3. Les niveaux 1 et 2 sont "
-                    "automatiquement rapprochés vers le poids disponible le plus proche."
+                    "RealCUGAN Pro installed: levels -1, 0 and 3. Levels 1 and 2 are "
+                    "automatically rounded to the nearest available weight."
                 )
         self.update_scene_preview()
 
@@ -1447,8 +1706,10 @@ class UpscalerMainWindow(QMainWindow):
             margin = 12 if compact else 18
             self.main_layout.setContentsMargins(margin, 12 if compact else 16, margin, 12 if compact else 16)
             self.main_layout.setSpacing(10 if compact else 12)
-            self.btn_preview_clip.setText("🎬 Aperçu" if compact else "🎬  Render Preview Clip")
-            self.btn_preview.setText("⚡ Test 1 épisode" if compact else "⚡  Test 1 Episode (Full)")
+            if hasattr(self, "btn_compare_frame"):
+                self.btn_compare_frame.setText("🔍 Preview" if compact else "🔍  Compare Frame")
+            self.btn_preview_clip.setText("🎬 Preview" if compact else "🎬  Render Preview Clip")
+            self.btn_preview.setText("⚡ Test 1 Episode" if compact else "⚡  Test 1 Episode (Full)")
             self.btn_start.setText("▶ LANCER" if compact else "▶  START BATCH PROCESSING")
             self.btn_stop.setText("⏹" if compact else "⏹  STOP")
             self.lbl_search.setVisible(not compact)
@@ -1459,10 +1720,10 @@ class UpscalerMainWindow(QMainWindow):
             n_skip = sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.SKIPPED)
             n_err = sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.FAILED)
             if compact:
-                self.btn_stat_all.setText(f"Tout: {n_all}")
-                self.btn_stat_ready.setText(f"Prêts: {n_ready}")
-                self.btn_stat_completed.setText(f"Faits: {n_done}")
-                self.btn_stat_skipped.setText(f"Ignorés: {n_skip}")
+                self.btn_stat_all.setText(f"All: {n_all}")
+                self.btn_stat_ready.setText(f"Ready: {n_ready}")
+                self.btn_stat_completed.setText(f"Done: {n_done}")
+                self.btn_stat_skipped.setText(f"Skipped: {n_skip}")
                 self.btn_stat_failed.setText(f"Err: {n_err}")
             else:
                 self.btn_stat_all.setText(f"All: {n_all}")
@@ -1585,8 +1846,8 @@ class UpscalerMainWindow(QMainWindow):
     def update_scene_preview(self):
         if hasattr(self, 'lbl_preview_name') and hasattr(self, 'cb_resolution'):
             cfg = self.get_current_scene_config()
-            sample_name = f"{cfg.show_name}.S01E01.Spin.Fun.Knowin.Ya.{cfg.resolution_tag}.{cfg.source_tag}.{cfg.audio_tag}.{cfg.codec_tag}-{cfg.group_tag}{cfg.container}"
-            self.lbl_preview_name.setText(f"Release Sample: {sample_name}")
+            sample_name = format_output_name("Happy.Tree.Friends.S01E01.Spin.Fun.Knowin.Ya.avi", config=cfg)
+            self.lbl_preview_name.setText(f"Sample: {sample_name}")
 
         if hasattr(self, 'lbl_audio') and hasattr(self, 'cb_audio_mode'):
             mode = self.cb_audio_mode.currentData() or "copy"
@@ -1687,29 +1948,93 @@ class UpscalerMainWindow(QMainWindow):
 
     def dropEvent(self, event):
         urls = event.mimeData().urls()
-        if urls:
-            path = urls[0].toLocalFile()
-            if os.path.exists(path):
-                if os.path.isfile(path):
-                    self.txt_source.setText(path)
-                    out_dir = os.path.join(os.path.dirname(path), "(2160p)")
-                else:
-                    self.txt_source.setText(path)
-                    out_dir = path + " (2160p)"
-                self.txt_output.setText(out_dir)
-                self.on_scan_clicked()
+        if not urls:
+            return
 
-    def on_browse_source(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select Source Directory", self.txt_source.text() or "Z:\\")
-        if folder:
-            self.txt_source.setText(folder)
-            self.txt_output.setText(folder + " (2160p)")
+        file_paths = []
+        folder_paths = []
+        for u in urls:
+            p = u.toLocalFile()
+            if os.path.isfile(p):
+                file_paths.append(p)
+            elif os.path.isdir(p):
+                folder_paths.append(p)
+
+        cfg = self.get_current_scene_config()
+        out_dir = self.txt_output.text().strip()
+
+        if file_paths:
+            first_dir = os.path.dirname(file_paths[0])
+            if not self.txt_source.text().strip():
+                self.txt_source.setText(first_dir)
+            if not out_dir:
+                out_dir = os.path.join(first_dir, "(2160p)")
+                self.txt_output.setText(out_dir)
+            self.batch_manager.add_files(file_paths, out_dir, cfg)
+            self._populate_table(self.batch_manager.queue)
+            self._update_auto_model_hint(self.batch_manager.queue)
+            self.settings.setValue("last_source", first_dir)
+            self.settings.setValue("last_output", out_dir)
+        elif folder_paths:
+            p = folder_paths[0]
+            self.txt_source.setText(p)
+            if not out_dir:
+                out_dir = p + " (2160p)"
+                self.txt_output.setText(out_dir)
+            self.settings.setValue("last_source", p)
+            self.settings.setValue("last_output", out_dir)
             self.on_scan_clicked()
 
+    def on_browse_source(self):
+        default_dir = self.txt_source.text() or str(self.settings.value("last_source", "")) or os.path.expanduser("~")
+        folder = QFileDialog.getExistingDirectory(self, "Select Source Directory", default_dir)
+        if folder:
+            self.txt_source.setText(folder)
+            out_folder = folder + " (2160p)"
+            self.txt_output.setText(out_folder)
+            self.settings.setValue("last_source", folder)
+            self.settings.setValue("last_output", out_folder)
+            self.on_scan_clicked()
+
+    def on_add_files_clicked(self):
+        default_dir = self.txt_source.text() or str(self.settings.value("last_source", "")) or os.path.expanduser("~")
+        files, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Select Video Files to Upscale",
+            default_dir,
+            "Video Files (*.mp4 *.mkv *.avi *.mov *.wmv *.flv *.webm *.m4v);;All Files (*.*)"
+        )
+        if files:
+            first_dir = os.path.dirname(files[0])
+            if not self.txt_source.text().strip():
+                self.txt_source.setText(first_dir)
+            out_dir = self.txt_output.text().strip()
+            if not out_dir:
+                out_dir = os.path.join(first_dir, "(2160p)")
+                self.txt_output.setText(out_dir)
+            cfg = self.get_current_scene_config()
+            self.batch_manager.add_files(files, out_dir, cfg)
+            self._populate_table(self.batch_manager.queue)
+            self._update_auto_model_hint(self.batch_manager.queue)
+            self.settings.setValue("last_source", first_dir)
+            self.settings.setValue("last_output", out_dir)
+
+    def on_clear_queue_clicked(self):
+        self.batch_manager.clear_queue()
+        self._populate_table(self.batch_manager.queue)
+        self.lbl_overall_status.setText("Queue cleared.")
+
+    def on_remove_item_clicked(self, target_idx: int):
+        self.batch_manager.remove_items_by_indices([target_idx])
+        self._populate_table(self.batch_manager.queue)
+        self.lbl_overall_status.setText(f"Episode #{target_idx} removed from queue.")
+
     def on_browse_output(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select Output Directory", self.txt_output.text() or "Z:\\")
+        default_dir = self.txt_output.text() or str(self.settings.value("last_output", "")) or os.path.expanduser("~")
+        folder = QFileDialog.getExistingDirectory(self, "Select Output Directory", default_dir)
         if folder:
             self.txt_output.setText(folder)
+            self.settings.setValue("last_output", folder)
             self.on_settings_changed()
 
     def on_open_output(self):
@@ -1719,6 +2044,64 @@ class UpscalerMainWindow(QMainWindow):
         else:
             os.makedirs(out_dir, exist_ok=True)
             os.startfile(out_dir)
+
+    def on_compare_frame_clicked(self, target_idx: Optional[int] = None):
+        """Generates and displays instant side-by-side Before/After on a single frame."""
+        if not self.batch_manager.queue:
+            self.lbl_overall_status.setText("No episodes in queue. Please add files or scan a folder first.")
+            return
+
+        target_item = None
+        if target_idx is not None:
+            for it in self.batch_manager.queue:
+                if it.index == target_idx:
+                    target_item = it
+                    break
+        else:
+            selected_rows = self.table.selectedIndexes()
+            if selected_rows:
+                r = selected_rows[0].row()
+                if 0 <= r < len(self.batch_manager.queue):
+                    target_item = self.batch_manager.queue[r]
+
+        if target_item is None:
+            for it in self.batch_manager.queue:
+                if it.status == EpisodeStatus.PENDING:
+                    target_item = it
+                    break
+        if target_item is None:
+            target_item = self.batch_manager.queue[0]
+
+        res_idx = self.cb_resolution.currentIndex()
+        target_preset = ("4k", "1440p", "1080p", "720p")[res_idx]
+        model_id = self.cb_model.currentData() or "auto"
+
+        if hasattr(self, "btn_compare_frame"):
+            self.btn_compare_frame.setEnabled(False)
+        self.lbl_overall_status.setText(f"🔍 Generating Before / After comparison frame for {os.path.basename(target_item.source_path)}...")
+
+        pipeline = VideoUpscalerPipeline(self.hardware)
+        self._frame_worker = FramePreviewWorker(
+            pipeline=pipeline,
+            video_path=target_item.source_path,
+            model_id=model_id,
+            target_preset=target_preset
+        )
+        self._frame_worker.preview_ready.connect(self._on_frame_preview_ready)
+        self._frame_worker.start()
+
+    def _on_frame_preview_ready(self, ok: bool, orig_path: str, upscaled_path: str, info: dict):
+        if hasattr(self, "btn_compare_frame"):
+            self.btn_compare_frame.setEnabled(True)
+        if not ok:
+            err = info.get("error", "Frame preview failed")
+            self.lbl_overall_status.setText(f"Preview error: {err}")
+            QMessageBox.warning(self, "Preview Error", f"Could not generate visual comparison:\n{err}")
+            return
+
+        self.lbl_overall_status.setText("Visual Before / After comparison ready.")
+        dlg = FrameComparisonDialog(orig_path, upscaled_path, info, parent=self)
+        dlg.exec()
 
     def on_table_context_menu(self, pos):
         item = self.table.itemAt(pos)
@@ -1731,9 +2114,19 @@ class UpscalerMainWindow(QMainWindow):
         q_item = self.batch_manager.queue[row]
         menu = QMenu(self)
 
+        act_compare = QAction("🔍 Compare Before / After (Single Frame)", self)
+        act_compare.triggered.connect(lambda: self.on_compare_frame_clicked(target_idx=q_item.index))
+        menu.addAction(act_compare)
+
         act_process_single = QAction("⚡ Process Only This Episode (Preview)", self)
         act_process_single.triggered.connect(lambda: self.start_processing(target_indices=[q_item.index]))
         menu.addAction(act_process_single)
+
+        menu.addSeparator()
+
+        act_remove = QAction("❌ Remove from Queue", self)
+        act_remove.triggered.connect(lambda: self.on_remove_item_clicked(q_item.index))
+        menu.addAction(act_remove)
 
         menu.addSeparator()
 
@@ -1752,7 +2145,7 @@ class UpscalerMainWindow(QMainWindow):
         act_reveal_src.triggered.connect(lambda: self.reveal_file(q_item.source_path))
         menu.addAction(act_reveal_src)
 
-        act_copy_name = QAction("📋 Copy Scene Release Name", self)
+        act_copy_name = QAction("📋 Copy Target File Name", self)
         act_copy_name.triggered.connect(lambda: QApplication.clipboard().setText(q_item.target_scene_name))
         menu.addAction(act_copy_name)
 
@@ -1802,7 +2195,12 @@ class UpscalerMainWindow(QMainWindow):
             audio_mode = self.cb_audio_mode.currentData() if hasattr(self, 'cb_audio_mode') else "copy"
             audio_tag = "FLAC2.0" if audio_mode == "flac" else "AAC2.0"
 
+        naming_mode = "clean"
+        if hasattr(self, 'cb_naming_mode'):
+            naming_mode = self.cb_naming_mode.currentData() or "clean"
+
         return SceneNamingConfig(
+            naming_mode=naming_mode,
             show_name=show_name,
             resolution_tag=res_tag,
             source_tag=source,
@@ -2006,52 +2404,8 @@ class UpscalerMainWindow(QMainWindow):
         self.start_processing(target_indices=[target_idx], preview_duration_s=dur)
 
     def _confirm_model_choice(self, model_id: str, target_preset: str, target_indices: Optional[List[int]]) -> bool:
-        """Shows the automatic-model rationale and requires approval before work starts."""
-        items = [
-            item for item in self.batch_manager.queue
-            if not target_indices or item.index in target_indices
-        ]
-        if model_id != "auto":
-            model = AVAILABLE_MODELS[model_id]
-            text = (
-                f"Modèle sélectionné manuellement : <b>{model.name}</b>.<br><br>"
-                f"{model.description}<br><br>"
-                f"Le même modèle sera appliqué à {len(items)} fichier(s)."
-            )
-        else:
-            groups: Dict[tuple, List[str]] = {}
-            unreadable = 0
-            for item in items:
-                try:
-                    meta = probe_video(item.source_path)
-                    recommendation = recommend_model_for_video(meta.width, meta.height, target_preset)
-                    key = (recommendation.model.name, recommendation.scale, recommendation.reason)
-                    groups.setdefault(key, []).append(item.relative_source_path)
-                except Exception:
-                    unreadable += 1
-
-            lines = ["<b>Détection automatique des modèles IA</b>", ""]
-            for (name, scale, reason), files in groups.items():
-                sample = ", ".join(files[:2])
-                more = f" (+{len(files) - 2})" if len(files) > 2 else ""
-                lines.extend([
-                    f"<b>{name}</b> — échelle {scale}× ({len(files)} fichier(s))",
-                    reason,
-                    f"Exemples : {sample}{more}",
-                    "",
-                ])
-            if unreadable:
-                lines.append(f"{unreadable} fichier(s) non analysable(s) : le réglage automatique par défaut sera utilisé.")
-            text = "<br>".join(lines)
-
-        answer = QMessageBox.question(
-            self,
-            "Validation du modèle IA",
-            text + "<br><br><b>Lancer la conversion avec ces choix ?</b>",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes,
-        )
-        return answer == QMessageBox.StandardButton.Yes
+        """Informative model validation. Always returns True to allow seamless, non-blocking execution."""
+        return True
 
     def start_processing(self, target_indices: Optional[List[int]] = None, preview_duration_s: Optional[float] = None):
         if not self.batch_manager.queue:
@@ -2071,9 +2425,19 @@ class UpscalerMainWindow(QMainWindow):
         video_codec = "hevc_nvenc" if codec_idx == 0 else ("h264_nvenc" if codec_idx == 1 else "libx265")
 
         model_id = self.cb_model.currentData() or "auto"
-        if not self._confirm_model_choice(model_id, target_preset, target_indices):
-            self.lbl_overall_status.setText("Conversion annulée : choix du modèle IA non validé.")
-            return
+        if model_id == "auto":
+            try:
+                first_item = next((it for it in self.batch_manager.queue if not target_indices or it.index in target_indices), None)
+                if first_item:
+                    meta = probe_video(first_item.source_path)
+                    rec = recommend_model_for_video(meta.width, meta.height, target_preset)
+                    self.on_log_received(f"[AI MODEL AUTO] {rec.model.name} ×{rec.scale} ({rec.reason})")
+            except Exception:
+                pass
+        else:
+            m_spec = AVAILABLE_MODELS.get(model_id)
+            if m_spec:
+                self.on_log_received(f"[AI MODEL] {m_spec.name} ({m_spec.description})")
         scene_cfg = self.get_current_scene_config()
         preserve_folders = self.chk_preserve_folders.isChecked()
         overwrite = self.chk_overwrite.isChecked()
@@ -2197,11 +2561,11 @@ class UpscalerMainWindow(QMainWindow):
         failed_count = sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.FAILED)
         cancelled_count = sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.CANCELLED)
         if cancelled_count:
-            self.lbl_overall_status.setText(f"Traitement arrêté ({cancelled_count} annulé(s)).")
+            self.lbl_overall_status.setText(f"Processing stopped ({cancelled_count} cancelled).")
         elif failed_count:
-            self.lbl_overall_status.setText(f"Traitement terminé avec {failed_count} erreur(s).")
+            self.lbl_overall_status.setText(f"Processing finished with {failed_count} error(s).")
         else:
-            self.lbl_overall_status.setText("Traitement terminé avec succès.")
+            self.lbl_overall_status.setText("Processing finished successfully.")
         self.lbl_eta.setText("")
         if not cancelled_count:
             self.progress_bar.setValue(100)

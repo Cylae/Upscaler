@@ -243,10 +243,26 @@ def resolve_realcugan_options(models_dir: str, requested_scale: int, requested_d
     return scale, denoise, "; ".join(changes)
 
 
-def probe_video(filepath: str) -> VideoMetadata:
+def resolve_ffprobe_bin(ffprobe_bin: Optional[str] = None) -> str:
+    """Finds ffprobe binary in environment or adjacent to ffmpeg."""
+    if ffprobe_bin and (os.path.isfile(ffprobe_bin) or shutil.which(ffprobe_bin)):
+        return ffprobe_bin
+    found = shutil.which("ffprobe")
+    if found:
+        return found
+    ffmpeg_found = shutil.which("ffmpeg")
+    if ffmpeg_found:
+        candidate = os.path.join(os.path.dirname(ffmpeg_found), "ffprobe.exe" if os.name == "nt" else "ffprobe")
+        if os.path.isfile(candidate):
+            return candidate
+    return "ffprobe"
+
+
+def probe_video(filepath: str, ffprobe_bin: Optional[str] = None) -> VideoMetadata:
     """Uses ffprobe to extract complete video metadata."""
+    bin_name = resolve_ffprobe_bin(ffprobe_bin)
     cmd = [
-        "ffprobe",
+        bin_name,
         "-v", "error",
         "-show_streams",
         "-show_format",
@@ -310,12 +326,13 @@ def probe_video(filepath: str) -> VideoMetadata:
     )
 
 
-def probe_audio_stream(filepath: str) -> bool:
+def probe_audio_stream(filepath: str, ffprobe_bin: Optional[str] = None) -> bool:
     """Uses ffprobe to verify that the file contains at least one valid audio stream."""
     if not os.path.isfile(filepath) or os.path.getsize(filepath) < 500:
         return False
+    bin_name = resolve_ffprobe_bin(ffprobe_bin)
     cmd = [
-        "ffprobe",
+        bin_name,
         "-v", "error",
         "-show_streams",
         "-select_streams", "a",
@@ -413,6 +430,16 @@ class VideoUpscalerPipeline:
             processes = list(self._active_processes)
         for proc in processes:
             try:
+                if os.name == "nt" and proc.pid:
+                    try:
+                        subprocess.run(
+                            ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            timeout=3
+                        )
+                    except Exception:
+                        pass
                 proc.kill()
             except Exception:
                 pass
@@ -1272,9 +1299,169 @@ class VideoUpscalerPipeline:
             return True, final_output_path
 
         finally:
-            # Clean up temporary frames and audio
+            # Clean up temporary frames and audio with retry loop to handle Windows file locking delays
+            self._current_process = None
+            if os.path.exists(work_dir):
+                for attempt in range(4):
+                    try:
+                        shutil.rmtree(work_dir, ignore_errors=False)
+                        break
+                    except Exception:
+                        time.sleep(0.2)
+                if os.path.exists(work_dir):
+                    try:
+                        shutil.rmtree(work_dir, ignore_errors=True)
+                    except Exception:
+                        pass
+
+    def extract_and_upscale_single_frame(
+        self,
+        video_path: str,
+        model_id: str = "auto",
+        target_preset: str = "4k",
+        offset_seconds: Optional[float] = None
+    ) -> Tuple[bool, str, str, Dict]:
+        """Extracts a single representative frame from video and upscales it with AI model.
+
+        Returns (success, original_frame_path, upscaled_frame_path, info_dict).
+        Takes ~0.5s and provides instant before/after visual verification before batch encoding.
+        """
+        if not os.path.isfile(video_path):
+            return False, "", "", {"error": f"Video file not found: {video_path}"}
+
+        try:
+            meta = probe_video(video_path, self.hardware.ffprobe_path)
+        except Exception as exc:
+            return False, "", "", {"error": f"Video analysis error: {exc}"}
+
+        if offset_seconds is None:
+            offset_seconds = max(0.5, meta.duration * 0.15) if meta.duration > 1 else 0.0
+
+        target_w, target_h, res_tag = calculate_target_dimensions(meta.width, meta.height, target_preset)
+
+        if model_id == "auto" or model_id not in AVAILABLE_MODELS:
+            selected_model, chosen_scale = choose_best_model_for_video(meta.width, meta.height, target_preset)
+        else:
+            selected_model = AVAILABLE_MODELS[model_id]
+            chosen_scale = selected_model.default_scale
+
+        base_dir = os.path.dirname(video_path)
+        temp_dir = os.path.join(base_dir, ".temp_upscaler", f"preview_{uuid.uuid4().hex[:8]}")
+        os.makedirs(temp_dir, exist_ok=True)
+
+        orig_frame = os.path.join(temp_dir, "original_frame.png")
+        up_frame = os.path.join(temp_dir, "upscaled_frame.png")
+
+        # 1. Extract 1 single frame via ffmpeg
+        ffmpeg_bin = self.hardware.ffmpeg_path or shutil.which("ffmpeg") or "ffmpeg"
+        cmd_extract = [
+            ffmpeg_bin, "-y",
+            "-ss", f"{offset_seconds:.3f}",
+            "-i", video_path,
+            "-vframes", "1",
+            orig_frame
+        ]
+        rc = subprocess.run(cmd_extract, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode
+        if rc != 0 or not os.path.isfile(orig_frame) or os.path.getsize(orig_frame) == 0:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return False, "", "", {"error": "Cannot extract frame from source file."}
+
+        # 2. Run AI upscaler on single frame
+        t0 = time.time()
+        thread_spec = get_optimal_thread_spec("auto", gpu_vram_gb=self.hardware.gpu_vram_gb)
+        effective_tile_size = _auto_tile_size(self.hardware.gpu_vram_gb)
+
+        if selected_model.engine == ModelEngine.REALESRGAN:
+            bin_path = self.hardware.realesrgan_bin
+            if not bin_path or not os.path.isfile(bin_path):
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                return False, "", "", {"error": f"Real-ESRGAN engine not found: {bin_path}"}
+            models_dir = os.path.join(os.path.dirname(bin_path), "models")
+            ai_cmd = [
+                bin_path,
+                "-i", orig_frame,
+                "-o", up_frame,
+                "-m", models_dir,
+                "-n", selected_model.internal_name,
+                "-s", str(chosen_scale),
+                "-j", thread_spec,
+                "-f", "png"
+            ]
+            if effective_tile_size > 0:
+                ai_cmd.extend(["-t", str(effective_tile_size)])
+        elif selected_model.engine == ModelEngine.REALCUGAN:
+            bin_path = self.hardware.realcugan_bin
+            if not bin_path or not os.path.isfile(bin_path):
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                return False, "", "", {"error": f"RealCUGAN engine not found: {bin_path}"}
+            models_dir = os.path.join(os.path.dirname(bin_path), selected_model.internal_name)
+            chosen_scale, eff_denoise, _ = resolve_realcugan_options(models_dir, chosen_scale, -1)
+            ai_cmd = [
+                bin_path,
+                "-i", orig_frame,
+                "-o", up_frame,
+                "-m", models_dir,
+                "-s", str(chosen_scale),
+                "-j", thread_spec,
+                "-f", "png",
+                "-n", str(eff_denoise)
+            ]
+            if effective_tile_size > 0:
+                ai_cmd.extend(["-t", str(effective_tile_size)])
+        else:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return False, "", "", {"error": f"Unknown AI engine: {selected_model.engine}"}
+
+        proc = subprocess.run(ai_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        infer_time = time.time() - t0
+        if proc.returncode != 0 or not os.path.isfile(up_frame) or os.path.getsize(up_frame) == 0:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return False, "", "", {"error": f"Image upscaling failed (code {proc.returncode})"}
+
+        return True, orig_frame, up_frame, {
+            "model_name": selected_model.name,
+            "orig_width": meta.width,
+            "orig_height": meta.height,
+            "target_width": target_w,
+            "target_height": target_h,
+            "scale": chosen_scale,
+            "time_seconds": round(infer_time, 2),
+            "temp_dir": temp_dir
+        }
+
+
+def cleanup_stale_temp_directories(
+    root_dir: Optional[str] = None,
+    max_age_seconds: int = 900,
+    max_age_hours: Optional[float] = None
+) -> int:
+    """Scans and removes stale .temp_upscaler directories left over from terminated sessions."""
+    if max_age_hours is not None:
+        max_age_seconds = int(max_age_hours * 3600)
+    cleaned = 0
+    search_dirs = [root_dir] if root_dir else []
+    try:
+        from src.core.detector import get_base_dir
+        search_dirs.append(get_base_dir())
+    except Exception:
+        pass
+
+    for s_dir in search_dirs:
+        if not s_dir or not os.path.isdir(s_dir):
+            continue
+        temp_dir = os.path.join(s_dir, ".temp_upscaler")
+        if os.path.isdir(temp_dir):
             try:
-                shutil.rmtree(work_dir, ignore_errors=True)
+                for entry in os.listdir(temp_dir):
+                    sub = os.path.join(temp_dir, entry)
+                    if os.path.isdir(sub):
+                        try:
+                            mtime = os.path.getmtime(sub)
+                            if time.time() - mtime >= max_age_seconds:
+                                shutil.rmtree(sub, ignore_errors=True)
+                                cleaned += 1
+                        except Exception:
+                            pass
             except Exception:
                 pass
-            self._current_process = None
+    return cleaned

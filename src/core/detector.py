@@ -13,6 +13,7 @@ class HardwareInfo:
     has_nvenc_hevc: bool = False
     has_nvenc_h264: bool = False
     ffmpeg_path: Optional[str] = None
+    ffprobe_path: Optional[str] = None
     ffmpeg_version: str = "Not detected"
     realesrgan_bin: Optional[str] = None
     realcugan_bin: Optional[str] = None
@@ -25,11 +26,18 @@ def get_base_dir() -> str:
     return os.path.dirname(os.path.dirname(current_dir))
 
 
-def detect_ffmpeg() -> Tuple[Optional[str], str, bool, bool]:
-    """Detects ffmpeg on PATH, checks version and NVENC hardware encoder support."""
+def detect_ffmpeg() -> Tuple[Optional[str], Optional[str], str, bool, bool]:
+    """Detects ffmpeg and ffprobe on PATH or adjacent directory, checks version and NVENC support."""
     ffmpeg_path = shutil.which("ffmpeg")
+    ffprobe_path = shutil.which("ffprobe")
+
+    if ffmpeg_path and not ffprobe_path:
+        candidate = os.path.join(os.path.dirname(ffmpeg_path), "ffprobe.exe" if os.name == "nt" else "ffprobe")
+        if os.path.isfile(candidate):
+            ffprobe_path = candidate
+
     if not ffmpeg_path:
-        return None, "Not found", False, False
+        return None, ffprobe_path, "Not found", False, False
 
     version_str = "Installed"
     has_hevc_nvenc = False
@@ -56,7 +64,7 @@ def detect_ffmpeg() -> Tuple[Optional[str], str, bool, bool]:
     except Exception:
         pass
 
-    return ffmpeg_path, version_str, has_hevc_nvenc, has_h264_nvenc
+    return ffmpeg_path, ffprobe_path, version_str, has_hevc_nvenc, has_h264_nvenc
 
 
 def detect_gpu() -> Tuple[str, float, bool]:
@@ -121,7 +129,7 @@ def detect_tools() -> Tuple[Optional[str], Optional[str]]:
 def get_hardware_info() -> HardwareInfo:
     """Gathers all hardware and environment information into a dataclass."""
     gpu_name, gpu_vram, has_nvidia = detect_gpu()
-    ffmpeg_path, ffmpeg_ver, has_hevc, has_h264 = detect_ffmpeg()
+    ffmpeg_path, ffprobe_path, ffmpeg_ver, has_hevc, has_h264 = detect_ffmpeg()
     realesrgan_bin, realcugan_bin = detect_tools()
 
     return HardwareInfo(
@@ -131,6 +139,7 @@ def get_hardware_info() -> HardwareInfo:
         has_nvenc_hevc=has_nvidia and has_hevc,
         has_nvenc_h264=has_nvidia and has_h264,
         ffmpeg_path=ffmpeg_path,
+        ffprobe_path=ffprobe_path,
         ffmpeg_version=ffmpeg_ver,
         realesrgan_bin=realesrgan_bin,
         realcugan_bin=realcugan_bin,
