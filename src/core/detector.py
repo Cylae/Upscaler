@@ -20,6 +20,16 @@ class HardwareInfo:
     realcugan_bin: Optional[str] = None
     cpu_cores: int = 4
 
+    @property
+    def nvenc_available(self) -> bool:
+        """Returns True if any NVENC hardware encoder (HEVC or H.264) is supported."""
+        return bool(self.has_nvenc_hevc or self.has_nvenc_h264)
+
+    @property
+    def has_nvenc(self) -> bool:
+        """Alias for nvenc_available."""
+        return self.nvenc_available
+
 
 def get_base_dir() -> str:
     """Returns root directory of the application."""

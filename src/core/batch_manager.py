@@ -379,9 +379,12 @@ class BatchManager:
                 )
 
         # Check hardware / encoders
-        has_nvenc = "nvenc" in video_codec
-        if has_nvenc and not self.hardware.nvenc_available:
-            warnings.append(f"NVENC codec requested ('{video_codec}') but NVENC is not available on this system. Software fallback will be used.")
+        if "hevc_nvenc" in video_codec and not getattr(self.hardware, "has_nvenc_hevc", False):
+            warnings.append(f"NVENC HEVC codec requested ('{video_codec}') but HEVC NVENC is not available on this system. Software fallback will be used.")
+        elif "h264_nvenc" in video_codec and not getattr(self.hardware, "has_nvenc_h264", False):
+            warnings.append(f"NVENC H.264 codec requested ('{video_codec}') but H.264 NVENC is not available on this system. Software fallback will be used.")
+        elif "nvenc" in video_codec and not getattr(self.hardware, "nvenc_available", False):
+            warnings.append(f"NVENC codec requested ('{video_codec}') but NVENC hardware acceleration is not available on this system. Software fallback will be used.")
 
         return {
             "total_items": total_items,

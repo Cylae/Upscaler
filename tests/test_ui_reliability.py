@@ -104,3 +104,30 @@ def test_ui_dynamic_resolution_suffix(qapp):
     # Change back to 4K (index 0)
     window.cb_resolution.setCurrentIndex(0)
     assert window.txt_output.text() == "C:/Videos (2160p)"
+
+
+def test_ui_preflight_summary_and_dialog_execution(qapp, monkeypatch):
+    """Verify on_preflight_clicked constructs preflight data and opens PreflightDialog without AttributeError."""
+    window = UpscalerMainWindow()
+    item = QueueItem(
+        index=1,
+        source_path="C:/vids/s01e01.mp4",
+        relative_source_path="s01e01.mp4",
+        target_scene_name="Show.S01E01.mp4",
+        target_full_path="C:/out/Show.S01E01.mp4",
+        file_size_mb=25.0,
+        status=EpisodeStatus.PENDING
+    )
+    window.batch_manager.queue = [item]
+    window.txt_source.setText("C:/vids")
+    window.txt_output.setText("C:/out")
+
+    dialog_opened = False
+    def mock_exec(self):
+        nonlocal dialog_opened
+        dialog_opened = True
+        return 0
+
+    monkeypatch.setattr("src.ui.app_qt.PreflightDialog.exec", mock_exec)
+    window.on_preflight_clicked()
+    assert dialog_opened is True
