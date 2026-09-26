@@ -744,9 +744,29 @@ class DoctorDialog(QDialog):
         text_edit.setPlainText("\n".join(lines))
         layout.addWidget(text_edit, 1)
 
+        btn_row = QHBoxLayout()
+        btn_export = QPushButton("💾 Export Diagnostic Report...")
+        btn_export.setStyleSheet("padding: 5px 14px; font-size: 11px; border-radius: 6px;")
+        btn_export.clicked.connect(self._export_diagnostic)
+        btn_row.addWidget(btn_export)
+        btn_row.addStretch()
+
         btn_close = QPushButton("Close")
         btn_close.clicked.connect(self.accept)
-        layout.addWidget(btn_close, 0, Qt.AlignmentFlag.AlignRight)
+        btn_row.addWidget(btn_close)
+        layout.addLayout(btn_row)
+
+    def _export_diagnostic(self):
+        from src.core.detector import export_diagnostic_report
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Export Diagnostic Report", "upscaler_diagnostic.txt", "Text files (*.txt);;All files (*)"
+        )
+        if path:
+            try:
+                export_diagnostic_report(path, redact_paths=True)
+                QMessageBox.information(self, "Export Complete", f"Diagnostic report exported to:\n{path}")
+            except Exception as e:
+                QMessageBox.warning(self, "Export Failed", f"Failed to export diagnostic report: {e}")
 
 
 class FrameComparisonDialog(QDialog):
@@ -974,6 +994,136 @@ class ModelHintWorker(QThread):
             self.hint_ready.emit("🧠 AI Detection: full analysis available upon batch launch.", "")
 
 
+class ScanWorker(QThread):
+    scan_complete = pyqtSignal(list)
+    scan_error = pyqtSignal(str)
+
+    def __init__(
+        self,
+        batch_manager: BatchManager,
+        folder_path: str,
+        output_dir: str,
+        scene_config: SceneNamingConfig,
+        preserve_folders: bool
+    ):
+        super().__init__()
+        self.bm = batch_manager
+        self.folder_path = folder_path
+        self.output_dir = output_dir
+        self.scene_config = scene_config
+        self.preserve_folders = preserve_folders
+
+    def run(self):
+        try:
+            queue = self.bm.scan_folder(
+                self.folder_path,
+                self.output_dir,
+                self.scene_config,
+                preserve_folders=self.preserve_folders
+            )
+            self.scan_complete.emit(queue)
+        except Exception as exc:
+            self.scan_error.emit(str(exc))
+
+
+class PreflightDialog(QDialog):
+    """Displays comprehensive preflight summary before starting batch processing."""
+    def __init__(self, preflight_data: Dict, dry_run_data: List[Dict], parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Preflight Check & Output Plan")
+        self.resize(780, 560)
+        self.setStyleSheet(DARK_STYLESHEET)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(12)
+
+        title = QLabel("📋 Preflight Summary & Output Plan")
+        title.setStyleSheet("font-size: 16px; font-weight: 700; color: #0a84ff;")
+        layout.addWidget(title)
+
+        # Warnings block if any
+        warnings = preflight_data.get("warnings", [])
+        if warnings:
+            warn_frame = QFrame()
+            warn_frame.setStyleSheet("background-color: rgba(255, 69, 58, 0.12); border: 1px solid #ff453a; border-radius: 8px; padding: 10px;")
+            warn_layout = QVBoxLayout(warn_frame)
+            warn_layout.setContentsMargins(8, 8, 8, 8)
+            warn_title = QLabel("⚠️ Preflight Warnings:")
+            warn_title.setStyleSheet("font-weight: 700; color: #ff453a; font-size: 12px;")
+            warn_layout.addWidget(warn_title)
+            for w in warnings:
+                lbl = QLabel(f"• {w}")
+                lbl.setStyleSheet("color: #ff9f0a; font-size: 11px;")
+                warn_layout.addWidget(lbl)
+            layout.addWidget(warn_frame)
+
+        # Summary Grid
+        info_frame = QFrame()
+        info_frame.setObjectName("macPanel")
+        info_grid = QHBoxLayout(info_frame)
+        info_grid.setContentsMargins(14, 12, 14, 12)
+
+        col1 = QVBoxLayout()
+        col1.addWidget(QLabel(f"<b>Total Queue:</b> {preflight_data.get('total_items', 0)} files"))
+        col1.addWidget(QLabel(f"<b>Pending:</b> {preflight_data.get('pending_items', 0)} files"))
+        col1.addWidget(QLabel(f"<b>Already Present:</b> {preflight_data.get('skipped_items', 0)} files"))
+        info_grid.addLayout(col1)
+
+        col2 = QVBoxLayout()
+        col2.addWidget(QLabel(f"<b>Target:</b> {str(preflight_data.get('target_preset', '')).upper()} (CQ {preflight_data.get('cq_level', 19)})"))
+        col2.addWidget(QLabel(f"<b>Encoder:</b> {preflight_data.get('video_codec', '')}"))
+        col2.addWidget(QLabel(f"<b>Hardware:</b> {preflight_data.get('gpu_name', '')}"))
+        info_grid.addLayout(col2)
+
+        col3 = QVBoxLayout()
+        col3.addWidget(QLabel(f"<b>Source Size:</b> {preflight_data.get('total_source_size_mb', 0):.1f} MB"))
+        col3.addWidget(QLabel(f"<b>Est. Output:</b> ~{preflight_data.get('estimated_output_mb', 0):.1f} MB"))
+        col3.addWidget(QLabel(f"<b>Target Free:</b> {preflight_data.get('free_disk_mb', 0):.1f} MB"))
+        info_grid.addLayout(col3)
+
+        layout.addWidget(info_frame)
+
+        # Dry Run Table
+        lbl_table = QLabel("Output Mapping Plan (Dry Run):")
+        lbl_table.setStyleSheet("font-weight: 600; color: #f5f5f7; font-size: 12px;")
+        layout.addWidget(lbl_table)
+
+        table = QTableWidget()
+        table.setColumnCount(4)
+        table.setHorizontalHeaderLabels(["#", "Source File", "Target Scene Name", "Status"])
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        table.setColumnWidth(1, 220)
+        table.setRowCount(len(dry_run_data))
+
+        for r, item in enumerate(dry_run_data):
+            table.setItem(r, 0, QTableWidgetItem(str(item.get("index", r + 1))))
+            table.setItem(r, 1, QTableWidgetItem(item.get("relative_source", "")))
+            it_target = QTableWidgetItem(item.get("target_name", ""))
+            if item.get("collision"):
+                it_target.setForeground(QColor("#ff453a"))
+            else:
+                it_target.setForeground(QColor("#38bdf8"))
+            table.setItem(r, 2, it_target)
+            st_text = "Already Present (Skip)" if item.get("already_exists") else "Ready"
+            if item.get("collision"):
+                st_text = "COLLISION!"
+            it_st = QTableWidgetItem(st_text)
+            table.setItem(r, 3, it_st)
+
+        layout.addWidget(table, 1)
+
+        btn_box = QHBoxLayout()
+        btn_box.addStretch()
+        btn_close = QPushButton("Close")
+        btn_close.clicked.connect(self.accept)
+        btn_box.addWidget(btn_close)
+        layout.addLayout(btn_box)
+
+
 class UpscaleWorker(QThread):
     item_updated = pyqtSignal(object)
     batch_updated = pyqtSignal(int, int, float, str, str)
@@ -1068,6 +1218,7 @@ class UpscalerMainWindow(QMainWindow):
         self.hardware = get_hardware_info()
         self.batch_manager = BatchManager(self.hardware)
         self.worker: Optional[UpscaleWorker] = None
+        self._scan_worker: Optional[ScanWorker] = None
         self._current_filter_mode = "all"
         self._log_buffer: list = []            # shared log buffer (all sessions)
         self._last_cli_cmd: str = ""
@@ -1281,7 +1432,7 @@ class UpscalerMainWindow(QMainWindow):
         self.cb_resolution = QComboBox()
         self.cb_resolution.setToolTip("Target upscaling resolution. 4K UHD (3840x2160) provides pristine line clarity.")
         self.cb_resolution.addItems(["4K UHD (3840x2160)", "1440p QHD (2560x1440)", "1080p FHD (1920x1080)", "720p HD (1280x720)"])
-        self.cb_resolution.currentIndexChanged.connect(self.on_settings_changed)
+        self.cb_resolution.currentIndexChanged.connect(self.on_resolution_changed)
         row_settings.addWidget(self.cb_resolution)
 
         # Codec
@@ -1657,6 +1808,20 @@ class UpscalerMainWindow(QMainWindow):
         self.btn_preview.clicked.connect(self.on_test_single_clicked)
         btn_row.addWidget(self.btn_preview, 2)
 
+        self.btn_preflight = QPushButton("📋  Preflight & Plan")
+        self.btn_preflight.setObjectName("btnPreflight")
+        self.btn_preflight.setToolTip("View preflight verification, disk space requirements, warnings, and dry-run mappings.")
+        self.btn_preflight.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_preflight.clicked.connect(self.on_preflight_clicked)
+        btn_row.addWidget(self.btn_preflight, 2)
+
+        self.btn_retry_failed = QPushButton("🔄  Retry Failed")
+        self.btn_retry_failed.setObjectName("btnRetryFailed")
+        self.btn_retry_failed.setToolTip("Reset failed or cancelled episodes back to Pending so they can be re-run.")
+        self.btn_retry_failed.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_retry_failed.clicked.connect(self.on_retry_failed_clicked)
+        btn_row.addWidget(self.btn_retry_failed, 2)
+
         self.btn_start = QPushButton("▶  START BATCH PROCESSING")
         self.btn_start.setObjectName("btnStart")
         self.btn_start.setToolTip("Launch concurrent batch processing for all pending episodes.")
@@ -1710,7 +1875,11 @@ class UpscalerMainWindow(QMainWindow):
                 self.btn_compare_frame.setText("🔍 Preview" if compact else "🔍  Compare Frame")
             self.btn_preview_clip.setText("🎬 Preview" if compact else "🎬  Render Preview Clip")
             self.btn_preview.setText("⚡ Test 1 Episode" if compact else "⚡  Test 1 Episode (Full)")
-            self.btn_start.setText("▶ LANCER" if compact else "▶  START BATCH PROCESSING")
+            if hasattr(self, "btn_preflight"):
+                self.btn_preflight.setText("📋 Plan" if compact else "📋  Preflight & Plan")
+            if hasattr(self, "btn_retry_failed"):
+                self.btn_retry_failed.setText("🔄 Retry" if compact else "🔄  Retry Failed")
+            self.btn_start.setText("▶ START" if compact else "▶  START BATCH PROCESSING")
             self.btn_stop.setText("⏹" if compact else "⏹  STOP")
             self.lbl_search.setVisible(not compact)
             self.txt_filter.setMaximumWidth(140 if compact else 220)
@@ -1968,7 +2137,8 @@ class UpscalerMainWindow(QMainWindow):
             if not self.txt_source.text().strip():
                 self.txt_source.setText(first_dir)
             if not out_dir:
-                out_dir = os.path.join(first_dir, "(2160p)")
+                tag = self._get_output_tag_for_current_resolution()
+                out_dir = os.path.join(first_dir, f"({tag})")
                 self.txt_output.setText(out_dir)
             self.batch_manager.add_files(file_paths, out_dir, cfg)
             self._populate_table(self.batch_manager.queue)
@@ -1979,7 +2149,8 @@ class UpscalerMainWindow(QMainWindow):
             p = folder_paths[0]
             self.txt_source.setText(p)
             if not out_dir:
-                out_dir = p + " (2160p)"
+                tag = self._get_output_tag_for_current_resolution()
+                out_dir = f"{p} ({tag})"
                 self.txt_output.setText(out_dir)
             self.settings.setValue("last_source", p)
             self.settings.setValue("last_output", out_dir)
@@ -1990,7 +2161,8 @@ class UpscalerMainWindow(QMainWindow):
         folder = QFileDialog.getExistingDirectory(self, "Select Source Directory", default_dir)
         if folder:
             self.txt_source.setText(folder)
-            out_folder = folder + " (2160p)"
+            tag = self._get_output_tag_for_current_resolution()
+            out_folder = f"{folder} ({tag})"
             self.txt_output.setText(out_folder)
             self.settings.setValue("last_source", folder)
             self.settings.setValue("last_output", out_folder)
@@ -2010,7 +2182,8 @@ class UpscalerMainWindow(QMainWindow):
                 self.txt_source.setText(first_dir)
             out_dir = self.txt_output.text().strip()
             if not out_dir:
-                out_dir = os.path.join(first_dir, "(2160p)")
+                tag = self._get_output_tag_for_current_resolution()
+                out_dir = os.path.join(first_dir, f"({tag})")
                 self.txt_output.setText(out_dir)
             cfg = self.get_current_scene_config()
             self.batch_manager.add_files(files, out_dir, cfg)
@@ -2061,16 +2234,19 @@ class UpscalerMainWindow(QMainWindow):
             selected_rows = self.table.selectedIndexes()
             if selected_rows:
                 r = selected_rows[0].row()
-                if 0 <= r < len(self.batch_manager.queue):
-                    target_item = self.batch_manager.queue[r]
+                target_item = self._get_queue_item_from_row(r)
 
         if target_item is None:
             for it in self.batch_manager.queue:
                 if it.status == EpisodeStatus.PENDING:
                     target_item = it
                     break
-        if target_item is None:
+        if target_item is None and self.batch_manager.queue:
             target_item = self.batch_manager.queue[0]
+
+        if target_item is None:
+            self.lbl_overall_status.setText("No episodes available for comparison.")
+            return
 
         res_idx = self.cb_resolution.currentIndex()
         target_preset = ("4k", "1440p", "1080p", "720p")[res_idx]
@@ -2108,10 +2284,10 @@ class UpscalerMainWindow(QMainWindow):
         if not item:
             return
         row = item.row()
-        if not (0 <= row < len(self.batch_manager.queue)):
+        q_item = self._get_queue_item_from_row(row)
+        if not q_item:
             return
 
-        q_item = self.batch_manager.queue[row]
         menu = QMenu(self)
 
         act_compare = QAction("🔍 Compare Before / After (Single Frame)", self)
@@ -2135,7 +2311,7 @@ class UpscalerMainWindow(QMainWindow):
         menu.addAction(act_play_src)
 
         if os.path.isfile(q_item.target_full_path):
-            act_play_out = QAction("▶️ Play Converted 4K Video", self)
+            act_play_out = QAction("▶️ Play Converted Video", self)
             act_play_out.triggered.connect(lambda: self.play_file(q_item.target_full_path))
             menu.addAction(act_play_out)
 
@@ -2157,8 +2333,8 @@ class UpscalerMainWindow(QMainWindow):
 
     def on_table_double_click(self, item: QTableWidgetItem):
         row = item.row()
-        if 0 <= row < len(self.batch_manager.queue):
-            q_item = self.batch_manager.queue[row]
+        q_item = self._get_queue_item_from_row(row)
+        if q_item:
             if os.path.isfile(q_item.target_full_path):
                 self.play_file(q_item.target_full_path)
             else:
@@ -2210,6 +2386,21 @@ class UpscalerMainWindow(QMainWindow):
             container=".mp4"
         )
 
+    def _get_output_tag_for_current_resolution(self) -> str:
+        idx = self.cb_resolution.currentIndex() if hasattr(self, 'cb_resolution') else 0
+        return "2160p" if idx == 0 else ("1440p" if idx == 1 else ("1080p" if idx == 2 else "720p"))
+
+    def on_resolution_changed(self):
+        old_out = self.txt_output.text().strip()
+        new_tag = self._get_output_tag_for_current_resolution()
+        for tag in ("(2160p)", "(1440p)", "(1080p)", "(720p)"):
+            if old_out.endswith(tag):
+                updated_out = old_out[:-len(tag)] + f"({new_tag})"
+                self.txt_output.setText(updated_out)
+                self.settings.setValue("last_output", updated_out)
+                break
+        self.on_settings_changed()
+
     def on_scan_clicked(self):
         src = self.txt_source.text().strip()
         out = self.txt_output.text().strip()
@@ -2218,16 +2409,36 @@ class UpscalerMainWindow(QMainWindow):
             return
 
         if not out:
-            out = src + " (2160p)"
+            tag = self._get_output_tag_for_current_resolution()
+            out = f"{src} ({tag})"
             self.txt_output.setText(out)
 
         cfg = self.get_current_scene_config()
         preserve_folders = self.chk_preserve_folders.isChecked()
 
-        self.lbl_overall_status.setText("Indexing files...")
-        queue = self.batch_manager.scan_folder(src, out, cfg, preserve_folders=preserve_folders)
+        self.lbl_overall_status.setText("Scanning folder in background...")
+        if hasattr(self, 'btn_scan'):
+            self.btn_scan.setEnabled(False)
+
+        if self._scan_worker and self._scan_worker.isRunning():
+            self._scan_worker.terminate()
+            self._scan_worker.wait(500)
+
+        self._scan_worker = ScanWorker(self.batch_manager, src, out, cfg, preserve_folders)
+        self._scan_worker.scan_complete.connect(self._on_scan_complete)
+        self._scan_worker.scan_error.connect(self._on_scan_error)
+        self._scan_worker.start()
+
+    def _on_scan_complete(self, queue: List[QueueItem]):
+        if hasattr(self, 'btn_scan'):
+            self.btn_scan.setEnabled(True)
         self._populate_table(queue)
         self._update_auto_model_hint(queue)
+
+    def _on_scan_error(self, err_msg: str):
+        if hasattr(self, 'btn_scan'):
+            self.btn_scan.setEnabled(True)
+        self.lbl_overall_status.setText(f"Scan failed: {err_msg}")
 
     def on_settings_changed(self):
         self.update_scene_preview()
@@ -2235,13 +2446,71 @@ class UpscalerMainWindow(QMainWindow):
             self._settings_timer.start()
 
     def _do_settings_changed(self):
-        src = self.txt_source.text().strip()
-        out = self.txt_output.text().strip()
-        if src and os.path.exists(src):
-            cfg = self.get_current_scene_config()
-            preserve_folders = self.chk_preserve_folders.isChecked()
-            queue = self.batch_manager.scan_folder(src, out, cfg, preserve_folders=preserve_folders)
-            self._populate_table(queue)
+        self.on_scan_clicked()
+
+    def on_preflight_clicked(self):
+        if not self.batch_manager.queue:
+            self.lbl_overall_status.setText("Queue is empty. Please scan a folder first.")
+            return
+
+        out_dir = self.txt_output.text().strip()
+        res_idx = self.cb_resolution.currentIndex()
+        target_preset = "4k" if res_idx == 0 else ("1440p" if res_idx == 1 else ("1080p" if res_idx == 2 else "720p"))
+        codec_idx = self.cb_codec.currentIndex()
+        video_codec = "hevc_nvenc" if codec_idx == 0 else ("h264_nvenc" if codec_idx == 1 else "libx265")
+        model_id = self.cb_model.currentData() or "auto"
+        cq_level = self.slider_cq.value()
+        scene_cfg = self.get_current_scene_config()
+        preserve_folders = self.chk_preserve_folders.isChecked()
+
+        preflight_data = self.batch_manager.get_preflight_summary(
+            output_dir=out_dir,
+            target_preset=target_preset,
+            video_codec=video_codec,
+            model_id=model_id,
+            cq_level=cq_level
+        )
+        dry_run_data = self.batch_manager.plan_dry_run(
+            output_dir=out_dir,
+            scene_config=scene_cfg,
+            preserve_folders=preserve_folders
+        )
+
+        dlg = PreflightDialog(preflight_data, dry_run_data, parent=self)
+        dlg.exec()
+
+    def on_retry_failed_clicked(self):
+        retried = self.batch_manager.retry_failed_items()
+        if retried > 0:
+            self._populate_table(self.batch_manager.queue)
+            self.lbl_overall_status.setText(f"Retried {retried} failed/cancelled episode(s).")
+        else:
+            self.lbl_overall_status.setText("No failed or cancelled episodes to retry.")
+
+    def _find_row_by_item_id(self, item_id: str) -> int:
+        for r in range(self.table.rowCount()):
+            it = self.table.item(r, 0)
+            if it and it.data(Qt.ItemDataRole.UserRole) == item_id:
+                return r
+        return -1
+
+    def _get_queue_item_from_row(self, row: int) -> Optional[QueueItem]:
+        if 0 <= row < self.table.rowCount():
+            it = self.table.item(row, 0)
+            if it:
+                item_id = it.data(Qt.ItemDataRole.UserRole)
+                if item_id:
+                    for q in self.batch_manager.queue:
+                        if q.id == item_id:
+                            return q
+                try:
+                    idx = int(it.text())
+                    for q in self.batch_manager.queue:
+                        if q.index == idx:
+                            return q
+                except ValueError:
+                    pass
+        return None
 
     def _populate_table(self, queue: List[QueueItem]):
         self.table.setRowCount(len(queue))
@@ -2249,9 +2518,10 @@ class UpscalerMainWindow(QMainWindow):
         completed_count = 0
 
         for r, item in enumerate(queue):
-            # 0. Index
+            # 0. Index & Stable ID
             it_idx = QTableWidgetItem(str(item.index))
             it_idx.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            it_idx.setData(Qt.ItemDataRole.UserRole, item.id)
             self.table.setItem(r, 0, it_idx)
 
             # 1. Source relative path
@@ -2353,8 +2623,9 @@ class UpscalerMainWindow(QMainWindow):
 
             # Stat pill filter match
             status_match = True
-            if r < q_len:
-                q_status = self.batch_manager.queue[r].status
+            q_item = self._get_queue_item_from_row(r)
+            if q_item:
+                q_status = q_item.status
                 if mode == "ready":
                     status_match = (q_status == EpisodeStatus.PENDING)
                 elif mode == "completed":
@@ -2462,6 +2733,20 @@ class UpscalerMainWindow(QMainWindow):
         denoise_level = int(self.cb_denoise.currentData() if self.cb_denoise.currentData() is not None else -1)
         enable_tta = self.chk_tta.isChecked()
 
+        # Preflight verification and warnings
+        try:
+            preflight = self.batch_manager.get_preflight_summary(
+                output_dir=out_dir,
+                target_preset=target_preset,
+                video_codec=video_codec,
+                model_id=model_id,
+                cq_level=cq_level
+            )
+            for warn in preflight.get("warnings", []):
+                self.on_log_received(f"[PREFLIGHT WARNING] ⚠️ {warn}")
+        except Exception:
+            pass
+
         self.btn_start.setEnabled(False)
         if hasattr(self, 'btn_preview'):
             self.btn_preview.setEnabled(False)
@@ -2513,7 +2798,9 @@ class UpscalerMainWindow(QMainWindow):
         self.btn_stop.setEnabled(False)
 
     def on_item_updated(self, item: QueueItem):
-        row = item.index - 1
+        row = self._find_row_by_item_id(item.id)
+        if row == -1:
+            row = item.index - 1
         if 0 <= row < self.table.rowCount():
             it_status = self.table.item(row, 4)
             if it_status:
@@ -2524,7 +2811,7 @@ class UpscalerMainWindow(QMainWindow):
             if it_detail:
                 it_detail.setText(item.status_detail)
 
-            if item.status == EpisodeStatus.PROCESSING:
+            if item.status == EpisodeStatus.PROCESSING and it_status:
                 self.table.scrollToItem(it_status)
 
         # Update stat pill counters

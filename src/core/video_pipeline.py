@@ -4,11 +4,70 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 import uuid
 from dataclasses import dataclass, replace
 from typing import Callable, Dict, List, Optional, Tuple
+
+_active_job_dirs_lock = threading.Lock()
+_active_job_dirs: set = set()
+
+
+def register_active_job_dir(work_dir: str, job_info: Optional[Dict] = None) -> str:
+    """Registers an active work directory and writes a PID lease lock file."""
+    norm_path = os.path.normcase(os.path.abspath(work_dir))
+    with _active_job_dirs_lock:
+        _active_job_dirs.add(norm_path)
+
+    os.makedirs(work_dir, exist_ok=True)
+    lock_file = os.path.join(work_dir, ".job_lock")
+    payload = {
+        "pid": os.getpid(),
+        "created_at": time.time(),
+        "last_heartbeat": time.time(),
+        "info": job_info or {}
+    }
+    try:
+        with open(lock_file, "w", encoding="utf-8") as f:
+            json.dump(payload, f)
+    except Exception:
+        pass
+    return lock_file
+
+
+def unregister_active_job_dir(work_dir: str) -> None:
+    """Unregisters an active work directory."""
+    norm_path = os.path.normcase(os.path.abspath(work_dir))
+    with _active_job_dirs_lock:
+        _active_job_dirs.discard(norm_path)
+
+
+def is_process_alive(pid: int) -> bool:
+    """Checks whether a process with the given PID is actively running."""
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        try:
+            import ctypes
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+            if not handle:
+                return False
+            exit_code = ctypes.c_ulong()
+            ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
+            ctypes.windll.kernel32.CloseHandle(handle)
+            STILL_ACTIVE = 259
+            return exit_code.value == STILL_ACTIVE
+        except Exception:
+            return True  # Be conservative: assume alive if error occurs
+    else:
+        try:
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
 
 from src.core.ai_models import (
     AVAILABLE_MODELS,
@@ -70,9 +129,13 @@ def clean_metadata_args(include_video: bool = True) -> list:
     return args
 
 
-def find_forbidden_media_metadata(filepath: str, ffprobe_bin: Optional[str] = None) -> list:
-    """Checks output media file tags via ffprobe for any forbidden markers."""
-    bin_path = ffprobe_bin or shutil.which("ffprobe") or "ffprobe"
+def verify_clean_media_metadata(filepath: str, ffprobe_bin: Optional[str] = None) -> Tuple[bool, List[str], str]:
+    """Inspects output media file tags via ffprobe for forbidden markers.
+
+    Returns (is_clean, violations, error_message).
+    is_clean is True only if inspection succeeded and no forbidden markers were found.
+    """
+    bin_path = resolve_ffprobe_bin(ffprobe_bin)
     try:
         raw = subprocess.check_output(
             [bin_path, "-v", "error", "-show_entries", "format_tags:stream_tags", "-of", "json", filepath],
@@ -80,9 +143,22 @@ def find_forbidden_media_metadata(filepath: str, ffprobe_bin: Optional[str] = No
             errors="ignore",
             timeout=15,
         )
-        return find_forbidden_output_markers(raw)
-    except Exception:
-        return []
+        markers = find_forbidden_output_markers(raw)
+        return len(markers) == 0, markers, ""
+    except Exception as exc:
+        return False, [], str(exc)
+
+
+def find_forbidden_media_metadata(filepath: str, ffprobe_bin: Optional[str] = None) -> list:
+    """Checks output media file tags via ffprobe for any forbidden markers.
+
+    Raises RuntimeError if ffprobe inspection fails, ensuring verification errors
+    are never silently treated as clean output.
+    """
+    is_clean, violations, err = verify_clean_media_metadata(filepath, ffprobe_bin)
+    if err:
+        raise RuntimeError(f"Failed to inspect media metadata for {filepath}: {err}")
+    return violations
 
 
 @dataclass
@@ -97,6 +173,12 @@ class VideoMetadata:
     has_audio: bool
     audio_codec: str
     has_subtitles: bool
+    r_frame_rate: str = ""
+    color_range: str = ""
+    color_space: str = ""
+    color_primaries: str = ""
+    color_transfer: str = ""
+    audio_stream_count: int = 1
 
 
 @dataclass
@@ -312,6 +394,12 @@ def probe_video(filepath: str, ffprobe_bin: Optional[str] = None) -> VideoMetada
     s_stream = next((s for s in data.get("streams", []) if s.get("codec_type") == "subtitle"), None)
     has_subtitles = s_stream is not None
 
+    r_frame_rate = str(v_stream.get("r_frame_rate", "") or "")
+    color_range = str(v_stream.get("color_range", "") or "")
+    color_space = str(v_stream.get("color_space", "") or "")
+    color_primaries = str(v_stream.get("color_primaries", "") or "")
+    color_transfer = str(v_stream.get("color_transfer", "") or "")
+
     return VideoMetadata(
         filepath=filepath,
         width=width,
@@ -322,7 +410,13 @@ def probe_video(filepath: str, ffprobe_bin: Optional[str] = None) -> VideoMetada
         codec_name=v_stream.get("codec_name", ""),
         has_audio=has_audio,
         audio_codec=audio_codec,
-        has_subtitles=has_subtitles
+        has_subtitles=has_subtitles,
+        r_frame_rate=r_frame_rate,
+        color_range=color_range,
+        color_space=color_space,
+        color_primaries=color_primaries,
+        color_transfer=color_transfer,
+        audio_stream_count=len(a_streams)
     )
 
 
@@ -348,21 +442,75 @@ def probe_audio_stream(filepath: str, ffprobe_bin: Optional[str] = None) -> bool
         return False
 
 
-def is_file_complete_and_valid(filepath: str, expect_audio: bool = False) -> bool:
-    """Checks if an already existing output file is valid and complete, verifying audio presence if expected."""
+def is_file_complete_and_valid(
+    filepath: str,
+    expect_audio: bool = False,
+    expected_width: Optional[int] = None,
+    expected_height: Optional[int] = None,
+    expected_duration: Optional[float] = None,
+    duration_tolerance_s: float = 2.0,
+    duration_tolerance_ratio: float = 0.02,
+) -> bool:
+    """Checks if an already existing output file is valid and complete, matching the expected job contract.
+    
+    Verifies:
+      - File exists and is > 100 KB
+      - Valid video stream with positive dimensions and duration
+      - Resolution matches expected_width and expected_height (if specified)
+      - Duration matches expected_duration within tolerance (detects truncated/incomplete renders)
+      - Audio stream presence matches expect_audio
+    """
     if not os.path.isfile(filepath):
         return False
     if os.path.getsize(filepath) < 100_000:  # < 100KB is incomplete
         return False
     try:
         meta = probe_video(filepath)
-        if meta.duration <= 0.5 or meta.width <= 0:
+        if meta.duration <= 0.5 or meta.width <= 0 or meta.height <= 0:
             return False
         if expect_audio and not meta.has_audio:
             return False
+        if expected_width is not None and expected_height is not None:
+            if meta.width != expected_width or meta.height != expected_height:
+                return False
+        if expected_duration is not None and expected_duration > 1.0:
+            allowed_diff = max(duration_tolerance_s, expected_duration * duration_tolerance_ratio)
+            if abs(meta.duration - expected_duration) > allowed_diff:
+                return False
         return True
     except Exception:
         return False
+
+
+def safe_atomic_move(src: str, dst: str) -> None:
+    """Atomically moves src to dst, with safe fallback for cross-filesystem moves.
+
+    If src and dst live on different volumes/drives (WinError 17 on Windows or
+    EXDEV errno 18 on POSIX), copies to a temporary file on the destination
+    directory first, then performs atomic replace.
+    """
+    dst_dir = os.path.dirname(dst)
+    os.makedirs(dst_dir, exist_ok=True)
+    try:
+        os.replace(src, dst)
+    except OSError as exc:
+        if getattr(exc, "winerror", None) == 17 or getattr(exc, "errno", None) == 18:
+            temp_dst = os.path.join(dst_dir, f".moving_{uuid.uuid4().hex[:8]}_{os.path.basename(dst)}")
+            try:
+                shutil.copy2(src, temp_dst)
+                os.replace(temp_dst, dst)
+                try:
+                    os.remove(src)
+                except OSError:
+                    pass
+            finally:
+                if os.path.exists(temp_dst):
+                    try:
+                        os.remove(temp_dst)
+                    except OSError:
+                        pass
+        else:
+            raise
 
 
 def validate_encoded_video(
@@ -424,28 +572,35 @@ class VideoUpscalerPipeline:
         self._cuda_available: Optional[bool] = None
 
     def cancel(self):
-        """Signals cancellation and kills running subprocess immediately."""
+        """Signals cancellation and terminates running subprocesses cleanly."""
         self._is_cancelled = True
         with self._process_lock:
             processes = list(self._active_processes)
         for proc in processes:
             try:
-                if os.name == "nt" and proc.pid:
-                    try:
-                        subprocess.run(
-                            ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                            stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL,
-                            timeout=3
-                        )
-                    except Exception:
-                        pass
-                proc.kill()
+                if proc.poll() is None:
+                    if os.name == "nt" and proc.pid:
+                        try:
+                            subprocess.run(
+                                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                                stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL,
+                                timeout=3
+                            )
+                        except Exception:
+                            pass
+                    proc.kill()
             except Exception:
                 pass
 
     def _start_process(self, cmd: list, **popen_kwargs) -> subprocess.Popen:
         """Starts and registers a child process so cancellation reaches every stage."""
+        if self._is_cancelled:
+            raise RuntimeError("Operation cancelled by user.")
+        if os.name == "nt":
+            creationflags = popen_kwargs.get("creationflags", 0)
+            creationflags |= subprocess.CREATE_NEW_PROCESS_GROUP
+            popen_kwargs["creationflags"] = creationflags
         proc = subprocess.Popen(cmd, **popen_kwargs)
         with self._process_lock:
             self._active_processes.add(proc)
@@ -592,10 +747,11 @@ class VideoUpscalerPipeline:
           - filter_threads / filter_complex_threads set to 0 for maximum CPU usage
             during the Lanczos scale filter.
         """
+        fps_arg = meta.r_frame_rate if (meta.r_frame_rate and "/" in meta.r_frame_rate and meta.r_frame_rate != "0/0") else str(meta.fps)
         cmd = [
             "ffmpeg", "-y",
             "-threads", "0",
-            "-r", str(meta.fps),
+            "-r", fps_arg,
             "-i", os.path.join(frames_out_dir, f"frame_%08d.{frame_ext}"),
         ]
 
@@ -617,6 +773,16 @@ class VideoUpscalerPipeline:
             "-filter_threads", "0",
             "-filter_complex_threads", "0",
         ])
+
+        # Colorspace and dynamic range preservation
+        if meta.color_range and meta.color_range in ("tv", "pc", "limited", "full"):
+            cmd.extend(["-color_range", meta.color_range])
+        if meta.color_space and meta.color_space not in ("unknown", "unspecified"):
+            cmd.extend(["-colorspace", meta.color_space])
+        if meta.color_primaries and meta.color_primaries not in ("unknown", "unspecified"):
+            cmd.extend(["-color_primaries", meta.color_primaries])
+        if meta.color_transfer and meta.color_transfer not in ("unknown", "unspecified"):
+            cmd.extend(["-color_trc", meta.color_transfer])
 
         # Encoder-specific parameters
         if chosen_encoder == "hevc_nvenc":
@@ -768,7 +934,13 @@ class VideoUpscalerPipeline:
         os.makedirs(out_folder, exist_ok=True)
 
         # 3. Check resume (already completed?) — skipped in preview mode, always re-render
-        if not _preview_mode and not job.overwrite and is_file_complete_and_valid(final_output_path, expect_audio=meta.has_audio):
+        if not _preview_mode and not job.overwrite and is_file_complete_and_valid(
+            final_output_path,
+            expect_audio=meta.has_audio,
+            expected_width=target_w,
+            expected_height=target_h,
+            expected_duration=meta.duration,
+        ):
             report(1.0, "Episode already present (Skipped)", {"output_file": final_output_path, "skipped": True})
             return True, f"Already completed: {os.path.basename(final_output_path)}"
 
@@ -796,6 +968,7 @@ class VideoUpscalerPipeline:
 
         os.makedirs(frames_in_dir, exist_ok=True)
         os.makedirs(frames_out_dir, exist_ok=True)
+        register_active_job_dir(work_dir)
 
         try:
             frame_ext = "jpg" if job.frame_format.lower() in ("jpg", "jpeg") else "png"
@@ -1281,9 +1454,9 @@ class VideoUpscalerPipeline:
                     return False, validation_error
 
             # 9. Atomic Move to Final Scene Output Destination
-            # Both paths live below output_dir, so replace keeps the completed
-            # original intact until the new file is fully encoded and verified.
-            os.replace(part_output_file, final_output_path)
+            # Both paths live below output_dir, but safe_atomic_move also handles
+            # cross-filesystem/cross-drive moves cleanly without data loss.
+            safe_atomic_move(part_output_file, final_output_path)
 
             total_duration_s = max(0.1, time.time() - t_file_start)
             final_size_mb = round(os.path.getsize(final_output_path) / (1024**2), 1)
@@ -1299,6 +1472,7 @@ class VideoUpscalerPipeline:
             return True, final_output_path
 
         finally:
+            unregister_active_job_dir(work_dir)
             # Clean up temporary frames and audio with retry loop to handle Windows file locking delays
             self._current_process = None
             if os.path.exists(work_dir):
@@ -1345,9 +1519,15 @@ class VideoUpscalerPipeline:
             selected_model = AVAILABLE_MODELS[model_id]
             chosen_scale = selected_model.default_scale
 
-        base_dir = os.path.dirname(video_path)
-        temp_dir = os.path.join(base_dir, ".temp_upscaler", f"preview_{uuid.uuid4().hex[:8]}")
-        os.makedirs(temp_dir, exist_ok=True)
+        temp_dir = ""
+        try:
+            base_dir = os.path.dirname(video_path)
+            candidate_dir = os.path.join(base_dir, ".temp_upscaler", f"preview_{uuid.uuid4().hex[:8]}")
+            os.makedirs(candidate_dir, exist_ok=True)
+            temp_dir = candidate_dir
+        except Exception:
+            temp_dir = os.path.join(tempfile.gettempdir(), "upscaler_previews", f"preview_{uuid.uuid4().hex[:8]}")
+            os.makedirs(temp_dir, exist_ok=True)
 
         orig_frame = os.path.join(temp_dir, "original_frame.png")
         up_frame = os.path.join(temp_dir, "upscaled_frame.png")
@@ -1432,10 +1612,17 @@ class VideoUpscalerPipeline:
 
 def cleanup_stale_temp_directories(
     root_dir: Optional[str] = None,
-    max_age_seconds: int = 900,
+    max_age_seconds: int = 86400,
     max_age_hours: Optional[float] = None
 ) -> int:
-    """Scans and removes stale .temp_upscaler directories left over from terminated sessions."""
+    """Scans and removes stale .temp_upscaler directories left over from terminated sessions.
+
+    Safely protects active jobs:
+    1. Checks in-memory active job directories for the current process.
+    2. Checks PID-based lease lock files (.job_lock) to avoid deleting directories
+       of concurrent processes currently performing work.
+    3. Uses a conservative default max age (24 hours instead of 15 minutes).
+    """
     if max_age_hours is not None:
         max_age_seconds = int(max_age_hours * 3600)
     cleaned = 0
@@ -1454,14 +1641,36 @@ def cleanup_stale_temp_directories(
             try:
                 for entry in os.listdir(temp_dir):
                     sub = os.path.join(temp_dir, entry)
-                    if os.path.isdir(sub):
+                    if not os.path.isdir(sub):
+                        continue
+
+                    # 1. Skip if registered as active in current process
+                    norm_sub = os.path.normcase(os.path.abspath(sub))
+                    with _active_job_dirs_lock:
+                        if norm_sub in _active_job_dirs:
+                            continue
+
+                    # 2. Check lock file for active foreign processes
+                    lock_file = os.path.join(sub, ".job_lock")
+                    if os.path.isfile(lock_file):
                         try:
-                            mtime = os.path.getmtime(sub)
-                            if time.time() - mtime >= max_age_seconds:
-                                shutil.rmtree(sub, ignore_errors=True)
-                                cleaned += 1
+                            with open(lock_file, "r", encoding="utf-8") as f:
+                                lock_data = json.load(f)
+                            owner_pid = lock_data.get("pid")
+                            if owner_pid and is_process_alive(int(owner_pid)):
+                                # Process is alive, do not clean!
+                                continue
                         except Exception:
                             pass
+
+                    # 3. Check modification age
+                    try:
+                        mtime = os.path.getmtime(sub)
+                        if time.time() - mtime >= max_age_seconds:
+                            shutil.rmtree(sub, ignore_errors=True)
+                            cleaned += 1
+                    except Exception:
+                        pass
             except Exception:
                 pass
     return cleaned

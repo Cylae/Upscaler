@@ -1,6 +1,7 @@
 import os
 import shutil
 import subprocess
+import sys
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
@@ -147,36 +148,69 @@ def get_hardware_info() -> HardwareInfo:
     )
 
 
-def print_doctor_report():
-    """Prints diagnostic report of the system environment."""
+def _redact_path(p: Optional[str]) -> str:
+    """Redacts user home directory from paths to protect privacy."""
+    if not p:
+        return "Not Found"
+    try:
+        user_home = os.path.expanduser("~")
+        if user_home and user_home in p:
+            return p.replace(user_home, "<USER_HOME>")
+    except Exception:
+        pass
+    return p
+
+
+def generate_diagnostic_report(redact_paths: bool = False) -> str:
+    """Generates a complete diagnostic report with optional path redaction for privacy."""
     hw = get_hardware_info()
-    print("=" * 60)
-    print("           SYSTEM ENVIRONMENT DIAGNOSTIC")
-    print("=" * 60)
-    print(f"CPU Logical Cores    : {hw.cpu_cores}")
-    print(f"GPU Name             : {hw.gpu_name}")
-    print(f"GPU VRAM             : {hw.gpu_vram_gb} GB")
-    print(f"NVIDIA GPU Detected  : {'Yes' if hw.has_nvidia else 'No'}")
-    print(f"NVENC H.265 (HEVC)   : {'Available' if hw.has_nvenc_hevc else 'Not Available'}")
-    print(f"NVENC H.264 (AVC)    : {'Available' if hw.has_nvenc_h264 else 'Not Available'}")
-    print(f"FFmpeg Path          : {hw.ffmpeg_path or 'Not Found'}")
-    print(f"FFmpeg Version       : {hw.ffmpeg_version}")
-    print(f"Real-ESRGAN Binary   : {hw.realesrgan_bin or 'Not Found'}")
-    print(f"RealCUGAN Binary     : {hw.realcugan_bin or 'Not Found'}")
-    print("-" * 60)
-    print("           LOCAL AI MODELS STORAGE (OFFLINE)")
-    print("-" * 60)
+    lines = [
+        "=" * 60,
+        "           SYSTEM ENVIRONMENT DIAGNOSTIC",
+        "=" * 60,
+        f"Platform             : {sys.platform} ({os.name})",
+        f"Python Version       : {sys.version.split()[0]}",
+        f"CPU Logical Cores    : {hw.cpu_cores}",
+        f"GPU Name             : {hw.gpu_name}",
+        f"GPU VRAM             : {hw.gpu_vram_gb} GB",
+        f"NVIDIA GPU Detected  : {'Yes' if hw.has_nvidia else 'No'}",
+        f"NVENC H.265 (HEVC)   : {'Available' if hw.has_nvenc_hevc else 'Not Available'}",
+        f"NVENC H.264 (AVC)    : {'Available' if hw.has_nvenc_h264 else 'Not Available'}",
+        f"FFmpeg Path          : {_redact_path(hw.ffmpeg_path) if redact_paths else (hw.ffmpeg_path or 'Not Found')}",
+        f"FFmpeg Version       : {hw.ffmpeg_version}",
+        f"Real-ESRGAN Binary   : {_redact_path(hw.realesrgan_bin) if redact_paths else (hw.realesrgan_bin or 'Not Found')}",
+        f"RealCUGAN Binary     : {_redact_path(hw.realcugan_bin) if redact_paths else (hw.realcugan_bin or 'Not Found')}",
+        "-" * 60,
+        "           LOCAL AI MODELS STORAGE (OFFLINE)",
+        "-" * 60,
+    ]
     from src.core.ai_models import check_local_model_availability
     models_status = check_local_model_availability(get_base_dir())
     for mid, ok in models_status.items():
         if mid == "auto":
             continue
         status_str = "Verified Local (Ready)" if ok else "Missing"
-        print(f"  {mid:<23}: {status_str}")
-    print("=" * 60)
+        lines.append(f"  {mid:<23}: {status_str}")
+    lines.append("=" * 60)
     all_models_ok = all(models_status.values())
     if hw.has_nvidia and hw.has_nvenc_hevc and hw.ffmpeg_path and hw.realesrgan_bin and all_models_ok:
-        print("Status: Everything is optimally configured for 4K GPU upscaling (100% local).")
+        lines.append("Status: Everything is optimally configured for 4K GPU upscaling (100% local).")
     else:
-        print("Notice: Some acceleration components were not detected.")
-    print("=" * 60)
+        lines.append("Notice: Some acceleration components were not detected.")
+    lines.append("=" * 60)
+    return "\n".join(lines)
+
+
+def export_diagnostic_report(output_path: Optional[str] = None, redact_paths: bool = True) -> str:
+    """Exports diagnostic report to a text file or returns it as a string."""
+    report = generate_diagnostic_report(redact_paths=redact_paths)
+    if output_path:
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(report)
+    return report
+
+
+def print_doctor_report():
+    """Prints diagnostic report of the system environment to stdout."""
+    print(generate_diagnostic_report(redact_paths=False))
+

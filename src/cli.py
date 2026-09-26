@@ -4,9 +4,14 @@ import re
 import sys
 import time
 
+if __name__ == "__main__" or "src" not in sys.modules:
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if project_root not in sys.path:
+        sys.path.insert(0, project_root)
+
 from src.core.ai_models import AVAILABLE_MODELS, recommend_model_for_video
 from src.core.batch_manager import BatchManager, EpisodeStatus, QueueItem
-from src.core.detector import get_hardware_info, print_doctor_report
+from src.core.detector import export_diagnostic_report, get_hardware_info, print_doctor_report
 from src.core.presets import ENHANCEMENT_PRESETS, get_preset
 from src.core.scene_renamer import SceneNamingConfig
 from src.core.video_pipeline import probe_video
@@ -37,8 +42,11 @@ def run_cli():
     parser.add_argument("--threads", "-t", default="auto", help="Engine load:proc:save threads (e.g. auto, 4:4:4, 2:4:2)")
     parser.add_argument("--frame-format", "-f", choices=["jpg", "png"], default=None, help="Frame I/O format (default: jpg, 2x-3x faster)")
     parser.add_argument("--doctor", action="store_true", help="Run hardware and environment diagnostic")
+    parser.add_argument("--export-diagnostics", nargs="?", const="", default=None, help="Export diagnostic report to file (or stdout)")
+    parser.add_argument("--manifest", help="Path to save or restore batch manifest JSON file")
+    parser.add_argument("--retry-failed", action="store_true", help="Retry failed or cancelled items from previous batch")
     parser.add_argument("--yes", "-y", action="store_true", help="Accept the displayed AI-model choice without an interactive prompt")
-    parser.add_argument("--dry-run", action="store_true", help="Scan and display the planned batch without converting files")
+    parser.add_argument("--dry-run", action="store_true", help="Scan and display the planned batch and mappings without converting files")
     parser.add_argument("--list-presets", action="store_true", help="List the available quality profiles and exit")
 
     args = parser.parse_args()
@@ -56,6 +64,15 @@ def run_cli():
         if not match or any(int(value) < 1 for value in match.groups()):
             parser.error("--threads must be 'auto' or LOAD:PROC:SAVE with positive integers")
 
+    if args.export_diagnostics is not None:
+        out_f = args.export_diagnostics if args.export_diagnostics else None
+        report_text = export_diagnostic_report(out_f, redact_paths=True)
+        if out_f:
+            print(f"Diagnostic report exported to: {out_f}")
+        else:
+            print(report_text)
+        sys.exit(0)
+
     if args.doctor:
         print_doctor_report()
         sys.exit(0)
@@ -67,8 +84,8 @@ def run_cli():
             print(f"  {preset.description}")
         sys.exit(0)
 
-    if not args.source:
-        parser.error("--source is required unless --doctor or --list-presets is used")
+    if not args.source and not (args.manifest and os.path.isfile(args.manifest)):
+        parser.error("--source is required unless --doctor, --list-presets, or --manifest is used")
 
     # Resolve preset baseline
     chosen_preset = get_preset(args.preset or "cartoon_4k_master")
@@ -83,7 +100,7 @@ def run_cli():
     workers_val = args.workers if args.workers is not None else chosen_preset.workers
     fmt_val = args.frame_format or chosen_preset.frame_format
 
-    if not args.output:
+    if not args.output and args.source:
         output_tag = "2160p" if res_val == "4k" else res_val
         if os.path.isdir(args.source):
             args.output = f"{args.source} ({output_tag})"
@@ -99,11 +116,12 @@ def run_cli():
     print(f"  Encoder     : {'NVIDIA NVENC Hardware Active' if hw.has_nvenc_hevc else 'CPU (libx265)'}")
     print(f"  Preset      : {chosen_preset.name}")
     print(f"  Audio Mode  : {audio_val.upper()} (Preserved)")
-    print(f"  Source      : {args.source}")
+    if args.source:
+        print(f"  Source      : {args.source}")
     print(f"  Output      : {args.output}")
     print("=" * 70)
 
-    if not os.path.exists(args.source):
+    if args.source and not os.path.exists(args.source):
         print(f"Error: Source path '{args.source}' does not exist.")
         sys.exit(1)
 
@@ -118,18 +136,27 @@ def run_cli():
     )
 
     bm = BatchManager(hw)
-    print(f"\nScanning folder: {args.source} ...")
-    queue = bm.scan_folder(args.source, args.output, scene_cfg, preserve_folders=True)
+    if args.manifest and os.path.isfile(args.manifest):
+        print(f"\nRestoring queue from manifest: {args.manifest} ...")
+        bm.load_manifest(args.manifest)
+        queue = bm.queue
+    else:
+        print(f"\nScanning folder: {args.source} ...")
+        queue = bm.scan_folder(args.source, args.output, scene_cfg, preserve_folders=True)
 
     if not queue:
         print("No video files found.")
         sys.exit(0)
 
+    if args.retry_failed:
+        retried = bm.retry_failed_items()
+        print(f"Retried {retried} previously failed/cancelled item(s).")
+
     if args.limit > 0:
         queue = queue[:args.limit]
         bm.queue = queue
 
-    print(f"Found {len(queue)} episode(s) to process.")
+    print(f"Found {len(queue)} episode(s) in queue.")
     print(f"Destination folder: {args.output}\n")
 
     if model_val == "auto":
@@ -152,15 +179,41 @@ def run_cli():
         print(f"AI model selected manually: {model.name}")
         print(f"Reason: {model.description}")
 
-    print("\nBATCH PLAN")
-    print(f"  Files       : {len(queue)}")
+    # Preflight Summary
+    preflight = bm.get_preflight_summary(
+        args.output,
+        target_preset=res_val,
+        video_codec=codec_val,
+        model_id=model_val,
+        cq_level=cq_val
+    )
+
+    print("\nPREFLIGHT SUMMARY")
+    print(f"  Total items : {preflight['total_items']} ({preflight['pending_items']} pending, {preflight['skipped_items']} skipped)")
     print(f"  Target      : {res_val.upper()} · {codec_val} · CQ {cq_val}")
+    print(f"  Source Size : {preflight['total_source_size_mb']} MB")
+    print(f"  Est. Output : ~{preflight['estimated_output_mb']} MB")
+    print(f"  Target Free : {preflight['free_disk_mb']} MB")
     print(f"  Processing  : {workers_val} worker(s) · threads {args.threads} · {fmt_val.upper()} frames")
     print(f"  Overwrite   : {'yes' if args.overwrite else 'no'}")
 
+    if preflight["warnings"]:
+        print("\n  PREFLIGHT WARNINGS:")
+        for w in preflight["warnings"]:
+            print(f"  [!] {w}")
+
     if args.dry_run:
-        print("\nDry run complete: no files were converted.")
+        print("\nDRY-RUN OUTPUT PLAN")
+        plan = bm.plan_dry_run(args.output, scene_cfg, preserve_folders=True)
+        for p in plan:
+            status_tag = "[SKIP]" if p["already_exists"] and not args.overwrite else "[READY]"
+            coll_tag = " [COLLISION WARNING!]" if p["collision"] else ""
+            print(f"  {status_tag} {p['relative_source']} ({p['source_size_mb']} MB) -> {p['target_name']}{coll_tag}")
+        print(f"\nDry run complete: {len(plan)} item(s) mapped, no files were converted.")
         sys.exit(0)
+
+    if args.manifest and not os.path.isfile(args.manifest):
+        bm.save_manifest(args.manifest)
 
     if not args.yes:
         if not sys.stdin.isatty():
