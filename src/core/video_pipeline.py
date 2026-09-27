@@ -1,3 +1,7 @@
+"""Core video processing pipeline for local neural upscaling and transcoding."""
+
+from __future__ import annotations
+
 import json
 import math
 import os
@@ -11,174 +15,67 @@ import uuid
 from dataclasses import dataclass, replace
 from typing import Callable, Dict, List, Optional, Tuple
 
-_active_job_dirs_lock = threading.Lock()
-_active_job_dirs: set = set()
-
-
-def register_active_job_dir(work_dir: str, job_info: Optional[Dict] = None) -> str:
-    """Registers an active work directory and writes a PID lease lock file."""
-    norm_path = os.path.normcase(os.path.abspath(work_dir))
-    with _active_job_dirs_lock:
-        _active_job_dirs.add(norm_path)
-
-    os.makedirs(work_dir, exist_ok=True)
-    lock_file = os.path.join(work_dir, ".job_lock")
-    payload = {
-        "pid": os.getpid(),
-        "created_at": time.time(),
-        "last_heartbeat": time.time(),
-        "info": job_info or {}
-    }
-    try:
-        with open(lock_file, "w", encoding="utf-8") as f:
-            json.dump(payload, f)
-    except Exception:
-        pass
-    return lock_file
-
-
-def unregister_active_job_dir(work_dir: str) -> None:
-    """Unregisters an active work directory."""
-    norm_path = os.path.normcase(os.path.abspath(work_dir))
-    with _active_job_dirs_lock:
-        _active_job_dirs.discard(norm_path)
-
-
-def is_process_alive(pid: int) -> bool:
-    """Checks whether a process with the given PID is actively running."""
-    if pid <= 0:
-        return False
-    if os.name == "nt":
-        try:
-            import ctypes
-            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
-            handle = ctypes.windll.kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
-            if not handle:
-                return False
-            exit_code = ctypes.c_ulong()
-            ctypes.windll.kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code))
-            ctypes.windll.kernel32.CloseHandle(handle)
-            STILL_ACTIVE = 259
-            return exit_code.value == STILL_ACTIVE
-        except Exception:
-            return True  # Be conservative: assume alive if error occurs
-    else:
-        try:
-            os.kill(pid, 0)
-            return True
-        except OSError:
-            return False
-
-from src.core.ai_models import (
+from src.core.hardware import (
+    HardwareInfo,
+    detect_ai_binaries,
+    detect_ffmpeg,
+    detect_nvidia_gpu,
+    get_base_dir,
+    get_hardware_info,
+)
+from src.core.models import (
     AVAILABLE_MODELS,
     AIModelSpec,
     ModelEngine,
+    auto_tile_size,
     calculate_target_dimensions,
-    choose_best_model_for_video
+    choose_best_model_for_video,
+    get_optimal_thread_spec,
+    recommend_model_for_video,
+    resolve_realcugan_options,
 )
-from src.core.detector import HardwareInfo, get_hardware_info
-from src.core.scene_renamer import (
+from src.core.probe import (
+    VideoMetadata,
+    clean_metadata_args,
+    find_forbidden_media_metadata,
+    format_eta,
+    probe_audio_stream,
+    probe_audio_streams,
+    probe_video,
+    resolve_ffprobe_bin,
+    verify_clean_media_metadata,
+)
+from src.core.process import (
+    ProcessTracker,
+    safe_kill_process_tree,
+)
+from src.core.scene_namer import (
     SceneNamingConfig,
+    clean_scene_text,
     find_forbidden_output_markers,
+    format_clean_name,
+    format_output_name,
     format_scene_name,
-    get_scene_relative_output_path
+    get_scene_relative_output_path,
+    parse_episode_metadata,
+    scrub_text_of_internal_markers,
+    strip_forbidden_output_markers,
+)
+from src.core.storage import (
+    cleanup_stale_temp_directories,
+    is_process_alive,
+    register_active_job_dir,
+    safe_atomic_move,
+    unregister_active_job_dir,
+)
+from src.core.validator import (
+    is_file_complete_and_valid,
+    validate_encoded_video,
+    validate_job_config,
 )
 
+_auto_tile_size = auto_tile_size
 
-def format_eta(seconds: Optional[float]) -> str:
-    """Formats a duration in seconds into clean human-readable text (e.g. '45s', '1m 24s', '2h 15m')."""
-    if seconds is None:
-        return "--"
-    try:
-        if math.isnan(seconds) or math.isinf(seconds) or seconds < 0 or seconds > 86400 * 365:
-            return "--"
-    except (TypeError, ValueError):
-        return "--"
-    s = int(round(seconds))
-    if s < 60:
-        return f"{s}s"
-    minutes = s // 60
-    remaining_secs = s % 60
-    if minutes < 60:
-        return f"{minutes}m {remaining_secs:02d}s"
-    hours = minutes // 60
-    remaining_mins = minutes % 60
-    return f"{hours}h {remaining_mins:02d}m"
-
-
-def clean_metadata_args(include_video: bool = True) -> list:
-    """Returns FFmpeg command line arguments to strip and wipe all metadata."""
-    args = [
-        "-map_metadata", "-1",
-        "-metadata", "title=",
-        "-metadata", "comment=",
-        "-metadata", "description=",
-        "-metadata", "encoder=",
-        "-metadata", "synopsis=",
-        "-metadata", "genre=",
-        "-metadata", "artist=",
-        "-metadata", "album="
-    ]
-    if include_video:
-        args.extend([
-            "-metadata:s:v:0", "title=",
-            "-metadata:s:v:0", "comment=",
-            "-metadata:s:v:0", "description=",
-            "-metadata:s:v:0", "handler_name="
-        ])
-    return args
-
-
-def verify_clean_media_metadata(filepath: str, ffprobe_bin: Optional[str] = None) -> Tuple[bool, List[str], str]:
-    """Inspects output media file tags via ffprobe for forbidden markers.
-
-    Returns (is_clean, violations, error_message).
-    is_clean is True only if inspection succeeded and no forbidden markers were found.
-    """
-    bin_path = resolve_ffprobe_bin(ffprobe_bin)
-    try:
-        raw = subprocess.check_output(
-            [bin_path, "-v", "error", "-show_entries", "format_tags:stream_tags", "-of", "json", filepath],
-            text=True,
-            errors="ignore",
-            timeout=15,
-        )
-        markers = find_forbidden_output_markers(raw)
-        return len(markers) == 0, markers, ""
-    except Exception as exc:
-        return False, [], str(exc)
-
-
-def find_forbidden_media_metadata(filepath: str, ffprobe_bin: Optional[str] = None) -> list:
-    """Checks output media file tags via ffprobe for any forbidden markers.
-
-    Raises RuntimeError if ffprobe inspection fails, ensuring verification errors
-    are never silently treated as clean output.
-    """
-    is_clean, violations, err = verify_clean_media_metadata(filepath, ffprobe_bin)
-    if err:
-        raise RuntimeError(f"Failed to inspect media metadata for {filepath}: {err}")
-    return violations
-
-
-@dataclass
-class VideoMetadata:
-    filepath: str
-    width: int
-    height: int
-    fps: float
-    duration: float
-    nb_frames: int
-    codec_name: str
-    has_audio: bool
-    audio_codec: str
-    has_subtitles: bool
-    r_frame_rate: str = ""
-    color_range: str = ""
-    color_space: str = ""
-    color_primaries: str = ""
-    color_transfer: str = ""
-    audio_stream_count: int = 1
 
 
 @dataclass
@@ -206,344 +103,6 @@ class UpscaleJobConfig:
     # video so the clip is representative rather than a cold open).  The output file
     # receives a "[Preview Xsec]" suffix and never overwrites a full-length encode.
     preview_duration_s: Optional[float] = None
-
-
-def validate_job_config(job: UpscaleJobConfig) -> None:
-    """Fails fast on invalid programmatic jobs before creating temporary files."""
-    if not os.path.isfile(job.input_file):
-        raise ValueError(f"Input video does not exist: {job.input_file}")
-    if not job.output_dir:
-        raise ValueError("Output directory is required.")
-    if job.target_preset not in {"4k", "1440p", "1080p", "720p"}:
-        raise ValueError(f"Unsupported target resolution: {job.target_preset}")
-    if job.video_codec not in {"hevc_nvenc", "h264_nvenc", "libx265", "libx264"}:
-        raise ValueError(f"Unsupported video codec: {job.video_codec}")
-    if job.model_id not in AVAILABLE_MODELS:
-        raise ValueError(f"Unknown AI model: {job.model_id}")
-    if job.frame_format.lower() not in {"jpg", "jpeg", "png"}:
-        raise ValueError(f"Unsupported frame format: {job.frame_format}")
-    if not 14 <= job.cq_level <= 28:
-        raise ValueError("CQ level must be between 14 and 28.")
-    if job.nvenc_preset not in {f"p{index}" for index in range(1, 8)}:
-        raise ValueError(f"Unsupported NVENC preset: {job.nvenc_preset}")
-    if job.denoise_level not in {-1, 0, 1, 2, 3}:
-        raise ValueError("RealCUGAN denoise level must be between -1 and 3.")
-    if job.audio_mode not in {"copy", "aac_192k", "aac_320k", "flac"}:
-        raise ValueError(f"Unsupported audio mode: {job.audio_mode}")
-    if job.tile_size != 0 and job.tile_size < 32:
-        raise ValueError("Tile size must be 0 (auto) or at least 32 pixels.")
-    if job.threads != "auto":
-        match = re.fullmatch(r"(\d+):(\d+):(\d+)", job.threads)
-        if not match or any(int(value) < 1 for value in match.groups()):
-            raise ValueError("Threads must be 'auto' or LOAD:PROC:SAVE with positive integers.")
-    if job.preview_duration_s is not None and job.preview_duration_s <= 0:
-        raise ValueError("Preview duration must be greater than zero.")
-
-
-def get_optimal_thread_spec(threads_param: str = "auto", gpu_vram_gb: float = 0.0) -> str:
-    """Calculates optimal load:proc:save thread count based on CPU cores and GPU VRAM.
-
-    Higher GPU VRAM allows more parallel processing threads in the AI upscaler,
-    reducing per-frame latency significantly on modern GPUs.
-    """
-    if threads_param and threads_param != "auto":
-        return threads_param
-    cpu_count = os.cpu_count() or 4
-
-    # Determine proc threads based on available VRAM — more VRAM = more parallelism
-    if gpu_vram_gb >= 10.0:
-        proc = 8
-    elif gpu_vram_gb >= 6.0:
-        proc = 6
-    elif gpu_vram_gb >= 4.0:
-        proc = 4
-    else:
-        proc = 4  # Safe default
-
-    # Determine load/save threads based on CPU core count
-    if cpu_count >= 16:
-        load_save = 4
-    elif cpu_count >= 8:
-        load_save = 3
-    elif cpu_count >= 4:
-        load_save = 2
-    else:
-        load_save = 1
-
-    return f"{load_save}:{proc}:{load_save}"
-
-
-def _auto_tile_size(gpu_vram_gb: float) -> int:
-    """Computes optimal tile_size for ncnn-vulkan upscalers based on available GPU VRAM.
-
-    Larger tiles reduce kernel-launch overhead but require proportionally more VRAM.
-    Over-sized tiles cause GPU OOM and fall back to software, which is catastrophically slow.
-    """
-    if gpu_vram_gb >= 10.0:
-        return 0    # No tiling needed — entire frame fits in VRAM
-    elif gpu_vram_gb >= 6.0:
-        return 400  # Large tiles, minimal overhead
-    elif gpu_vram_gb >= 4.0:
-        return 200  # Medium tiles
-    elif gpu_vram_gb >= 2.0:
-        return 100  # Small tiles for low-VRAM GPUs
-    else:
-        return 64   # Conservative fallback (integrated / very old GPU)
-
-
-def resolve_realcugan_options(models_dir: str, requested_scale: int, requested_denoise: int) -> Tuple[int, int, str]:
-    """Resolves a RealCUGAN request against the weights actually installed.
-
-    RealCUGAN Pro distributions are often intentionally sparse (this bundle has
-    2x/3x and denoise -1/0/3 only). Selecting a missing variant makes the native
-    binary fail late and leaves users with an opaque exit code. This resolver
-    chooses the nearest available variant and returns a user-facing explanation.
-    """
-    available: Dict[int, List[int]] = {}
-    noise_names = {-1: "no-denoise", 0: "conservative", 1: "denoise1x", 2: "denoise2x", 3: "denoise3x"}
-    for scale in (1, 2, 3, 4):
-        levels = [
-            level for level, name in noise_names.items()
-            if os.path.isfile(os.path.join(models_dir, f"up{scale}x-{name}.param"))
-            and os.path.isfile(os.path.join(models_dir, f"up{scale}x-{name}.bin"))
-        ]
-        if levels:
-            available[scale] = levels
-
-    if not available:
-        raise ValueError(f"No valid RealCUGAN weights found in {models_dir}")
-
-    scale = requested_scale if requested_scale in available else min(available, key=lambda value: abs(value - requested_scale))
-    levels = available[scale]
-    denoise = requested_denoise if requested_denoise in levels else min(levels, key=lambda value: abs(value - requested_denoise))
-
-    changes = []
-    if scale != requested_scale:
-        changes.append(f"scale {requested_scale}x → {scale}x")
-    if denoise != requested_denoise:
-        changes.append(f"denoise {requested_denoise} → {denoise}")
-    return scale, denoise, "; ".join(changes)
-
-
-def resolve_ffprobe_bin(ffprobe_bin: Optional[str] = None) -> str:
-    """Finds ffprobe binary in environment or adjacent to ffmpeg."""
-    if ffprobe_bin and (os.path.isfile(ffprobe_bin) or shutil.which(ffprobe_bin)):
-        return ffprobe_bin
-    found = shutil.which("ffprobe")
-    if found:
-        return found
-    ffmpeg_found = shutil.which("ffmpeg")
-    if ffmpeg_found:
-        candidate = os.path.join(os.path.dirname(ffmpeg_found), "ffprobe.exe" if os.name == "nt" else "ffprobe")
-        if os.path.isfile(candidate):
-            return candidate
-    return "ffprobe"
-
-
-def probe_video(filepath: str, ffprobe_bin: Optional[str] = None) -> VideoMetadata:
-    """Uses ffprobe to extract complete video metadata."""
-    bin_name = resolve_ffprobe_bin(ffprobe_bin)
-    cmd = [
-        bin_name,
-        "-v", "error",
-        "-show_streams",
-        "-show_format",
-        "-print_format", "json",
-        filepath
-    ]
-    raw = subprocess.check_output(cmd, text=True, errors="ignore", timeout=30)
-    data = json.loads(raw)
-
-    v_stream = next((s for s in data.get("streams", []) if s.get("codec_type") == "video"), None)
-    if not v_stream:
-        raise ValueError(f"No video stream found in {filepath}")
-
-    width = int(v_stream.get("width", 0))
-    height = int(v_stream.get("height", 0))
-
-    fps = 0.0
-    for fps_str in (v_stream.get("avg_frame_rate"), v_stream.get("r_frame_rate")):
-        try:
-            numerator, denominator = str(fps_str).split("/", 1)
-            if float(denominator) > 0:
-                fps = float(numerator) / float(denominator)
-                if fps > 0:
-                    break
-        except (TypeError, ValueError):
-            continue
-    if fps <= 0:
-        fps = 24.0
-
-    duration = 0.0
-    for raw_duration in (data.get("format", {}).get("duration"), v_stream.get("duration")):
-        try:
-            duration = float(raw_duration)
-            if duration > 0:
-                break
-        except (TypeError, ValueError):
-            continue
-    nb_frames_raw = v_stream.get("nb_frames")
-    nb_frames = int(nb_frames_raw) if nb_frames_raw and str(nb_frames_raw).isdigit() else max(1, int(duration * fps))
-    if duration <= 0 and nb_frames > 0:
-        duration = nb_frames / fps
-
-    a_streams = [s for s in data.get("streams", []) if s.get("codec_type") == "audio"]
-    has_audio = len(a_streams) > 0
-    audio_codec = a_streams[0].get("codec_name", "") if has_audio else ""
-
-    s_stream = next((s for s in data.get("streams", []) if s.get("codec_type") == "subtitle"), None)
-    has_subtitles = s_stream is not None
-
-    r_frame_rate = str(v_stream.get("r_frame_rate", "") or "")
-    color_range = str(v_stream.get("color_range", "") or "")
-    color_space = str(v_stream.get("color_space", "") or "")
-    color_primaries = str(v_stream.get("color_primaries", "") or "")
-    color_transfer = str(v_stream.get("color_transfer", "") or "")
-
-    return VideoMetadata(
-        filepath=filepath,
-        width=width,
-        height=height,
-        fps=fps,
-        duration=duration,
-        nb_frames=nb_frames,
-        codec_name=v_stream.get("codec_name", ""),
-        has_audio=has_audio,
-        audio_codec=audio_codec,
-        has_subtitles=has_subtitles,
-        r_frame_rate=r_frame_rate,
-        color_range=color_range,
-        color_space=color_space,
-        color_primaries=color_primaries,
-        color_transfer=color_transfer,
-        audio_stream_count=len(a_streams)
-    )
-
-
-def probe_audio_stream(filepath: str, ffprobe_bin: Optional[str] = None) -> bool:
-    """Uses ffprobe to verify that the file contains at least one valid audio stream."""
-    if not os.path.isfile(filepath) or os.path.getsize(filepath) < 500:
-        return False
-    bin_name = resolve_ffprobe_bin(ffprobe_bin)
-    cmd = [
-        bin_name,
-        "-v", "error",
-        "-show_streams",
-        "-select_streams", "a",
-        "-print_format", "json",
-        filepath
-    ]
-    try:
-        raw = subprocess.check_output(cmd, text=True, errors="ignore", timeout=15)
-        data = json.loads(raw)
-        streams = data.get("streams", [])
-        return len(streams) > 0
-    except Exception:
-        return False
-
-
-def is_file_complete_and_valid(
-    filepath: str,
-    expect_audio: bool = False,
-    expected_width: Optional[int] = None,
-    expected_height: Optional[int] = None,
-    expected_duration: Optional[float] = None,
-    duration_tolerance_s: float = 2.0,
-    duration_tolerance_ratio: float = 0.02,
-) -> bool:
-    """Checks if an already existing output file is valid and complete, matching the expected job contract.
-    
-    Verifies:
-      - File exists and is > 100 KB
-      - Valid video stream with positive dimensions and duration
-      - Resolution matches expected_width and expected_height (if specified)
-      - Duration matches expected_duration within tolerance (detects truncated/incomplete renders)
-      - Audio stream presence matches expect_audio
-    """
-    if not os.path.isfile(filepath):
-        return False
-    if os.path.getsize(filepath) < 100_000:  # < 100KB is incomplete
-        return False
-    try:
-        meta = probe_video(filepath)
-        if meta.duration <= 0.5 or meta.width <= 0 or meta.height <= 0:
-            return False
-        if expect_audio and not meta.has_audio:
-            return False
-        if expected_width is not None and expected_height is not None:
-            if meta.width != expected_width or meta.height != expected_height:
-                return False
-        if expected_duration is not None and expected_duration > 1.0:
-            allowed_diff = max(duration_tolerance_s, expected_duration * duration_tolerance_ratio)
-            if abs(meta.duration - expected_duration) > allowed_diff:
-                return False
-        return True
-    except Exception:
-        return False
-
-
-def safe_atomic_move(src: str, dst: str) -> None:
-    """Atomically moves src to dst, with safe fallback for cross-filesystem moves.
-
-    If src and dst live on different volumes/drives (WinError 17 on Windows or
-    EXDEV errno 18 on POSIX), copies to a temporary file on the destination
-    directory first, then performs atomic replace.
-    """
-    dst_dir = os.path.dirname(dst)
-    os.makedirs(dst_dir, exist_ok=True)
-    try:
-        os.replace(src, dst)
-    except OSError as exc:
-        if getattr(exc, "winerror", None) == 17 or getattr(exc, "errno", None) == 18:
-            temp_dst = os.path.join(dst_dir, f".moving_{uuid.uuid4().hex[:8]}_{os.path.basename(dst)}")
-            try:
-                shutil.copy2(src, temp_dst)
-                os.replace(temp_dst, dst)
-                try:
-                    os.remove(src)
-                except OSError:
-                    pass
-            finally:
-                if os.path.exists(temp_dst):
-                    try:
-                        os.remove(temp_dst)
-                    except OSError:
-                        pass
-        else:
-            raise
-
-
-def validate_encoded_video(
-    filepath: str,
-    expected_width: int,
-    expected_height: int,
-    expect_audio: bool = False,
-    metadata: Optional[VideoMetadata] = None,
-) -> Tuple[bool, str]:
-    """Validates that FFmpeg produced a playable video, not just a non-empty file.
-
-    This is deliberately stricter than a size check: an audio-only MP4 can be a
-    few megabytes large but is not a successful video render.
-    """
-    if not os.path.isfile(filepath) or os.path.getsize(filepath) == 0:
-        return False, "Encoder did not create an output file."
-    if metadata is None:
-        try:
-            meta = probe_video(filepath)
-        except Exception as exc:
-            return False, f"Final output has no readable video stream: {exc}"
-    else:
-        meta = metadata
-    if meta.width != expected_width or meta.height != expected_height:
-        return False, (
-            f"Final output resolution is {meta.width}x{meta.height}, expected "
-            f"{expected_width}x{expected_height}."
-        )
-    if meta.duration <= 0 or meta.nb_frames <= 0:
-        return False, "Final output contains no video frames."
-    if expect_audio and not meta.has_audio:
-        return False, "Final output is missing its expected audio stream."
-    return True, ""
 
 
 def _probe_cuda_support() -> bool:
@@ -1610,67 +1169,3 @@ class VideoUpscalerPipeline:
         }
 
 
-def cleanup_stale_temp_directories(
-    root_dir: Optional[str] = None,
-    max_age_seconds: int = 86400,
-    max_age_hours: Optional[float] = None
-) -> int:
-    """Scans and removes stale .temp_upscaler directories left over from terminated sessions.
-
-    Safely protects active jobs:
-    1. Checks in-memory active job directories for the current process.
-    2. Checks PID-based lease lock files (.job_lock) to avoid deleting directories
-       of concurrent processes currently performing work.
-    3. Uses a conservative default max age (24 hours instead of 15 minutes).
-    """
-    if max_age_hours is not None:
-        max_age_seconds = int(max_age_hours * 3600)
-    cleaned = 0
-    search_dirs = [root_dir] if root_dir else []
-    try:
-        from src.core.detector import get_base_dir
-        search_dirs.append(get_base_dir())
-    except Exception:
-        pass
-
-    for s_dir in search_dirs:
-        if not s_dir or not os.path.isdir(s_dir):
-            continue
-        temp_dir = os.path.join(s_dir, ".temp_upscaler")
-        if os.path.isdir(temp_dir):
-            try:
-                for entry in os.listdir(temp_dir):
-                    sub = os.path.join(temp_dir, entry)
-                    if not os.path.isdir(sub):
-                        continue
-
-                    # 1. Skip if registered as active in current process
-                    norm_sub = os.path.normcase(os.path.abspath(sub))
-                    with _active_job_dirs_lock:
-                        if norm_sub in _active_job_dirs:
-                            continue
-
-                    # 2. Check lock file for active foreign processes
-                    lock_file = os.path.join(sub, ".job_lock")
-                    if os.path.isfile(lock_file):
-                        try:
-                            with open(lock_file, "r", encoding="utf-8") as f:
-                                lock_data = json.load(f)
-                            owner_pid = lock_data.get("pid")
-                            if owner_pid and is_process_alive(int(owner_pid)):
-                                # Process is alive, do not clean!
-                                continue
-                        except Exception:
-                            pass
-
-                    # 3. Check modification age
-                    try:
-                        mtime = os.path.getmtime(sub)
-                        if time.time() - mtime >= max_age_seconds:
-                            shutil.rmtree(sub, ignore_errors=True)
-                            cleaned += 1
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-    return cleaned
