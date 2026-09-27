@@ -41,6 +41,12 @@ def is_file_complete_and_valid(
         meta = probe_fn(filepath)
         if meta.duration <= 0.5 or meta.width <= 0 or meta.height <= 0:
             return False
+        # nb_frames > 0 guards against truncated files where the MP4 container
+        # header (moov atom) was written successfully but the frame data is
+        # incomplete or missing — ffprobe can read metadata from these files
+        # without error, causing a false positive on the resume check.
+        if meta.nb_frames <= 0:
+            return False
         if expect_audio and not meta.has_audio:
             return False
         if expected_width is not None and expected_height is not None:

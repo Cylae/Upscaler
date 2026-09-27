@@ -86,11 +86,6 @@ class UpscalerMainWindow(QMainWindow):
         self._frame_worker: Optional[FramePreviewWorker] = None
         self.settings = QSettings("CYLAE", "VideoEnhancer4K")
 
-        self._settings_timer = QTimer(self)
-        self._settings_timer.setSingleShot(True)
-        self._settings_timer.setInterval(350)
-        self._settings_timer.timeout.connect(self._do_settings_changed)
-
         self._init_ui()
         self.setStyleSheet(DARK_STYLESHEET)
 
@@ -211,11 +206,11 @@ class UpscalerMainWindow(QMainWindow):
         btn_browse_src.clicked.connect(self.on_browse_source)
         row_src.addWidget(btn_browse_src)
 
-        btn_scan = QPushButton("🔍 Scan Folder")
-        btn_scan.setObjectName("btnScan")
-        btn_scan.setToolTip("Scan source directory and index all video files into the queue.")
-        btn_scan.clicked.connect(self.on_scan_clicked)
-        row_src.addWidget(btn_scan)
+        self.btn_scan = QPushButton("🔍 Scan Folder")
+        self.btn_scan.setObjectName("btnScan")
+        self.btn_scan.setToolTip("Scan source directory and index all video files into the queue.")
+        self.btn_scan.clicked.connect(self.on_scan_clicked)
+        row_src.addWidget(self.btn_scan)
         cfg_layout.addLayout(row_src)
 
         # Row 2: Output
@@ -1257,12 +1252,17 @@ class UpscalerMainWindow(QMainWindow):
         self.lbl_overall_status.setText(f"Scan failed: {err_msg}")
 
     def on_settings_changed(self):
+        """Called when a setting (codec, resolution, audio, etc.) changes.
+
+        Only refreshes the scene name preview label — does NOT re-scan the source
+        folder.  A re-scan wipes queue progress and must be initiated explicitly
+        by the user via the Scan Folder button or a browse/drop action.
+        """
         self.update_scene_preview()
-        if hasattr(self, "_settings_timer"):
-            self._settings_timer.start()
 
     def _do_settings_changed(self):
-        self.on_scan_clicked()
+        """Retained for backward-compatibility; delegates to update_scene_preview only."""
+        self.update_scene_preview()
 
     def on_preflight_clicked(self):
         if not self.batch_manager.queue:
@@ -1319,13 +1319,6 @@ class UpscalerMainWindow(QMainWindow):
                     for q in self.batch_manager.queue:
                         if q.id == item_id:
                             return q
-                try:
-                    idx = int(it.text())
-                    for q in self.batch_manager.queue:
-                        if q.index == idx:
-                            return q
-                except ValueError:
-                    pass
         return None
 
     def _populate_table(self, queue: List[QueueItem]):

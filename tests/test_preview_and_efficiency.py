@@ -104,7 +104,8 @@ def test_qt_ui_preview_and_error_pills():
 
 
 def test_ui_audit_fixes():
-    """Verify bugfixes: distinct objectNames, log buffer capping, clear_all_logs, debounce timer."""
+    """Verify bugfixes: distinct objectNames, log buffer capping, clear_all_logs,
+    btn_scan stored as instance attribute, and settings changes do not trigger a re-scan."""
     from PyQt6.QtCore import QSize
     from PyQt6.QtGui import QResizeEvent
     from PyQt6.QtWidgets import QApplication
@@ -120,12 +121,28 @@ def test_ui_audit_fixes():
     assert window.btn_preview.objectName() == "btnPreview"
     assert window.btn_preview_clip.objectName() != window.btn_preview.objectName()
 
-    # 2. Debounce timer exists and is configured
-    assert hasattr(window, "_settings_timer")
-    assert window._settings_timer.isSingleShot()
-    assert window._settings_timer.interval() == 350
+    # 2. btn_scan must be stored as an instance attribute so on_scan_clicked can
+    #    enable/disable it during background scans (previously a local-variable bug).
+    assert hasattr(window, "btn_scan"), (
+        "btn_scan must be stored as self.btn_scan so scan enable/disable works"
+    )
+    assert window.btn_scan.objectName() == "btnScan"
 
-    # 3. Log reception and clear_all_logs
+    # 3. on_settings_changed must NOT trigger a background re-scan.
+    #    It should only update the scene-name preview label.
+    scan_calls = []
+    original_scan = window.on_scan_clicked
+    window.on_scan_clicked = lambda *a, **kw: scan_calls.append(True)
+    window.on_settings_changed()
+    window.on_settings_changed()
+    window.on_settings_changed()
+    assert scan_calls == [], (
+        "on_settings_changed must not call on_scan_clicked — "
+        "settings changes should only refresh the preview label, not re-scan the folder"
+    )
+    window.on_scan_clicked = original_scan
+
+    # 4. Log reception and clear_all_logs
     window.on_log_received("FFmpeg extraction test message")
     assert len(window._log_buffer) == 1
     assert "Logs (1)" in window.btn_open_logs.text()
@@ -135,15 +152,16 @@ def test_ui_audit_fixes():
     assert "Logs (0)" in window.btn_open_logs.text()
     assert window.txt_console.toPlainText() == ""
 
-    # 4. Log buffer max capacity cap (5000 lines)
+    # 5. Log buffer max capacity cap (5000 lines)
     for i in range(5050):
         window.on_log_received(f"line {i}")
     assert len(window._log_buffer) == 5000
 
-    # 5. Compact resize displays numbers
+    # 6. Compact resize displays numbers
     window.resizeEvent(QResizeEvent(QSize(900, 600), QSize(1280, 800)))
     assert "All: 0" in window.btn_stat_all.text()
     assert "Ready: 0" in window.btn_stat_ready.text()
+
 
 
 def test_frame_comparison_dialog_and_controls():
