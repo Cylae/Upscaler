@@ -360,8 +360,8 @@ def auto_tile_size(
         else:
             return 64
     else:
-        if val >= 10.0:
-            return 0    # No tiling needed — entire frame fits in VRAM
+        if val >= 8.0:
+            return 0    # No tiling needed — entire frame fits directly in VRAM on 8GB+ GPUs
         elif val >= 6.0:
             return 400  # Large tiles, minimal overhead
         elif val >= 4.0:

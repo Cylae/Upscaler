@@ -11,8 +11,9 @@ import math
 import os
 import shutil
 import subprocess
-from dataclasses import dataclass
-from typing import Dict, List, Optional
+import threading
+from dataclasses import dataclass, replace
+from typing import Dict, List, Optional, Tuple
 
 
 @dataclass
@@ -35,6 +36,18 @@ class VideoMetadata:
     audio_stream_count: int = 1
 
 
+_PROBE_CACHE: Dict[Tuple[str, float, int], VideoMetadata] = {}
+_AUDIO_PROBE_CACHE: Dict[Tuple[str, float, int], List[Dict]] = {}
+_CACHE_LOCK = threading.Lock()
+
+
+def clear_probe_cache() -> None:
+    """Clears all cached video and audio metadata probe results."""
+    with _CACHE_LOCK:
+        _PROBE_CACHE.clear()
+        _AUDIO_PROBE_CACHE.clear()
+
+
 def resolve_ffprobe_bin(ffprobe_bin: Optional[str] = None) -> str:
     """Finds the usable ffprobe executable path."""
     if ffprobe_bin and (os.path.isfile(ffprobe_bin) or shutil.which(ffprobe_bin)):
@@ -54,7 +67,25 @@ def resolve_ffprobe_bin(ffprobe_bin: Optional[str] = None) -> str:
 
 
 def probe_video(filepath: str, ffprobe_bin: Optional[str] = None) -> VideoMetadata:
-    """Uses ffprobe to extract complete, structured video and stream metadata."""
+    """Uses ffprobe to extract complete, structured video and stream metadata.
+
+    Results are cached by (absolute_path, mtime, file_size) to eliminate redundant,
+    expensive subprocess invocations during batch scans, preflight checks, and encoding.
+    """
+    abs_path = os.path.abspath(filepath)
+    cache_key: Optional[Tuple[str, float, int]] = None
+    if os.path.isfile(abs_path):
+        try:
+            mtime = os.path.getmtime(abs_path)
+            size = os.path.getsize(abs_path)
+            cache_key = (abs_path, mtime, size)
+            with _CACHE_LOCK:
+                if cache_key in _PROBE_CACHE:
+                    cached = _PROBE_CACHE[cache_key]
+                    return replace(cached, filepath=filepath)
+        except OSError:
+            cache_key = None
+
     bin_name = resolve_ffprobe_bin(ffprobe_bin)
     cmd = [
         bin_name,
@@ -125,7 +156,7 @@ def probe_video(filepath: str, ffprobe_bin: Optional[str] = None) -> VideoMetada
     color_primaries = str(v_stream.get("color_primaries", "") or "")
     color_transfer = str(v_stream.get("color_transfer", "") or "")
 
-    return VideoMetadata(
+    meta = VideoMetadata(
         filepath=filepath,
         width=width,
         height=height,
@@ -144,9 +175,28 @@ def probe_video(filepath: str, ffprobe_bin: Optional[str] = None) -> VideoMetada
         audio_stream_count=len(a_streams)
     )
 
+    if cache_key:
+        with _CACHE_LOCK:
+            _PROBE_CACHE[cache_key] = meta
+
+    return meta
+
 
 def probe_audio_streams(filepath: str, ffprobe_bin: Optional[str] = None) -> List[Dict]:
-    """Returns list of audio stream dictionaries."""
+    """Returns list of audio stream dictionaries with caching."""
+    abs_path = os.path.abspath(filepath)
+    cache_key: Optional[Tuple[str, float, int]] = None
+    if os.path.isfile(abs_path):
+        try:
+            mtime = os.path.getmtime(abs_path)
+            size = os.path.getsize(abs_path)
+            cache_key = (abs_path, mtime, size)
+            with _CACHE_LOCK:
+                if cache_key in _AUDIO_PROBE_CACHE:
+                    return list(_AUDIO_PROBE_CACHE[cache_key])
+        except OSError:
+            cache_key = None
+
     bin_name = resolve_ffprobe_bin(ffprobe_bin)
     cmd = [
         bin_name,
@@ -159,7 +209,11 @@ def probe_audio_streams(filepath: str, ffprobe_bin: Optional[str] = None) -> Lis
     try:
         raw = subprocess.check_output(cmd, text=True, errors="ignore", timeout=20)
         data = json.loads(raw)
-        return data.get("streams", [])
+        streams = data.get("streams", [])
+        if cache_key:
+            with _CACHE_LOCK:
+                _AUDIO_PROBE_CACHE[cache_key] = streams
+        return streams
     except Exception:
         return []
 

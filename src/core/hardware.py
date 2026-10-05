@@ -10,6 +10,7 @@ import os
 import shutil
 import subprocess
 import sys
+import threading
 from dataclasses import dataclass
 from typing import Optional, Tuple
 
@@ -126,15 +127,35 @@ def detect_ai_binaries(base_dir: str) -> Tuple[Optional[str], Optional[str]]:
     return realesrgan_path, realcugan_path
 
 
-def get_hardware_info() -> HardwareInfo:
-    """Collects and returns complete system hardware and runtime capabilities."""
+_CACHED_HARDWARE_INFO: Optional[HardwareInfo] = None
+_HARDWARE_LOCK = threading.Lock()
+
+
+def clear_hardware_cache() -> None:
+    """Clears cached hardware detection info."""
+    global _CACHED_HARDWARE_INFO
+    with _HARDWARE_LOCK:
+        _CACHED_HARDWARE_INFO = None
+
+
+def get_hardware_info(force_refresh: bool = False) -> HardwareInfo:
+    """Collects and returns complete system hardware and runtime capabilities.
+
+    Results are cached to avoid repeated, slow subprocess queries (nvidia-smi, ffmpeg).
+    """
+    global _CACHED_HARDWARE_INFO
+    if not force_refresh:
+        with _HARDWARE_LOCK:
+            if _CACHED_HARDWARE_INFO is not None:
+                return _CACHED_HARDWARE_INFO
+
     base_dir = get_base_dir()
     gpu_name, gpu_vram, has_nvidia = detect_nvidia_gpu()
     ffmpeg_p, ffprobe_p, ffmpeg_v, has_hevc, has_h264 = detect_ffmpeg()
     realesrgan_b, realcugan_b = detect_ai_binaries(base_dir)
     cpu_cores = os.cpu_count() or 4
 
-    return HardwareInfo(
+    hw = HardwareInfo(
         gpu_name=gpu_name,
         gpu_vram_gb=gpu_vram,
         has_nvidia=has_nvidia,
@@ -147,6 +168,9 @@ def get_hardware_info() -> HardwareInfo:
         realcugan_bin=realcugan_b,
         cpu_cores=cpu_cores
     )
+    with _HARDWARE_LOCK:
+        _CACHED_HARDWARE_INFO = hw
+    return hw
 
 
 def generate_diagnostic_report(redact_paths: bool = False) -> str:
