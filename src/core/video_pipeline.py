@@ -534,15 +534,25 @@ class VideoUpscalerPipeline:
             return True, f"Already completed: {os.path.basename(final_output_path)}"
 
         # 4. Resolve Model
-        if job.model_id == "auto" or job.model_id not in AVAILABLE_MODELS:
-            selected_model, chosen_scale = choose_best_model_for_video(
-                meta.width, meta.height, job.target_preset
-            )
-        else:
-            selected_model = AVAILABLE_MODELS[job.model_id]
+        resolved_model_id = job.model_id
+        if resolved_model_id in AVAILABLE_MODELS and resolved_model_id != "auto":
+            selected_model = AVAILABLE_MODELS[resolved_model_id]
             chosen_scale = selected_model.default_scale
+        else:
+            found = False
+            if resolved_model_id and resolved_model_id != "auto":
+                for m_id, spec in AVAILABLE_MODELS.items():
+                    if m_id != "auto" and (resolved_model_id in (spec.name, spec.internal_name, spec.name.split(" (")[0])):
+                        selected_model = spec
+                        chosen_scale = spec.default_scale
+                        found = True
+                        break
+            if not found:
+                selected_model, chosen_scale = choose_best_model_for_video(
+                    meta.width, meta.height, job.target_preset
+                )
 
-        report(0.05, f"Selected model: {selected_model.name} (Scale {chosen_scale}x)")
+        report(0.05, f"Selected model: {selected_model.name} (Scale {chosen_scale}x)", {"model_name": selected_model.name, "scale": chosen_scale})
         model_reason = f"Auto-selected for {meta.width}×{meta.height}" if job.model_id == "auto" else "User selected"
         log_cmd(f"[AI MODEL] {selected_model.name} ×{chosen_scale} ({model_reason})")
 

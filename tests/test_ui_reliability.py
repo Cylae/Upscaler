@@ -154,7 +154,8 @@ def test_ui_1080p_layout_and_column_distribution(qapp):
     assert header.sectionResizeMode(2) == QHeaderView.ResizeMode.Fixed
     assert header.sectionResizeMode(3) == QHeaderView.ResizeMode.Stretch
     assert header.sectionResizeMode(4) == QHeaderView.ResizeMode.Fixed
-    assert header.sectionResizeMode(5) == QHeaderView.ResizeMode.Interactive
+    assert header.sectionResizeMode(5) == QHeaderView.ResizeMode.Fixed
+    assert header.sectionResizeMode(6) == QHeaderView.ResizeMode.Interactive
 
     # Populate sample items and verify column widths are balanced
     item1 = QueueItem(
@@ -330,5 +331,68 @@ def test_ui_combobox_delegates_and_frameless_controls(qapp):
     assert test_cb.view().autoFillBackground() is True
     # Test titlebar helper does not crash
     apply_dark_titlebar(win)
+
+
+def test_ui_table_shows_model_per_file(qapp):
+    """Verify table displays AI model used per file and updates dynamically."""
+    window = UpscalerMainWindow()
+
+    item1 = QueueItem(
+        index=1,
+        source_path="C:/vids/s01e01_sd_480p.mp4",
+        relative_source_path="s01e01_sd_480p.mp4",
+        target_scene_name="Show.S01E01.mp4",
+        target_full_path="C:/out/Show.S01E01.mp4",
+        file_size_mb=25.0,
+        resolution_str="640x480",
+        status=EpisodeStatus.PENDING,
+    )
+    item2 = QueueItem(
+        index=2,
+        source_path="C:/vids/s01e02_hd_720p.mp4",
+        relative_source_path="s01e02_hd_720p.mp4",
+        target_scene_name="Show.S01E02.mp4",
+        target_full_path="C:/out/Show.S01E02.mp4",
+        file_size_mb=50.0,
+        resolution_str="1280x720",
+        status=EpisodeStatus.PENDING,
+        model="realcugan-pro",
+    )
+
+    window.batch_manager.queue = [item1, item2]
+    window._populate_table(window.batch_manager.queue)
+
+    assert window.table.columnCount() == 7
+    assert window.table.horizontalHeaderItem(4).text() == "Model"
+
+    # item1 in auto mode with 480p resolution -> Anime 6B
+    row0_model = window.table.item(0, 4).text()
+    assert "Anime 6B" in row0_model or "Auto" in row0_model
+
+    # item2 has explicit model override "realcugan-pro"
+    row1_model = window.table.item(1, 4).text()
+    assert "RealCUGAN Pro" in row1_model
+
+    # Changing model dropdown in UI updates the table
+    for i in range(window.cb_model.count()):
+        if "AnimeVideo V3" in window.cb_model.itemText(i):
+            window.cb_model.setCurrentIndex(i)
+            break
+    qapp.processEvents()
+    # item1 (no explicit override) now reflects the chosen model
+    assert "AnimeVideo V3" in window.table.item(0, 4).text()
+    # item2 (explicit override) preserves RealCUGAN Pro
+    assert "RealCUGAN Pro" in window.table.item(1, 4).text()
+
+    # on_item_updated updates model in table
+    item1.model = "realesrgan-x4plus-anime"
+    window.on_item_updated(item1)
+    assert "Anime 6B" in window.table.item(0, 4).text()
+
+    # Search filter includes Model column
+    window.txt_filter.setText("RealCUGAN")
+    window.apply_table_filters()
+    assert window.table.isRowHidden(0) is True
+    assert window.table.isRowHidden(1) is False
 
 

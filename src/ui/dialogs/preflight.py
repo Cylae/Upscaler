@@ -86,12 +86,13 @@ class PreflightDialog(QDialog):
         layout.addWidget(lbl_table)
 
         table = QTableWidget()
-        table.setColumnCount(4)
-        table.setHorizontalHeaderLabels(["#", "Source File", "Target Scene Name", "Status"])
+        table.setColumnCount(5)
+        table.setHorizontalHeaderLabels(["#", "Source File", "Target Scene Name", "Model", "Status"])
         table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         table.setRowCount(len(dry_run_data))
 
         for r, item in enumerate(dry_run_data):
@@ -103,11 +104,14 @@ class PreflightDialog(QDialog):
             else:
                 it_target.setForeground(QColor("#38bdf8"))
             table.setItem(r, 2, it_target)
+            it_model = QTableWidgetItem(str(item.get("model", "Auto")))
+            it_model.setForeground(QColor("#a78bfa"))
+            table.setItem(r, 3, it_model)
             st_text = "Already Present (Skip)" if item.get("already_exists") else "Ready"
             if item.get("collision"):
                 st_text = "COLLISION!"
             it_st = QTableWidgetItem(st_text)
-            table.setItem(r, 3, it_st)
+            table.setItem(r, 4, it_st)
 
         layout.addWidget(table, 1)
 

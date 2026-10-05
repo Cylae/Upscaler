@@ -210,6 +210,41 @@ def choose_best_model_for_video(width: int, height: int, target_preset: str = "4
     return rec.model, rec.scale
 
 
+def get_model_display_name(model_id_or_name: str, include_scale: bool = False, scale: Optional[int] = None) -> str:
+    """Returns a concise, human-friendly model label for UI lists and tables."""
+    if not model_id_or_name:
+        return "Auto"
+
+    clean_str = str(model_id_or_name).strip()
+    if clean_str.lower() in ("auto", "auto selection", "auto selection (recommended)"):
+        return "Auto"
+
+    if clean_str in AVAILABLE_MODELS:
+        spec = AVAILABLE_MODELS[clean_str]
+        base_name = spec.name.split(" (")[0]
+        if include_scale or scale:
+            s = scale or spec.default_scale
+            return f"{base_name} ({s}x)"
+        return base_name
+
+    for m_id, spec in AVAILABLE_MODELS.items():
+        if m_id == "auto":
+            continue
+        spec_base = spec.name.split(" (")[0]
+        if clean_str in (spec.name, spec_base, spec.internal_name):
+            if include_scale or scale:
+                s = scale or spec.default_scale
+                return f"{spec_base} ({s}x)"
+            return spec_base
+        if clean_str.lower() in spec.name.lower() or spec.internal_name.lower() in clean_str.lower():
+            if include_scale or scale:
+                s = scale or spec.default_scale
+                return f"{spec_base} ({s}x)"
+            return spec_base
+
+    return clean_str.split(" (")[0]
+
+
 def calculate_target_dimensions(
     orig_w: int,
     orig_h: int,

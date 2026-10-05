@@ -57,6 +57,7 @@ class QueueItem:
     file_eta: str = ""
     error_message: str = ""
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
+    model: str = ""
 
 
 class BatchManager:
@@ -259,6 +260,7 @@ class BatchManager:
                         "file_size_mb": item.file_size_mb,
                         "output_size_mb": item.output_size_mb,
                         "error_message": item.error_message,
+                        "model": getattr(item, "model", ""),
                     }
                     for item in self.queue
                 ]
@@ -306,6 +308,7 @@ class BatchManager:
                 output_size_mb=raw.get("output_size_mb", 0.0),
                 error_message=raw.get("error_message", ""),
                 id=raw.get("id", uuid.uuid4().hex),
+                model=raw.get("model", ""),
             )
             self.queue.append(item)
         self.reindex_queue()
@@ -337,6 +340,7 @@ class BatchManager:
                 "source_size_mb": item.file_size_mb,
                 "already_exists": os.path.isfile(item.target_full_path),
                 "collision": collision,
+                "model": getattr(item, "model", "") or "Auto",
             })
         return results
 
@@ -511,13 +515,15 @@ class BatchManager:
             with self._lock:
                 self._active_pipelines.add(pipeline)
 
+            effective_model_id = item.model if (hasattr(item, "model") and item.model and item.model != "auto") else model_id
+
             job = job_cls(
                 input_file=item.source_path,
                 output_dir=output_dir,
                 base_dir=base_dir,
                 target_preset=target_preset,
                 video_codec=video_codec,
-                model_id=model_id,
+                model_id=effective_model_id,
                 scene_config=scene_config,
                 preserve_folders=preserve_folders,
                 overwrite=overwrite,
@@ -537,6 +543,14 @@ class BatchManager:
                 item.progress = ratio
                 item.status_detail = status_text
                 item.file_eta = extra.get("file_eta_str", "")
+                if "model_name" in extra:
+                    item.model = extra["model_name"]
+                elif status_text.startswith("Selected model: "):
+                    parts = status_text.split("Selected model: ", 1)[1]
+                    item.model = parts.split(" (Scale")[0].strip()
+                elif "Upscaling with " in status_text:
+                    parts = status_text.split("Upscaling with ", 1)[1]
+                    item.model = parts.split(" (Threads")[0].strip()
 
                 if item_callback:
                     item_callback(item)

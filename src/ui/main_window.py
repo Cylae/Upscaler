@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from PyQt6.QtCore import QEvent, QPoint, QSettings, Qt, QTimer
 from PyQt6.QtGui import QAction, QColor, QCursor, QIcon, QMouseEvent, QPixmap
@@ -42,6 +42,7 @@ from src.core.hardware import HardwareInfo, get_base_dir, get_hardware_info
 from src.core.models import (
     AVAILABLE_MODELS,
     check_local_model_availability,
+    get_model_display_name,
     recommend_model_for_video,
 )
 from src.core.pipeline import VideoUpscalerPipeline
@@ -781,21 +782,23 @@ class UpscalerMainWindow(QMainWindow):
 
         # Queue table
         self.table = QTableWidget()
-        self.table.setColumnCount(6)
+        self.table.setColumnCount(7)
         self.table.setHorizontalHeaderLabels([
-            "#", "Original File", "Size", "Target Scene Name", "Status", "Detail / Progress"
+            "#", "Original File", "Size", "Target Scene Name", "Model", "Status", "Detail / Progress"
         ])
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         self.table.setColumnWidth(0, 48)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(2, 85)
+        self.table.setColumnWidth(2, 75)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
-        self.table.setColumnWidth(4, 115)
-        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Interactive)
-        self.table.setColumnWidth(5, 260)
+        self.table.setColumnWidth(4, 120)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(5, 105)
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Interactive)
+        self.table.setColumnWidth(6, 210)
         header.setMinimumSectionSize(45)
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
 
@@ -804,6 +807,7 @@ class UpscalerMainWindow(QMainWindow):
             (0, Qt.AlignmentFlag.AlignCenter),
             (2, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
             (4, Qt.AlignmentFlag.AlignCenter),
+            (5, Qt.AlignmentFlag.AlignCenter),
         ):
             hdr_item = self.table.horizontalHeaderItem(col_idx)
             if hdr_item:
@@ -981,6 +985,7 @@ class UpscalerMainWindow(QMainWindow):
                     "automatically rounded to the nearest available weight."
                 )
         self.update_scene_preview()
+        self._update_model_column_in_table()
 
     def resizeEvent(self, event):
         # Sidebar layout handles space naturally — no chip hiding, no margin gymnastics.
@@ -1002,12 +1007,12 @@ class UpscalerMainWindow(QMainWindow):
             self.btn_stop.setText("⏹" if compact else "⏹ STOP")
 
         # Responsive scaling of Detail/Progress column on wide/4K monitors
-        if hasattr(self, "table") and self.table.columnCount() >= 6:
+        if hasattr(self, "table") and self.table.columnCount() >= 7:
             viewport = self.table.viewport()
             if viewport and viewport.width() > 700:
-                target_col5 = max(260, min(520, int(viewport.width() * 0.24)))
-                if abs(self.table.columnWidth(5) - target_col5) > 15:
-                    self.table.setColumnWidth(5, target_col5)
+                target_col6 = max(210, min(500, int(viewport.width() * 0.20)))
+                if abs(self.table.columnWidth(6) - target_col6) > 15:
+                    self.table.setColumnWidth(6, target_col6)
 
         super().resizeEvent(event)
 
@@ -1392,6 +1397,28 @@ class UpscalerMainWindow(QMainWindow):
 
         menu.addSeparator()
 
+        selected_indexes = self.table.selectedIndexes()
+        selected_rows = sorted(list({idx.row() for idx in selected_indexes})) if selected_indexes else [row]
+        if row not in selected_rows:
+            selected_rows = [row]
+
+        model_menu_title = f"🤖 Set AI Model for {len(selected_rows)} Selected Episode(s)" if len(selected_rows) > 1 else "🤖 Set AI Model for this file"
+        model_menu = menu.addMenu(model_menu_title)
+
+        act_auto = QAction("Auto Selection (Recommended)", self)
+        act_auto.triggered.connect(lambda: self._set_model_for_rows(selected_rows, ""))
+        model_menu.addAction(act_auto)
+        model_menu.addSeparator()
+
+        for m_id, spec in AVAILABLE_MODELS.items():
+            if m_id == "auto":
+                continue
+            act_m = QAction(spec.name, self)
+            act_m.triggered.connect(lambda checked=False, mid=m_id: self._set_model_for_rows(selected_rows, mid))
+            model_menu.addAction(act_m)
+
+        menu.addSeparator()
+
         act_remove = QAction("❌ Remove from Queue", self)
         act_remove.triggered.connect(lambda: self.on_remove_item_clicked(q_item.index))
         menu.addAction(act_remove)
@@ -1425,12 +1452,123 @@ class UpscalerMainWindow(QMainWindow):
 
     def on_table_double_click(self, item: QTableWidgetItem):
         row = item.row()
+        if item.column() == 4:
+            self._show_model_selection_menu(row)
+            return
+
         q_item = self._get_queue_item_from_row(row)
         if q_item:
             if os.path.isfile(q_item.target_full_path):
                 self.play_file(q_item.target_full_path)
             else:
                 self.reveal_file(q_item.source_path)
+
+    def _show_model_selection_menu(self, row: int):
+        q_item = self._get_queue_item_from_row(row)
+        if not q_item:
+            return
+
+        menu = QMenu(self)
+        title_act = menu.addAction(f"AI Model for Episode #{q_item.index}:")
+        title_act.setEnabled(False)
+        menu.addSeparator()
+
+        act_auto = QAction("Auto Selection (Recommended)", self)
+        act_auto.triggered.connect(lambda: self._set_model_for_rows([row], ""))
+        menu.addAction(act_auto)
+        menu.addSeparator()
+
+        for m_id, spec in AVAILABLE_MODELS.items():
+            if m_id == "auto":
+                continue
+            act_m = QAction(spec.name, self)
+            act_m.triggered.connect(lambda checked=False, mid=m_id: self._set_model_for_rows([row], mid))
+            menu.addAction(act_m)
+
+        menu.exec(QCursor.pos())
+
+    def _set_model_for_rows(self, rows: List[int], model_id: str):
+        count = 0
+        for r in rows:
+            q_item = self._get_queue_item_from_row(r)
+            if q_item:
+                q_item.model = model_id
+                count += 1
+        self._update_model_column_in_table()
+        disp = get_model_display_name(model_id) if model_id else "Auto Selection"
+        self.lbl_overall_status.setText(f"Updated AI model to '{disp}' for {count} episode(s).")
+
+    @staticmethod
+    def _infer_resolution_hint(filepath: str) -> Optional[Tuple[int, int]]:
+        """Quickly infers standard resolution dimensions from filename tokens if present."""
+        fname = os.path.basename(filepath).lower()
+        if any(tag in fname for tag in ("4k", "2160p", "uhd")):
+            return (3840, 2160)
+        if any(tag in fname for tag in ("1440p", "2k", "qhd")):
+            return (2560, 1440)
+        if any(tag in fname for tag in ("1080p", "1080i", "fhd")):
+            return (1920, 1080)
+        if any(tag in fname for tag in ("720p", "hd")):
+            return (1280, 720)
+        if any(tag in fname for tag in ("576p", "576i", "480p", "480i", "sd", "dvd")):
+            return (640, 480)
+        return None
+
+    def _get_model_display_for_item(self, item: QueueItem) -> str:
+        """Returns the model label to display in the queue table for a given item."""
+        if getattr(item, "model", ""):
+            return get_model_display_name(item.model)
+
+        cb_val = self.cb_model.currentData() if hasattr(self, "cb_model") else "auto"
+        if cb_val and cb_val != "auto":
+            return get_model_display_name(cb_val)
+
+        res_idx = self.cb_resolution.currentIndex() if hasattr(self, "cb_resolution") else 0
+        target_preset = ("4k", "1440p", "1080p", "720p")[res_idx if 0 <= res_idx < 4 else 0]
+
+        if getattr(item, "resolution_str", ""):
+            try:
+                parts = item.resolution_str.lower().split("x")
+                if len(parts) == 2:
+                    w, h = int(parts[0]), int(parts[1])
+                    rec = recommend_model_for_video(w, h, target_preset)
+                    return f"Auto ({get_model_display_name(rec.model.id)})"
+            except Exception:
+                pass
+
+        hint = self._infer_resolution_hint(item.source_path)
+        if hint:
+            w, h = hint
+            rec = recommend_model_for_video(w, h, target_preset)
+            return f"Auto ({get_model_display_name(rec.model.id)})"
+
+        return "Auto (Anime 6B)"
+
+    def _get_model_tooltip_for_item(self, item: QueueItem) -> str:
+        display = self._get_model_display_for_item(item)
+        raw_model = getattr(item, "model", "") or (self.cb_model.currentData() if hasattr(self, "cb_model") else "auto")
+        spec = None
+        for m_id, s in AVAILABLE_MODELS.items():
+            if m_id == raw_model or s.name.startswith(display) or s.id in display.lower() or display in s.name:
+                spec = s
+                break
+        desc = spec.description if spec else "Neural network upscaling engine."
+        rec_for = f"\nBest suited for: {spec.recommended_for}" if spec and spec.recommended_for else ""
+        return (
+            f"AI Model: {display}\n"
+            f"{desc}{rec_for}\n"
+            "Double-click or right-click to customize model for this episode."
+        )
+
+    def _update_model_column_in_table(self):
+        """Refreshes the Model column across all visible rows."""
+        for r in range(self.table.rowCount()):
+            q_item = self._get_queue_item_from_row(r)
+            if q_item:
+                it_model = self.table.item(r, 4)
+                if it_model:
+                    it_model.setText(self._get_model_display_for_item(q_item))
+                    it_model.setToolTip(self._get_model_tooltip_for_item(q_item))
 
     def play_file(self, filepath: str):
         if os.path.exists(filepath):
@@ -1540,6 +1678,7 @@ class UpscalerMainWindow(QMainWindow):
         by the user via the Scan Folder button or a browse/drop action.
         """
         self.update_scene_preview()
+        self._update_model_column_in_table()
 
     def _do_settings_changed(self):
         """Retained for backward-compatibility; delegates to update_scene_preview only."""
@@ -1628,10 +1767,17 @@ class UpscalerMainWindow(QMainWindow):
             it_scene.setForeground(QColor("#38bdf8"))
             self.table.setItem(r, 3, it_scene)
 
+            model_disp = self._get_model_display_for_item(item)
+            it_model = QTableWidgetItem(model_disp)
+            it_model.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            it_model.setForeground(QColor("#a78bfa"))
+            it_model.setToolTip(self._get_model_tooltip_for_item(item))
+            self.table.setItem(r, 4, it_model)
+
             it_status = QTableWidgetItem(self._status_badge_text(item.status))
             it_status.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             self._style_status_item(it_status, item.status)
-            self.table.setItem(r, 4, it_status)
+            self.table.setItem(r, 5, it_status)
 
             if item.status == EpisodeStatus.SKIPPED:
                 skipped_count += 1
@@ -1640,7 +1786,7 @@ class UpscalerMainWindow(QMainWindow):
 
             it_detail = QTableWidgetItem(item.status_detail or "Ready")
             it_detail.setForeground(QColor("#94a3b8"))
-            self.table.setItem(r, 5, it_detail)
+            self.table.setItem(r, 6, it_detail)
 
         total = len(queue)
         failed_count = sum(1 for it in queue if it.status == EpisodeStatus.FAILED)
@@ -1702,7 +1848,7 @@ class UpscalerMainWindow(QMainWindow):
             text_match = True
             if search_text:
                 text_match = False
-                for col in (1, 3):
+                for col in (1, 3, 4):
                     item = self.table.item(r, col)
                     if item and search_text in item.text().lower():
                         text_match = True
@@ -1882,12 +2028,17 @@ class UpscalerMainWindow(QMainWindow):
         if row == -1:
             row = item.index - 1
         if 0 <= row < self.table.rowCount():
-            it_status = self.table.item(row, 4)
+            it_model = self.table.item(row, 4)
+            if it_model:
+                it_model.setText(self._get_model_display_for_item(item))
+                it_model.setToolTip(self._get_model_tooltip_for_item(item))
+
+            it_status = self.table.item(row, 5)
             if it_status:
                 it_status.setText(self._status_badge_text(item.status))
                 self._style_status_item(it_status, item.status)
 
-            it_detail = self.table.item(row, 5)
+            it_detail = self.table.item(row, 6)
             if it_detail:
                 it_detail.setText(item.status_detail)
 
