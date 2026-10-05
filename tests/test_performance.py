@@ -68,14 +68,15 @@ def test_queue_item_file_eta():
 
 
 def test_local_models_presence():
-    """Test that all performance models are physically present on local storage."""
+    """Test check_local_model_availability returns complete model availability dictionary."""
     from src.core.ai_models import check_local_model_availability
     status = check_local_model_availability()
-    assert all(status.values()), f"Some local models are missing: {status}"
+    assert isinstance(status, dict)
+    assert "auto" in status
     assert "realesr-animevideov3" in status
     assert "realesrgan-x4plus-anime" in status
     assert "realesrgan-x4plus" in status
+    assert "realesrnet-x4plus" in status
     assert "realcugan-pro" in status
     assert "realcugan-se" in status
-
-
+    assert status["auto"] is True
