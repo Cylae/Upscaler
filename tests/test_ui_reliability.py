@@ -131,3 +131,77 @@ def test_ui_preflight_summary_and_dialog_execution(qapp, monkeypatch):
     monkeypatch.setattr("src.ui.app_qt.PreflightDialog.exec", mock_exec)
     window.on_preflight_clicked()
     assert dialog_opened is True
+
+
+def test_ui_1080p_layout_and_column_distribution(qapp):
+    """Verify that on a 1920x1080 screen, the UI elements and columns are properly proportioned."""
+    from PyQt6.QtWidgets import QHeaderView, QSplitter
+    window = UpscalerMainWindow()
+    window.resize(1920, 1080)
+    window.show()
+    qapp.processEvents()
+
+    # Verify splitter exists and has proper configuration
+    assert hasattr(window, "main_splitter")
+    assert isinstance(window.main_splitter, QSplitter)
+    assert window.main_splitter.childrenCollapsible() is False
+
+    # Verify table column configuration
+    header = window.table.horizontalHeader()
+    assert header.sectionResizeMode(0) == QHeaderView.ResizeMode.Fixed
+    assert header.sectionResizeMode(1) == QHeaderView.ResizeMode.Stretch
+    assert header.sectionResizeMode(2) == QHeaderView.ResizeMode.Fixed
+    assert header.sectionResizeMode(3) == QHeaderView.ResizeMode.Stretch
+    assert header.sectionResizeMode(4) == QHeaderView.ResizeMode.Fixed
+    assert header.sectionResizeMode(5) == QHeaderView.ResizeMode.Interactive
+
+    # Populate sample items and verify column widths are balanced
+    item1 = QueueItem(
+        index=1,
+        source_path="C:/vids/s01e01 - Spin Fun Knowin Ya.mp4",
+        relative_source_path="s01e01 - Spin Fun Knowin Ya.mp4",
+        target_scene_name="s01e01 - Spin Fun Knowin Ya_4K.mp4",
+        target_full_path="C:/out/s01e01 - Spin Fun Knowin Ya_4K.mp4",
+        file_size_mb=8.9,
+        status=EpisodeStatus.PENDING
+    )
+    window.batch_manager.queue = [item1]
+    window._populate_table(window.batch_manager.queue)
+    qapp.processEvents()
+
+    # Column 1 and Column 3 should both receive generous width (>300px) on 1080p
+    col1_w = window.table.columnWidth(1)
+    col3_w = window.table.columnWidth(3)
+    assert col1_w >= 300, f"Original File column width too small: {col1_w}"
+    assert col3_w >= 300, f"Target Scene Name column width too small: {col3_w}"
+
+    # Verify preview duration spinbox has sufficient width for "30 s"
+    assert window.spin_preview_dur.width() >= 80
+
+    # Verify lbl_eta is hidden by default (no ugly empty border bubble)
+    assert window.lbl_eta.isVisible() is False
+
+    # Verify lbl_eta shows when eta_str provided, and hides on finish
+    window.on_batch_updated(1, 10, 10.0, "Processing...", eta_str="ETA: 02:45")
+    assert window.lbl_eta.isVisible() is True
+    assert window.lbl_eta.text() == "ETA: 02:45"
+
+    window.on_finished()
+    assert window.lbl_eta.isVisible() is False
+
+    # Verify audio chip is concise
+    window.update_scene_preview()
+    assert len(window.lbl_audio.text()) < 30
+
+
+def test_ui_close_event_clean_shutdown(qapp):
+    """Verify closeEvent safely requests batch stop and cleans up workers without exception."""
+    from PyQt6.QtGui import QCloseEvent
+    window = UpscalerMainWindow()
+    window.show()
+    qapp.processEvents()
+
+    event = QCloseEvent()
+    window.closeEvent(event)
+    assert event.isAccepted()
+

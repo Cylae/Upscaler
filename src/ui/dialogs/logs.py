@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import os
 from typing import Dict, List, Optional
 
@@ -133,8 +134,10 @@ class LogViewerDialog(QDialog):
         self._reload_all()
 
     def append_line(self, msg: str):
+        self._log_buffer.append(msg)
         color = self._color_for(msg)
-        html_line = f"<span style='color:{color}; font-family: monospace;'>{msg}</span>"
+        safe_msg = html.escape(msg)
+        html_line = f"<span style='color:{color}; font-family: monospace;'>{safe_msg}</span>"
         flt = self.txt_filter.text().strip().lower()
         if not flt or flt in msg.lower():
             self.txt_log.append(html_line)
@@ -155,7 +158,8 @@ class LogViewerDialog(QDialog):
         for line in self._log_buffer:
             if not flt or flt in line.lower():
                 color = self._color_for(line)
-                lines.append(f"<span style='color:{color}; font-family: monospace;'>{line}</span>")
+                safe_line = html.escape(line)
+                lines.append(f"<span style='color:{color}; font-family: monospace;'>{safe_line}</span>")
         self.txt_log.setHtml("<br>".join(lines))
         if self._auto_scroll:
             sb = self.txt_log.verticalScrollBar()

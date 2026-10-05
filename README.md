@@ -40,10 +40,10 @@ Built for **exceptional visual fidelity** without ringing or seam artifacts, acc
 
 ### Minimum Requirements
 - **OS**: Windows 10 / 11 (64-bit)
-- **Python**: Python 3.10, 3.11, or 3.12 (64-bit)
+- **Python**: Python 3.10 through 3.14 (64-bit)
 - **FFmpeg & FFprobe**: Must be installed and accessible in system `PATH` (or specified in environment).
 - **GPU**: NVIDIA GeForce GTX 10-series or newer (RTX 20/30/40 recommended) with Vulkan support.
-  - *Note: CPU encoding fallback (`libx265` / `libx264`) is supported if NVENC is unavailable.*
+  - *Note: Multi-threaded CPU encoding fallback (`libx265` / `libx264`) is supported if NVENC is unavailable.*
 - **AI Upscaler Binaries**: Vulkan ncnn executables (`realesrgan-ncnn-vulkan.exe` and `realcugan-ncnn-vulkan.exe`) placed in `tools/realesrgan/` and `tools/realcugan/`.
 
 ---
@@ -55,7 +55,7 @@ Double-click:
 ```cmd
 launch.bat
 ```
-or run from PowerShell:
+or run from PowerShell / Terminal:
 ```powershell
 python main.py
 ```
@@ -78,6 +78,35 @@ python main.py --source "D:\Videos\Source" --manifest "D:\Videos\batch_state.jso
 python main.py --source "D:\Videos\Source" --retry-failed
 ```
 
+#### CLI Options Reference
+
+| Argument | Short | Allowed Values / Format | Description |
+| :--- | :--- | :--- | :--- |
+| `--source` | `-s` | Path | Source folder or single video file path *(required unless `--doctor`, `--list-presets`, or `--manifest` is provided)* |
+| `--output` | `-o` | Path | Output directory (default: `'<source> (<resolution>)'`) |
+| `--preset` | `-p` | `cartoon_4k_master`, `fast_draft`, `archival`, `lightweight_1080p`, `clean_denoise`, `custom` | Quality profile preset |
+| `--resolution`| `-r` | `4k`, `1440p`, `1080p`, `720p` | Target resolution preset |
+| `--codec` | `-c` | `hevc_nvenc`, `h264_nvenc`, `libx265`, `libx264` | Video encoder codec |
+| `--model` | `-m` | `auto`, `realesrgan-x4plus-anime`, `realesr-animevideov3`, `realcugan-pro`, `realcugan-se`, `realesrgan-x4plus`, `realesrnet-x4plus` | AI upscaling model |
+| `--cq` | | `14` to `28` (default: `19`) | NVENC Constant Quality rate control |
+| `--nvenc-preset` | | `p1` to `p7` | NVENC speed/quality preset (default: `p7`) |
+| `--tta` | | Flag | Enables 8-pass Test-Time Augmentation ensemble inference |
+| `--denoise` | | `-1`, `0`, `1`, `2`, `3` | RealCUGAN denoise level (`-1` = conservative) |
+| `--audio-mode` | | `copy`, `aac_192k`, `aac_320k`, `flac` | Audio stream handling mode (default: `copy`) |
+| `--tile-size` | | Integer (pixels) | Vulkan inference tile size (`0` = auto / full VRAM) |
+| `--workers` | `-w` | `1` to `4` | Concurrent batch workers (default: `2`) |
+| `--threads` | `-t` | `auto` or `LOAD:PROC:SAVE` (e.g. `2:4:2`) | Engine thread specification |
+| `--frame-format`| `-f` | `jpg`, `png` | Extracted frame format (`jpg` = 2x–3x faster I/O) |
+| `--limit` | | Integer | Limit number of episodes to process (`0` = all) |
+| `--overwrite` | | Flag | Overwrite already existing output files |
+| `--dry-run` | | Flag | Preview planned mappings and check disk space without processing |
+| `--manifest` | | File path | Save or restore queue state from JSON manifest |
+| `--retry-failed` | | Flag | Reset failed or cancelled items to pending |
+| `--doctor` | | Flag | Run hardware and environment diagnostic |
+| `--export-diagnostics` | | [File path] | Export diagnostic report with redacted user paths |
+| `--list-presets` | | Flag | Display available quality profiles and exit |
+| `--yes` | `-y` | Flag | Accept displayed AI model choice without interactive prompt |
+
 ### 3. System Diagnostic & Privacy Export
 
 Verify your hardware, NVENC availability, FFmpeg installation, and offline model files:
@@ -94,48 +123,67 @@ python main.py --export-diagnostics "diagnostic_report.txt"
 
 ## 🛠️ Project Structure
 
+For detailed system and pipeline architecture, see [ARCHITECTURE.md](ARCHITECTURE.md).
+
 ```text
 Upscaler/
-├── launch.bat                # Windows launcher & environment bootstrap
+├── launch.bat                # Windows launcher & automated environment bootstrap
 ├── main.py                   # Unified application entry point (GUI / CLI / Doctor)
 ├── requirements.txt          # Production dependencies (PyQt6, Pillow)
-├── requirements-dev.txt      # Development dependencies (pytest, pytest-cov)
+├── requirements-dev.txt      # Development dependencies (pytest)
 ├── pytest.ini                # Pytest configuration
+├── ARCHITECTURE.md           # In-depth architectural & pipeline specifications
+├── README.md                 # Project documentation & user guide
 ├── src/
 │   ├── cli.py                # Command-Line Interface & argument parser
-│   ├── core/
-│   │   ├── ai_models.py      # AI models catalog, aspect-ratio & dimension calculations
-│   │   ├── batch_manager.py  # Queue management, state machine, manifests & preflight planning
-│   │   ├── detector.py       # Hardware, NVENC & external-tool detection & redacted diagnostics
-│   │   ├── metadata_provider.py # Optional, resilient TVmaze metadata client
+│   ├── core/                 # Core engine & processing components
+│   │   ├── ai_models.py      # Facade for models.py
+│   │   ├── batch.py          # Batch queue orchestrator, dry-run & manifest handling
+│   │   ├── batch_manager.py  # Facade for batch.py
+│   │   ├── detector.py       # Facade for hardware.py
+│   │   ├── hardware.py       # Hardware, NVENC & external-tool detection
+│   │   ├── metadata_provider.py # Resilient TVmaze episode title enrichment
+│   │   ├── models.py         # AI models catalog, aspect-ratio & dimension calculations
+│   │   ├── pipeline.py       # Facade for video_pipeline.py
 │   │   ├── presets.py        # Quality & speed profile definitions
-│   │   ├── scene_renamer.py  # Scene naming conventions & privacy filters
-│   │   └── video_pipeline.py # FFmpeg lifecycle, Vulkan inference, encoding, validation & atomic locking
-│   └── ui/
-│       └── app_qt.py         # PyQt6 desktop interface, workers, preflight & preview dialogs
-├── tests/                    # Automated unit, integration, and UI test suite
-└── README.md
+│   │   ├── probe.py          # FFprobe stream inspector & rational framerate analyzer
+│   │   ├── process.py        # Process tree management, Windows process groups & cancellation
+│   │   ├── scene_namer.py    # Facade for scene_renamer.py
+│   │   ├── scene_renamer.py  # Scene/Warez naming conventions & privacy filters
+│   │   ├── storage.py        # Atomic file moves, PID lease locking & safe cleanup
+│   │   ├── validator.py      # Contract-based verification (resolution, duration, audio)
+│   │   └── video_pipeline.py # FFmpeg frame extraction, Vulkan inference & NVENC encoding
+│   └── ui/                   # Modern desktop user interface
+│       ├── app_qt.py         # GUI entry point & QApplication lifecycle
+│       ├── main_window.py    # Responsive QSplitter layout & queue table management
+│       ├── theme.py          # Dark theme palette, style tokens & QSS styles
+│       ├── workers.py        # Asynchronous QThread workers (batch, scan, preview)
+│       └── dialogs/          # Modal inspection & diagnostic dialogs
+│           ├── comparison.py # Side-by-side Before/After frame viewer with zoom
+│           ├── doctor.py     # System environment diagnostic modal
+│           ├── logs.py       # Live color-coded log viewer with HTML escaping
+│           └── preflight.py  # Preflight validation & dry-run mapping plan
+├── tests/                    # 94 automated unit, integration, and UI tests
+└── tools/                    # Local Vulkan AI binaries (Real-ESRGAN, RealCUGAN)
 ```
 
 ---
 
 ## 🧪 Testing & Verification
 
-Run the full automated test suite:
+Run the full automated test suite (94 tests):
 ```powershell
 python -m pytest -v
 ```
 
-Run test suite with test coverage:
-```powershell
-python -m pytest --cov=src -v
-```
+All 94 tests validate audio preservation, contract integrity, CLI argument parsing, dry-run mappings, process cancellation safety, 1080p UI responsiveness, and privacy filters.
 
 ---
 
 ## 🔒 Security & Privacy
 
-- All generated media files are thoroughly scrubbed of internal process markers and internal tool paths.
-- Container metadata is stripped using `-map_metadata -1` to prevent tag leakage.
-- Diagnostic export automatically redacts user directory paths to protect personal privacy when troubleshooting.
-- Temporary files, locks, and test outputs are excluded from version control via `.gitignore`.
+- **100% Offline Processing**: No video content or telemetry is ever transmitted over the network.
+- **Privacy Scrubbing**: All output files are stripped of internal processing markers and metadata tags via `-map_metadata -1`.
+- **Diagnostic Redaction**: `export-diagnostics` automatically masks user paths (`<USER_HOME>`) to prevent leaking private paths.
+- **Subprocess Isolation**: Subprocesses are spawned in separate process groups and cleanly terminated via process tree kills upon cancellation.
+

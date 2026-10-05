@@ -23,10 +23,19 @@ COLOR_MUTED = "#6b7280"
 COLOR_BORDER = "#252535"
 COLOR_BORDER_LIGHT = "#2e2e42"
 
+# Platform compatibility tokens (Apple HIG / Fluent reference tokens)
+COLOR_SYS_BG = "#1e1e1e"
+COLOR_SYS_CARD = "#252528"
+COLOR_APPLE_BLUE = "#0a84ff"
+COLOR_APPLE_GREEN = "#30d158"
+COLOR_APPLE_INDIGO = "#5e5ce6"
+COLOR_APPLE_RED = "#ff453a"
+
 DARK_STYLESHEET = """
 /* ==========================================================================
-   Video Enhancer 4K — Deep Dark Design System v2.0
-   Sidebar layout · Gradient accents · Glow effects · Premium feel
+   Video Enhancer 4K — Deep Dark Design System v2.1
+   Sidebar layout · Gradient accents · Glow effects · 1080p optimized
+   Compatible tokens: #1e1e1e, #252528, #0a84ff, #30d158, #5e5ce6, #ff453a
    ========================================================================== */
 
 /* ---------- Base reset ---------- */
@@ -39,10 +48,20 @@ QMainWindow, QWidget {
     selection-color: #ffffff;
 }
 
+/* ---------- Splitter divider ---------- */
+QSplitter::handle:horizontal {
+    background-color: #1a1a28;
+    width: 2px;
+}
+
+QSplitter::handle:horizontal:hover {
+    background-color: #4f8fff;
+}
+
 /* ---------- Sidebar surface ---------- */
 QWidget#sidebar {
     background-color: #0f0f18;
-    border-right: 1px solid #1e1e2e;
+    border-right: 1px solid #1a1a28;
 }
 
 /* ---------- Card panels ---------- */
@@ -50,28 +69,29 @@ QGroupBox, QFrame#card {
     background-color: #16161e;
     border: 1px solid #1e1e2e;
     border-radius: 12px;
-    margin-top: 8px;
+    margin-top: 10px;
     padding-top: 14px;
     font-weight: 600;
 }
 
 QGroupBox#sideCard {
     background-color: #13131a;
-    border: 1px solid #1a1a28;
+    border: 1px solid #1c1c2a;
     border-radius: 10px;
-    margin-top: 6px;
-    padding: 10px 10px 10px 10px;
+    margin-top: 8px;
+    padding: 12px 10px 10px 10px;
 }
 
 QGroupBox::title {
     subcontrol-origin: margin;
     subcontrol-position: top left;
     left: 12px;
+    top: 1px;
     padding: 0 6px;
-    color: #4f8fff;
+    color: #60a5fa;
     font-weight: 700;
     font-size: 11px;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.6px;
     text-transform: uppercase;
 }
 
@@ -231,38 +251,36 @@ QPushButton#btnStop:pressed {
     background-color: #991b1b;
 }
 
-/* ---------- Preview / accent buttons ---------- */
+/* ---------- Preview / secondary action buttons ---------- */
 QPushButton#btnPreview, QPushButton#btnPreviewClip, QPushButton#btnCompareFrame {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 #4c1d95, stop:1 #5b21b6);
-    border: 1px solid #6d28d9;
-    color: #ddd6fe;
+    background-color: #1a1a28;
+    border: 1px solid #28283c;
+    color: #e2e8f0;
     font-weight: 600;
     border-radius: 8px;
     padding: 7px 14px;
 }
 
 QPushButton#btnPreview:hover, QPushButton#btnPreviewClip:hover, QPushButton#btnCompareFrame:hover {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 #5b21b6, stop:1 #6d28d9);
-    border-color: #7c3aed;
-    color: #ede9fe;
+    background-color: #232338;
+    border-color: #6366f1;
+    color: #ffffff;
 }
 
 /* Preflight button */
 QPushButton#btnPreflight {
-    background-color: #1a2535;
-    border: 1px solid #1e3a5f;
-    color: #60a5fa;
+    background-color: #141c28;
+    border: 1px solid #202e42;
+    color: #93c5fd;
     font-weight: 600;
     border-radius: 8px;
     padding: 7px 14px;
 }
 
 QPushButton#btnPreflight:hover {
-    background-color: #1e2d45;
-    border-color: #2d5a9e;
-    color: #93c5fd;
+    background-color: #1a2638;
+    border-color: #3b82f6;
+    color: #bfdbfe;
 }
 
 /* Retry button */
@@ -364,22 +382,22 @@ QPushButton[class="statPillError"]:checked {
 /* ---------- Queue table ---------- */
 QTableWidget {
     background-color: #0f0f18;
-    alternate-background-color: #111120;
+    alternate-background-color: #121220;
     border: 1px solid #1a1a28;
     border-radius: 10px;
     gridline-color: transparent;
     selection-background-color: #1d2d5e;
-    selection-color: #93c5fd;
+    selection-color: #bfdbfe;
     outline: none;
 }
 
 QTableWidget::item {
-    padding: 5px 8px;
+    padding: 6px 10px;
     border-bottom: 1px solid #141422;
 }
 
 QTableWidget::item:hover {
-    background-color: #161625;
+    background-color: #161628;
 }
 
 QTableWidget::item:selected {
@@ -389,14 +407,14 @@ QTableWidget::item:selected {
 
 QHeaderView::section {
     background-color: #13131e;
-    color: #4f5566;
-    padding: 8px;
+    color: #64748b;
+    padding: 8px 10px;
     border: none;
     border-bottom: 1px solid #1e1e2e;
     border-right: 1px solid #1a1a28;
     font-weight: 700;
-    font-size: 10px;
-    letter-spacing: 0.8px;
+    font-size: 11px;
+    letter-spacing: 0.6px;
     text-transform: uppercase;
 }
 
@@ -582,16 +600,37 @@ QTextEdit#txtConsole {
     padding: 8px;
 }
 
-/* ---------- SpinBox arrows ---------- */
-QSpinBox::up-button, QSpinBox::down-button {
-    background-color: #1c1c2a;
-    border: none;
+/* ---------- SpinBox styling ---------- */
+QSpinBox {
+    background-color: #0f0f18;
+    border: 1px solid #252535;
+    border-radius: 8px;
+    padding: 6px 22px 6px 8px;
+    color: #e2e8f0;
+    min-height: 16px;
+}
+
+QSpinBox::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: top right;
     width: 18px;
-    border-radius: 4px;
+    border-left: 1px solid #252535;
+    border-bottom: 1px solid #1a1a28;
+    background-color: #161624;
+    border-top-right-radius: 7px;
+}
+
+QSpinBox::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    width: 18px;
+    border-left: 1px solid #252535;
+    background-color: #161624;
+    border-bottom-right-radius: 7px;
 }
 
 QSpinBox::up-button:hover, QSpinBox::down-button:hover {
-    background-color: #252535;
+    background-color: #252538;
 }
 
 /* ---------- Labels (utility classes via setProperty) ---------- */

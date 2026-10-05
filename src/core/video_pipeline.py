@@ -181,10 +181,23 @@ class VideoUpscalerPipeline:
             except subprocess.TimeoutExpired:
                 if self._is_cancelled:
                     try:
+                        if os.name == "nt" and proc.pid:
+                            try:
+                                subprocess.run(
+                                    ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                                    stdout=subprocess.DEVNULL,
+                                    stderr=subprocess.DEVNULL,
+                                    timeout=3
+                                )
+                            except Exception:
+                                pass
                         proc.kill()
                     except Exception:
                         pass
-                    proc.wait()
+                    try:
+                        proc.wait(timeout=2.0)
+                    except subprocess.TimeoutExpired:
+                        pass
                     return -1
 
     def _run_tracked(self, cmd: list, **popen_kwargs) -> int:

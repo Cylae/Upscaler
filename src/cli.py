@@ -17,7 +17,7 @@ from src.core.scene_renamer import SceneNamingConfig
 from src.core.video_pipeline import probe_video
 
 
-def run_cli():
+def run_cli(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="4K Video Enhancer for Cartoons & 2D Animation (Scene / Warez Naming)"
     )
@@ -49,14 +49,14 @@ def run_cli():
     parser.add_argument("--dry-run", action="store_true", help="Scan and display the planned batch and mappings without converting files")
     parser.add_argument("--list-presets", action="store_true", help="List the available quality profiles and exit")
 
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.cq is not None and not 14 <= args.cq <= 28:
         parser.error("--cq must be between 14 and 28")
     if args.workers is not None and not 1 <= args.workers <= 4:
         parser.error("--workers must be between 1 and 4")
-    if args.tile_size < 0:
-        parser.error("--tile-size must be zero or a positive number")
+    if args.tile_size != 0 and args.tile_size < 32:
+        parser.error("--tile-size must be 0 (auto) or at least 32 pixels")
     if args.limit < 0:
         parser.error("--limit must be zero or a positive number")
     if args.threads != "auto":
@@ -71,18 +71,18 @@ def run_cli():
             print(f"Diagnostic report exported to: {out_f}")
         else:
             print(report_text)
-        sys.exit(0)
+        return 0
 
     if args.doctor:
         print_doctor_report()
-        sys.exit(0)
+        return 0
 
     if args.list_presets:
         print("AVAILABLE QUALITY PROFILES")
         for preset_id, preset in ENHANCEMENT_PRESETS.items():
             print(f"- {preset_id:<22} {preset.icon} {preset.name}")
             print(f"  {preset.description}")
-        sys.exit(0)
+        return 0
 
     if not args.source and not (args.manifest and os.path.isfile(args.manifest)):
         parser.error("--source is required unless --doctor, --list-presets, or --manifest is used")
@@ -123,7 +123,7 @@ def run_cli():
 
     if args.source and not os.path.exists(args.source):
         print(f"Error: Source path '{args.source}' does not exist.")
-        sys.exit(1)
+        return 1
 
     scene_cfg = SceneNamingConfig(
         show_name=args.show_name,
@@ -146,7 +146,7 @@ def run_cli():
 
     if not queue:
         print("No video files found.")
-        sys.exit(0)
+        return 0
 
     if args.retry_failed:
         retried = bm.retry_failed_items()
@@ -210,7 +210,7 @@ def run_cli():
             coll_tag = " [COLLISION WARNING!]" if p["collision"] else ""
             print(f"  {status_tag} {p['relative_source']} ({p['source_size_mb']} MB) -> {p['target_name']}{coll_tag}")
         print(f"\nDry run complete: {len(plan)} item(s) mapped, no files were converted.")
-        sys.exit(0)
+        return 0
 
     if args.manifest and not os.path.isfile(args.manifest):
         bm.save_manifest(args.manifest)
@@ -218,11 +218,11 @@ def run_cli():
     if not args.yes:
         if not sys.stdin.isatty():
             print("Error: model validation requires an interactive terminal. Re-run with --yes to accept the displayed choice.")
-            sys.exit(2)
+            return 2
         confirmation = input("Start batch with this AI model selection? [y/N]: ").strip().lower()
         if confirmation not in ("y", "yes", "o", "oui"):
             print("Batch cancelled: AI model selection was not validated.")
-            sys.exit(0)
+            return 0
 
     def on_item_updated(item: QueueItem):
         if item.status == EpisodeStatus.PROCESSING:
@@ -273,4 +273,4 @@ def run_cli():
 
 
 if __name__ == "__main__":
-    run_cli()
+    sys.exit(run_cli())

@@ -88,10 +88,9 @@ class PreflightDialog(QDialog):
         table.setColumnCount(4)
         table.setHorizontalHeaderLabels(["#", "Source File", "Target Scene Name", "Status"])
         table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        table.setColumnWidth(1, 220)
         table.setRowCount(len(dry_run_data))
 
         for r, item in enumerate(dry_run_data):

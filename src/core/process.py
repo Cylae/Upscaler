@@ -85,7 +85,10 @@ class ProcessTracker:
             except subprocess.TimeoutExpired:
                 if self._is_cancelled:
                     safe_kill_process_tree(proc)
-                    proc.wait()
+                    try:
+                        proc.wait(timeout=2.0)
+                    except subprocess.TimeoutExpired:
+                        pass
                     return -1
 
     def run_tracked(self, cmd: List[str], **popen_kwargs) -> int:

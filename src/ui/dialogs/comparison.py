@@ -138,11 +138,34 @@ class FrameComparisonDialog(QDialog):
         p_up_layout.addWidget(self.scroll_up, 1)
         self.img_layout.addWidget(self.panel_up, 1)
 
-        # Synchronize scrollbars
-        self.scroll_orig.horizontalScrollBar().valueChanged.connect(self.scroll_up.horizontalScrollBar().setValue)
-        self.scroll_up.horizontalScrollBar().valueChanged.connect(self.scroll_orig.horizontalScrollBar().setValue)
-        self.scroll_orig.verticalScrollBar().valueChanged.connect(self.scroll_up.verticalScrollBar().setValue)
-        self.scroll_up.verticalScrollBar().valueChanged.connect(self.scroll_orig.verticalScrollBar().setValue)
+        # Synchronize scrollbars proportionally with re-entrancy guard
+        self._syncing_scroll = False
+
+        def _sync_scroll(src_sb, dst_sb):
+            if self._syncing_scroll:
+                return
+            src_max = src_sb.maximum()
+            dst_max = dst_sb.maximum()
+            if src_max > 0 and dst_max > 0:
+                self._syncing_scroll = True
+                try:
+                    ratio = src_sb.value() / src_max
+                    dst_sb.setValue(int(ratio * dst_max))
+                finally:
+                    self._syncing_scroll = False
+
+        self.scroll_orig.horizontalScrollBar().valueChanged.connect(
+            lambda _: _sync_scroll(self.scroll_orig.horizontalScrollBar(), self.scroll_up.horizontalScrollBar())
+        )
+        self.scroll_up.horizontalScrollBar().valueChanged.connect(
+            lambda _: _sync_scroll(self.scroll_up.horizontalScrollBar(), self.scroll_orig.horizontalScrollBar())
+        )
+        self.scroll_orig.verticalScrollBar().valueChanged.connect(
+            lambda _: _sync_scroll(self.scroll_orig.verticalScrollBar(), self.scroll_up.verticalScrollBar())
+        )
+        self.scroll_up.verticalScrollBar().valueChanged.connect(
+            lambda _: _sync_scroll(self.scroll_up.verticalScrollBar(), self.scroll_orig.verticalScrollBar())
+        )
 
         layout.addWidget(self.img_container, 1)
 
@@ -183,15 +206,27 @@ class FrameComparisonDialog(QDialog):
             self.panel_up.setVisible(False)
 
     def _update_display(self):
-        if self.pixmap_orig.isNull() or self.pixmap_up.isNull():
-            return
-        w_orig = max(10, int(self.pixmap_orig.width() * self.zoom_level))
-        h_orig = max(10, int(self.pixmap_orig.height() * self.zoom_level))
-        self.lbl_orig_img.setPixmap(self.pixmap_orig.scaled(w_orig, h_orig, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        if self.pixmap_orig.isNull():
+            self.lbl_orig_img.setText("Original frame unavailable")
+        else:
+            w_orig = max(10, int(self.pixmap_orig.width() * self.zoom_level))
+            h_orig = max(10, int(self.pixmap_orig.height() * self.zoom_level))
+            self.lbl_orig_img.setPixmap(
+                self.pixmap_orig.scaled(
+                    w_orig, h_orig, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+                )
+            )
 
-        w_up = max(10, int(self.pixmap_up.width() * self.zoom_level))
-        h_up = max(10, int(self.pixmap_up.height() * self.zoom_level))
-        self.lbl_up_img.setPixmap(self.pixmap_up.scaled(w_up, h_up, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        if self.pixmap_up.isNull():
+            self.lbl_up_img.setText("Upscaled frame unavailable")
+        else:
+            w_up = max(10, int(self.pixmap_up.width() * self.zoom_level))
+            h_up = max(10, int(self.pixmap_up.height() * self.zoom_level))
+            self.lbl_up_img.setPixmap(
+                self.pixmap_up.scaled(
+                    w_up, h_up, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation
+                )
+            )
 
     def closeEvent(self, event):
         temp_dir = self.info.get("temp_dir")

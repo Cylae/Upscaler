@@ -124,23 +124,22 @@ class UpscalerMainWindow(QMainWindow):
         # ── 1. HEADER BAR (full width) ──────────────────────────────────────
         header = QFrame()
         header.setObjectName("headerPanel")
-        header.setFixedHeight(60)
+        header.setFixedHeight(62)
         h_layout = QHBoxLayout(header)
-        h_layout.setContentsMargins(18, 0, 14, 0)
+        h_layout.setContentsMargins(18, 0, 16, 0)
         h_layout.setSpacing(12)
 
-        # Traffic light dots
-        traffic_lights = QHBoxLayout()
-        traffic_lights.setSpacing(6)
-        for color, border in (("#ff5f56", "#e0443e"), ("#ffbd2e", "#dea123"), ("#27c93f", "#1aab29")):
-            dot = QLabel()
-            dot.setFixedSize(12, 12)
-            dot.setStyleSheet(
-                f"background-color: {color}; border: 1px solid {border}; border-radius: 6px;"
-            )
-            traffic_lights.addWidget(dot)
-        h_layout.addLayout(traffic_lights)
-        h_layout.addSpacing(6)
+        # Brand logo badge
+        badge = QLabel("4K")
+        badge.setFixedSize(36, 36)
+        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        badge.setStyleSheet(
+            "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #2563eb, stop:1 #7c3aed);"
+            "border: 1px solid #4f46e5; border-radius: 9px; color: #ffffff;"
+            "font-size: 13px; font-weight: 900; letter-spacing: 0.5px;"
+        )
+        h_layout.addWidget(badge)
+        h_layout.addSpacing(4)
 
         # Title
         title_box = QVBoxLayout()
@@ -150,7 +149,7 @@ class UpscalerMainWindow(QMainWindow):
             "font-size: 15px; font-weight: 800; color: #f1f5f9; letter-spacing: -0.3px;"
         )
         lbl_sub = QLabel("Animation & Cartoon Edition  ·  Local AI Upscaler")
-        lbl_sub.setStyleSheet("font-size: 11px; color: #475569;")
+        lbl_sub.setStyleSheet("font-size: 11px; color: #64748b; font-weight: 500;")
         title_box.addWidget(lbl_title)
         title_box.addWidget(lbl_sub)
         h_layout.addLayout(title_box)
@@ -213,16 +212,18 @@ class UpscalerMainWindow(QMainWindow):
 
         root_layout.addWidget(header)
 
-        # ── 2. MIDDLE ZONE: sidebar | queue ────────────────────────────────
-        middle = QWidget()
-        middle_layout = QHBoxLayout(middle)
-        middle_layout.setContentsMargins(0, 0, 0, 0)
-        middle_layout.setSpacing(0)
+        # ── 2. MIDDLE ZONE: sidebar | queue (resizable splitter) ───────────
+        middle = QSplitter(Qt.Orientation.Horizontal)
+        middle.setObjectName("mainSplitter")
+        middle.setHandleWidth(2)
+        middle.setChildrenCollapsible(False)
+        self.main_splitter = middle
 
         # ── 2a. LEFT SIDEBAR ───────────────────────────────────────────────
         sidebar = QWidget()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(340)
+        sidebar.setMinimumWidth(340)
+        sidebar.setMaximumWidth(520)
         sidebar_outer = QVBoxLayout(sidebar)
         sidebar_outer.setContentsMargins(0, 0, 0, 0)
         sidebar_outer.setSpacing(0)
@@ -237,8 +238,8 @@ class UpscalerMainWindow(QMainWindow):
         sidebar_inner = QWidget()
         sidebar_inner.setStyleSheet("background-color: transparent;")
         s_layout = QVBoxLayout(sidebar_inner)
-        s_layout.setContentsMargins(12, 14, 10, 14)
-        s_layout.setSpacing(10)
+        s_layout.setContentsMargins(12, 12, 10, 12)
+        s_layout.setSpacing(8)
 
         # ── Section: Source & Output ─────────────────────────────────────
         grp_io = QGroupBox("Source & Output")
@@ -321,7 +322,7 @@ class UpscalerMainWindow(QMainWindow):
 
         self.lbl_preset_desc = QLabel("")
         self.lbl_preset_desc.setWordWrap(True)
-        self.lbl_preset_desc.setStyleSheet("color: #475569; font-size: 11px; padding: 2px 0px;")
+        self.lbl_preset_desc.setStyleSheet("color: #94a3b8; font-size: 11px; padding: 2px 0px; line-height: 1.3;")
         preset_layout.addWidget(self.lbl_preset_desc)
         s_layout.addWidget(grp_preset)
 
@@ -375,7 +376,7 @@ class UpscalerMainWindow(QMainWindow):
 
         self.lbl_model_info = QLabel("")
         self.lbl_model_info.setWordWrap(True)
-        self.lbl_model_info.setStyleSheet("color: #475569; font-size: 11px; padding: 2px 0px;")
+        self.lbl_model_info.setStyleSheet("color: #94a3b8; font-size: 11px; padding: 2px 0px; line-height: 1.3;")
         ai_layout.addWidget(self.lbl_model_info)
         s_layout.addWidget(grp_ai)
 
@@ -650,10 +651,11 @@ class UpscalerMainWindow(QMainWindow):
         sidebar_inner.setLayout(s_layout)
         sidebar_scroll.setWidget(sidebar_inner)
         sidebar_outer.addWidget(sidebar_scroll)
-        middle_layout.addWidget(sidebar)
+        middle.addWidget(sidebar)
 
         # ── 2b. RIGHT AREA: queue ─────────────────────────────────────────
         right_area = QWidget()
+        right_area.setMinimumWidth(550)
         right_layout = QVBoxLayout(right_area)
         right_layout.setContentsMargins(12, 10, 14, 10)
         right_layout.setSpacing(8)
@@ -706,7 +708,7 @@ class UpscalerMainWindow(QMainWindow):
         self.txt_filter.setPlaceholderText("Filter by name or season...")
         self.txt_filter.setToolTip("Filter queue by episode name, season, or filename.")
         self.txt_filter.setClearButtonEnabled(True)
-        self.txt_filter.setMaximumWidth(220)
+        self.txt_filter.setMaximumWidth(240)
         self.txt_filter.textChanged.connect(self.on_filter_changed)
         stat_bar.addWidget(self.txt_filter)
 
@@ -723,14 +725,31 @@ class UpscalerMainWindow(QMainWindow):
         self.table.setHorizontalHeaderLabels([
             "#", "Original File", "Size", "Target Scene Name", "Status", "Detail / Progress"
         ])
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
-        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Interactive)
-        self.table.setColumnWidth(1, 220)
-        self.table.setColumnWidth(5, 240)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(0, 48)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(2, 85)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
+        self.table.setColumnWidth(4, 115)
+        header.setSectionResizeMode(5, QHeaderView.ResizeMode.Interactive)
+        self.table.setColumnWidth(5, 260)
+        header.setMinimumSectionSize(45)
+        header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+
+        # Align specific headers
+        for col_idx, align in (
+            (0, Qt.AlignmentFlag.AlignCenter),
+            (2, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
+            (4, Qt.AlignmentFlag.AlignCenter),
+        ):
+            hdr_item = self.table.horizontalHeaderItem(col_idx)
+            if hdr_item:
+                hdr_item.setTextAlignment(align)
+
+        self.table.verticalHeader().setDefaultSectionSize(34)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
@@ -740,7 +759,10 @@ class UpscalerMainWindow(QMainWindow):
         self.table.itemDoubleClicked.connect(self.on_table_double_click)
         right_layout.addWidget(self.table, 1)
 
-        middle_layout.addWidget(right_area, 1)
+        middle.addWidget(right_area)
+        middle.setStretchFactor(0, 0)
+        middle.setStretchFactor(1, 1)
+        middle.setSizes([380, 1060])
         root_layout.addWidget(middle, 1)
 
         # ── 3. BOTTOM BAR (full width) ──────────────────────────────────────
@@ -765,6 +787,7 @@ class UpscalerMainWindow(QMainWindow):
             "background-color: rgba(96, 165, 250, 0.10); border: 1px solid rgba(96, 165, 250, 0.20);"
             "border-radius: 10px;"
         )
+        self.lbl_eta.setVisible(False)
         status_row.addWidget(self.lbl_eta)
         b_layout.addLayout(status_row)
 
@@ -787,20 +810,26 @@ class UpscalerMainWindow(QMainWindow):
         )
         self.btn_compare_frame.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_compare_frame.clicked.connect(self.on_compare_frame_clicked)
-        btn_row.addWidget(self.btn_compare_frame, 2)
+        self.btn_compare_frame.setMinimumHeight(38)
+        btn_row.addWidget(self.btn_compare_frame)
 
+        clip_box = QHBoxLayout()
+        clip_box.setSpacing(4)
         lbl_clip = QLabel("Clip:")
-        lbl_clip.setStyleSheet("color: #475569; font-size: 12px;")
-        btn_row.addWidget(lbl_clip)
+        lbl_clip.setStyleSheet("color: #64748b; font-size: 11px; font-weight: 600;")
+        clip_box.addWidget(lbl_clip)
         self.spin_preview_dur = QSpinBox()
         self.spin_preview_dur.setRange(5, 300)
         self.spin_preview_dur.setValue(30)
         self.spin_preview_dur.setSuffix(" s")
+        self.spin_preview_dur.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.spin_preview_dur.setToolTip(
             "Duration of the upscaled preview clip in seconds. The clip starts 10% into the video."
         )
-        self.spin_preview_dur.setFixedWidth(66)
-        btn_row.addWidget(self.spin_preview_dur)
+        self.spin_preview_dur.setFixedWidth(82)
+        self.spin_preview_dur.setMinimumHeight(38)
+        clip_box.addWidget(self.spin_preview_dur)
+        btn_row.addLayout(clip_box)
 
         self.btn_preview_clip = QPushButton("🎬 Preview Clip")
         self.btn_preview_clip.setObjectName("btnPreviewClip")
@@ -810,7 +839,8 @@ class UpscalerMainWindow(QMainWindow):
         )
         self.btn_preview_clip.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_preview_clip.clicked.connect(self.on_preview_clip_clicked)
-        btn_row.addWidget(self.btn_preview_clip, 2)
+        self.btn_preview_clip.setMinimumHeight(38)
+        btn_row.addWidget(self.btn_preview_clip)
 
         self.btn_preview = QPushButton("⚡ Test 1 Episode")
         self.btn_preview.setObjectName("btnPreview")
@@ -819,7 +849,14 @@ class UpscalerMainWindow(QMainWindow):
         )
         self.btn_preview.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_preview.clicked.connect(self.on_test_single_clicked)
-        btn_row.addWidget(self.btn_preview, 2)
+        self.btn_preview.setMinimumHeight(38)
+        btn_row.addWidget(self.btn_preview)
+
+        # Subtle vertical separator
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.VLine)
+        sep.setStyleSheet("color: #252535; max-height: 22px;")
+        btn_row.addWidget(sep)
 
         self.btn_preflight = QPushButton("📋 Preflight")
         self.btn_preflight.setObjectName("btnPreflight")
@@ -828,7 +865,8 @@ class UpscalerMainWindow(QMainWindow):
         )
         self.btn_preflight.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_preflight.clicked.connect(self.on_preflight_clicked)
-        btn_row.addWidget(self.btn_preflight, 2)
+        self.btn_preflight.setMinimumHeight(38)
+        btn_row.addWidget(self.btn_preflight)
 
         self.btn_retry_failed = QPushButton("🔄 Retry Failed")
         self.btn_retry_failed.setObjectName("btnRetryFailed")
@@ -837,7 +875,10 @@ class UpscalerMainWindow(QMainWindow):
         )
         self.btn_retry_failed.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_retry_failed.clicked.connect(self.on_retry_failed_clicked)
-        btn_row.addWidget(self.btn_retry_failed, 2)
+        self.btn_retry_failed.setMinimumHeight(38)
+        btn_row.addWidget(self.btn_retry_failed)
+
+        btn_row.addStretch(1)
 
         self.btn_start = QPushButton("▶  START BATCH PROCESSING")
         self.btn_start.setObjectName("btnStart")
@@ -845,7 +886,8 @@ class UpscalerMainWindow(QMainWindow):
         self.btn_start.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_start.clicked.connect(self.on_start_clicked)
         self.btn_start.setMinimumHeight(38)
-        btn_row.addWidget(self.btn_start, 4)
+        self.btn_start.setMinimumWidth(230)
+        btn_row.addWidget(self.btn_start)
 
         self.btn_stop = QPushButton("⏹ STOP")
         self.btn_stop.setObjectName("btnStop")
@@ -854,7 +896,8 @@ class UpscalerMainWindow(QMainWindow):
         self.btn_stop.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_stop.clicked.connect(self.on_stop_clicked)
         self.btn_stop.setMinimumHeight(38)
-        btn_row.addWidget(self.btn_stop, 1)
+        self.btn_stop.setMinimumWidth(90)
+        btn_row.addWidget(self.btn_stop)
 
         b_layout.addLayout(btn_row)
         root_layout.addWidget(bottom_bar)
@@ -1006,12 +1049,19 @@ class UpscalerMainWindow(QMainWindow):
         if hasattr(self, 'lbl_audio') and hasattr(self, 'cb_audio_mode'):
             mode = self.cb_audio_mode.currentData() or "copy"
             labels = {
-                "copy": "● Audio: Lossless Stream Copy (Guaranteed)",
-                "aac_192k": "● Audio: AAC 192k Transparent (Guaranteed)",
-                "aac_320k": "● Audio: AAC 320k Audiophile (Guaranteed)",
-                "flac": "● Audio: Lossless FLAC 24-bit (Guaranteed)"
+                "copy": "🔊 Audio: Direct Copy",
+                "aac_192k": "🔊 Audio: AAC 192k",
+                "aac_320k": "🔊 Audio: AAC 320k",
+                "flac": "🔊 Audio: FLAC 24-bit",
             }
-            self.lbl_audio.setText(labels.get(mode, "● Audio: Guaranteed"))
+            tooltips = {
+                "copy": "Lossless Stream Copy: Original soundtrack is preserved 1:1 without re-encoding.",
+                "aac_192k": "Re-encoded to high quality AAC 192 kbps stereo.",
+                "aac_320k": "Re-encoded to transparent AAC 320 kbps stereo.",
+                "flac": "Lossless 24-bit FLAC audio re-encode.",
+            }
+            self.lbl_audio.setText(labels.get(mode, "🔊 Audio: Direct Copy"))
+            self.lbl_audio.setToolTip(tooltips.get(mode, "Audio stream settings"))
 
     def on_log_received(self, msg: str):
         import datetime
@@ -1491,16 +1541,20 @@ class UpscalerMainWindow(QMainWindow):
             it_idx = QTableWidgetItem(str(item.index))
             it_idx.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             it_idx.setData(Qt.ItemDataRole.UserRole, item.id)
+            it_idx.setForeground(QColor("#64748b"))
             self.table.setItem(r, 0, it_idx)
 
             it_src = QTableWidgetItem(item.relative_source_path)
+            it_src.setToolTip(f"Source: {item.source_path}\nSize: {item.file_size_mb:.1f} MB")
             self.table.setItem(r, 1, it_src)
 
             it_sz = QTableWidgetItem(f"{item.file_size_mb:.1f} MB")
             it_sz.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            it_sz.setForeground(QColor("#94a3b8"))
             self.table.setItem(r, 2, it_sz)
 
             it_scene = QTableWidgetItem(item.target_scene_name)
+            it_scene.setToolTip(f"Target: {item.target_full_path}")
             it_scene.setForeground(QColor("#38bdf8"))
             self.table.setItem(r, 3, it_scene)
 
@@ -1514,7 +1568,8 @@ class UpscalerMainWindow(QMainWindow):
             elif item.status == EpisodeStatus.COMPLETED:
                 completed_count += 1
 
-            it_detail = QTableWidgetItem(item.status_detail)
+            it_detail = QTableWidgetItem(item.status_detail or "Ready")
+            it_detail.setForeground(QColor("#94a3b8"))
             self.table.setItem(r, 5, it_detail)
 
         total = len(queue)
@@ -1523,7 +1578,7 @@ class UpscalerMainWindow(QMainWindow):
 
         self.btn_stat_all.setText(f"All: {total}")
         self.btn_stat_ready.setText(f"Ready: {ready}")
-        self.btn_stat_completed.setText(f"Completed: {completed_count}")
+        self.btn_stat_completed.setText(f"Done: {completed_count}")
         self.btn_stat_skipped.setText(f"Skipped: {skipped_count}")
         if hasattr(self, 'btn_stat_failed'):
             self.btn_stat_failed.setText(f"Errors: {failed_count}")
@@ -1789,6 +1844,9 @@ class UpscalerMainWindow(QMainWindow):
         self.lbl_overall_status.setText(status_str)
         if eta_str:
             self.lbl_eta.setText(eta_str)
+            self.lbl_eta.setVisible(True)
+        else:
+            self.lbl_eta.setVisible(False)
 
     def on_finished(self):
         self.btn_start.setEnabled(True)
@@ -1806,12 +1864,27 @@ class UpscalerMainWindow(QMainWindow):
         else:
             self.lbl_overall_status.setText("Processing finished successfully.")
         self.lbl_eta.setText("")
+        self.lbl_eta.setVisible(False)
         if not cancelled_count:
             self.progress_bar.setValue(100)
         try:
             QApplication.beep()
         except Exception:
             pass
+
+    def closeEvent(self, event):
+        """Ensures all background workers and external processes terminate cleanly on exit."""
+        if hasattr(self, "batch_manager") and self.batch_manager:
+            self.batch_manager.stop()
+
+        if hasattr(self, "_scan_worker") and self._scan_worker and self._scan_worker.isRunning():
+            self._scan_worker.terminate()
+            self._scan_worker.wait(500)
+
+        if hasattr(self, "worker") and self.worker and self.worker.isRunning():
+            self.worker.wait(1500)
+
+        super().closeEvent(event)
 
 
 def run_gui():

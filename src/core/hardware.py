@@ -187,13 +187,14 @@ def generate_diagnostic_report(redact_paths: bool = False) -> str:
         "-" * 60,
     ]
 
-    from src.core.models import AVAILABLE_MODELS
+    from src.core.models import check_local_model_availability
+    models_avail = check_local_model_availability(base_dir)
     all_models_ok = True
-    for m_id, m_spec in AVAILABLE_MODELS.items():
-        m_dir = os.path.join(base_dir, m_spec.weights_path)
-        exists = os.path.isdir(m_dir)
-        status = "Verified Local (Ready)" if exists else "Missing Directory"
-        if not exists:
+    for m_id, ok in models_avail.items():
+        if m_id == "auto":
+            continue
+        status = "Verified Local (Ready)" if ok else "Missing Model Files"
+        if not ok:
             all_models_ok = False
         lines.append(f"  {m_id:<22} : {status}")
 
