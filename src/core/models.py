@@ -262,11 +262,41 @@ def calculate_target_dimensions(
     return target_w, target_h, tag
 
 
-def auto_tile_size(gpu_vram_gb: float = 0.0, *args, **kwargs) -> int:
+def is_heavy_model(model: Optional[AIModelSpec | str] = None) -> bool:
+    """Returns True if the model uses heavy architecture (like RRDBNet or RealCUGAN)
+    requiring conservative VRAM tile sizes and worker concurrency to avoid Vulkan OOM.
+    """
+    if model is None:
+        return False
+    if isinstance(model, AIModelSpec):
+        m_id = (model.id or model.internal_name or "").lower()
+        profile = getattr(model, "vram_profile", "medium")
+    else:
+        m_id = str(model).lower()
+        spec = AVAILABLE_MODELS.get(m_id)
+        profile = getattr(spec, "vram_profile", "medium") if spec else "medium"
+
+    # AnimeVideo V3 is lightweight
+    if "animevideov3" in m_id or "animevideo" in m_id:
+        return False
+
+    if any(k in m_id for k in ("x4plus", "realesrnet", "models-pro", "models-se")):
+        return True
+
+    return profile in ("high", "medium")
+
+
+def auto_tile_size(
+    gpu_vram_gb: float = 0.0,
+    model: Optional[AIModelSpec | str] = None,
+    *args,
+    **kwargs
+) -> int:
     """Computes optimal tile_size for ncnn-vulkan upscalers based on available GPU VRAM.
 
     Larger tiles reduce kernel-launch overhead but require proportionally more VRAM.
-    Over-sized tiles cause GPU OOM and fall back to software, which is catastrophically slow.
+    Heavy models (RRDBNet / RealCUGAN) automatically scale down tile size to prevent
+    GPU VRAM exhaustion and silent Vulkan crashes.
     """
     effective_vram = gpu_vram_gb
     if "vram_gb" in kwargs:
@@ -276,28 +306,45 @@ def auto_tile_size(gpu_vram_gb: float = 0.0, *args, **kwargs) -> int:
     elif len(args) == 1 and not isinstance(gpu_vram_gb, (int, float)):
         effective_vram = args[0]
 
+    chosen_model = model or kwargs.get("model")
+
     try:
         val = float(effective_vram)
     except (TypeError, ValueError):
         val = 0.0
 
-    if val >= 10.0:
-        return 0    # No tiling needed — entire frame fits in VRAM
-    elif val >= 6.0:
-        return 400  # Large tiles, minimal overhead
-    elif val >= 4.0:
-        return 200  # Medium tiles
-    elif val >= 2.0:
-        return 100  # Small tiles for low-VRAM GPUs
+    if is_heavy_model(chosen_model):
+        if val >= 16.0:
+            return 400
+        elif val >= 10.0:
+            return 300
+        elif val >= 6.0:
+            return 200  # Safe and highly performant for 6GB-8GB GPUs (e.g. RTX 3070)
+        elif val >= 4.0:
+            return 100
+        else:
+            return 64
     else:
-        return 64   # Conservative fallback
+        if val >= 10.0:
+            return 0    # No tiling needed — entire frame fits in VRAM
+        elif val >= 6.0:
+            return 400  # Large tiles, minimal overhead
+        elif val >= 4.0:
+            return 200  # Medium tiles
+        elif val >= 2.0:
+            return 100  # Small tiles for low-VRAM GPUs
+        else:
+            return 64   # Conservative fallback
 
 
 def get_optimal_thread_spec(
     threads_param: str = "auto",
     gpu_vram_gb: float = 0.0,
     vram_gb: Optional[float] = None,
-    cpu_cores: Optional[int] = None
+    cpu_cores: Optional[int] = None,
+    model: Optional[AIModelSpec | str] = None,
+    *args,
+    **kwargs
 ) -> str:
     """Calculates optimal load:proc:save thread count based on CPU cores and GPU VRAM."""
     if isinstance(threads_param, int) and isinstance(gpu_vram_gb, (int, float)):
@@ -312,15 +359,28 @@ def get_optimal_thread_spec(
     if threads_param and threads_param != "auto":
         return str(threads_param)
 
-    # Determine proc threads based on available VRAM
-    if effective_vram >= 10.0:
-        proc = 8
-    elif effective_vram >= 6.0:
-        proc = 6
-    elif effective_vram >= 4.0:
-        proc = 4
+    chosen_model = model or kwargs.get("model")
+    heavy = is_heavy_model(chosen_model)
+
+    # Determine proc threads based on available VRAM and model architecture
+    if heavy:
+        if effective_vram >= 16.0:
+            proc = 6
+        elif effective_vram >= 10.0:
+            proc = 4
+        elif effective_vram >= 6.0:
+            proc = 4  # 4 proc threads with tile 200 fits comfortably within 8GB VRAM
+        else:
+            proc = 2
     else:
-        proc = 4
+        if effective_vram >= 10.0:
+            proc = 8
+        elif effective_vram >= 6.0:
+            proc = 6
+        elif effective_vram >= 4.0:
+            proc = 4
+        else:
+            proc = 4
 
     # Determine load/save threads based on CPU core count
     if cpu_count >= 16:

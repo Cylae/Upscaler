@@ -31,6 +31,7 @@ from src.core.models import (
     calculate_target_dimensions,
     choose_best_model_for_video,
     get_optimal_thread_spec,
+    is_heavy_model,
     recommend_model_for_video,
     resolve_realcugan_options,
 )
@@ -350,14 +351,27 @@ class VideoUpscalerPipeline:
         ])
 
         # Colorspace and dynamic range preservation
-        if meta.color_range and meta.color_range in ("tv", "pc", "limited", "full"):
-            cmd.extend(["-color_range", meta.color_range])
-        if meta.color_space and meta.color_space not in ("unknown", "unspecified"):
-            cmd.extend(["-colorspace", meta.color_space])
-        if meta.color_primaries and meta.color_primaries not in ("unknown", "unspecified"):
-            cmd.extend(["-color_primaries", meta.color_primaries])
-        if meta.color_transfer and meta.color_transfer not in ("unknown", "unspecified"):
-            cmd.extend(["-color_trc", meta.color_transfer])
+        is_hd_or_higher = target_h >= 720 or target_w >= 1280
+        is_sd_source = 0 < meta.height < 720 and 0 < meta.width < 1280
+
+        if is_hd_or_higher and is_sd_source:
+            # Upscaling SD (BT.601 / SMPTE 170M) to HD/4K: conform to standard BT.709
+            cmd.extend([
+                "-colorspace", "bt709",
+                "-color_primaries", "bt709",
+                "-color_trc", "bt709",
+            ])
+            if meta.color_range and meta.color_range in ("tv", "pc", "limited", "full"):
+                cmd.extend(["-color_range", meta.color_range])
+        else:
+            if meta.color_range and meta.color_range in ("tv", "pc", "limited", "full"):
+                cmd.extend(["-color_range", meta.color_range])
+            if meta.color_space and meta.color_space not in ("unknown", "unspecified"):
+                cmd.extend(["-colorspace", meta.color_space])
+            if meta.color_primaries and meta.color_primaries not in ("unknown", "unspecified"):
+                cmd.extend(["-color_primaries", meta.color_primaries])
+            if meta.color_transfer and meta.color_transfer not in ("unknown", "unspecified"):
+                cmd.extend(["-color_trc", meta.color_transfer])
 
         # Encoder-specific parameters
         if chosen_encoder == "hevc_nvenc":
@@ -529,6 +543,8 @@ class VideoUpscalerPipeline:
             chosen_scale = selected_model.default_scale
 
         report(0.05, f"Selected model: {selected_model.name} (Scale {chosen_scale}x)")
+        model_reason = f"Auto-selected for {meta.width}×{meta.height}" if job.model_id == "auto" else "User selected"
+        log_cmd(f"[AI MODEL] {selected_model.name} ×{chosen_scale} ({model_reason})")
 
         # Prepare workspace & temp directory
         root_temp = job.temp_dir or os.path.join(job.output_dir, ".temp_upscaler")
@@ -747,172 +763,251 @@ class VideoUpscalerPipeline:
             # ------------------------------------------------------------------
             # 6. Compute optimised AI upscaler parameters
             # ------------------------------------------------------------------
-            thread_spec = get_optimal_thread_spec(job.threads, gpu_vram_gb=self.hardware.gpu_vram_gb)
+            thread_spec = get_optimal_thread_spec(job.threads, gpu_vram_gb=self.hardware.gpu_vram_gb, model=selected_model)
 
-            # Resolve tile_size: respect user override, otherwise auto-compute from VRAM
-            effective_tile_size = job.tile_size if job.tile_size > 0 else _auto_tile_size(self.hardware.gpu_vram_gb)
+            # Resolve tile_size: respect user override, otherwise auto-compute from VRAM and model weight
+            effective_tile_size = job.tile_size if job.tile_size > 0 else _auto_tile_size(self.hardware.gpu_vram_gb, model=selected_model)
 
             mode_label = f" — Preview {int(_preview_dur_s)}s" if _preview_mode and _preview_dur_s else ""
             report(0.20, f"Upscaling with {selected_model.name} (Threads: {thread_spec}, Tile: {effective_tile_size or 'auto'}){mode_label}...")
             t_start_ai = time.time()
 
             # ------------------------------------------------------------------
-            # 7. Run Upscaler (Tuned Multithreading -j load:proc:save)
+            # 7. Run Upscaler with Automatic GPU Memory Protection & Fallback
             # ------------------------------------------------------------------
-            if selected_model.engine == ModelEngine.REALESRGAN:
-                bin_path = self.hardware.realesrgan_bin
-                if not bin_path or not os.path.isfile(bin_path):
-                    return False, f"Real-ESRGAN binary not found: {bin_path}"
+            max_ai_attempts = 2
+            ai_attempt = 1
 
-                models_dir = os.path.join(os.path.dirname(bin_path), "models")
-                if not os.path.isdir(models_dir):
-                    return False, f"Local Real-ESRGAN models directory not found: {models_dir}"
+            while ai_attempt <= max_ai_attempts:
+                if selected_model.engine == ModelEngine.REALESRGAN:
+                    bin_path = self.hardware.realesrgan_bin
+                    if not bin_path or not os.path.isfile(bin_path):
+                        return False, f"Real-ESRGAN binary not found: {bin_path}"
 
-                ai_cmd = [
-                    bin_path,
-                    "-i", frames_in_dir,
-                    "-o", frames_out_dir,
-                    "-m", models_dir,
-                    "-n", selected_model.internal_name,
-                    "-s", str(chosen_scale),
-                    "-j", thread_spec,
-                    "-f", frame_ext,
-                    "-v"
-                ]
-                if effective_tile_size > 0:
-                    ai_cmd.extend(["-t", str(effective_tile_size)])
-                if job.enable_tta:
-                    ai_cmd.append("-x")
+                    models_dir = os.path.join(os.path.dirname(bin_path), "models")
+                    if not os.path.isdir(models_dir):
+                        return False, f"Local Real-ESRGAN models directory not found: {models_dir}"
 
-            elif selected_model.engine == ModelEngine.REALCUGAN:
-                bin_path = self.hardware.realcugan_bin
-                if not bin_path or not os.path.isfile(bin_path):
-                    return False, f"RealCUGAN binary not found: {bin_path}"
+                    ai_cmd = [
+                        bin_path,
+                        "-i", frames_in_dir,
+                        "-o", frames_out_dir,
+                        "-m", models_dir,
+                        "-n", selected_model.internal_name,
+                        "-s", str(chosen_scale),
+                        "-j", thread_spec,
+                        "-f", frame_ext,
+                        "-v"
+                    ]
+                    if effective_tile_size > 0:
+                        ai_cmd.extend(["-t", str(effective_tile_size)])
+                    if job.enable_tta:
+                        ai_cmd.append("-x")
 
-                models_dir = os.path.join(os.path.dirname(bin_path), selected_model.internal_name)
-                if not os.path.isdir(models_dir):
-                    return False, f"Local RealCUGAN models directory not found: {models_dir}"
+                elif selected_model.engine == ModelEngine.REALCUGAN:
+                    bin_path = self.hardware.realcugan_bin
+                    if not bin_path or not os.path.isfile(bin_path):
+                        return False, f"RealCUGAN binary not found: {bin_path}"
 
-                try:
-                    chosen_scale, effective_denoise, target_model_name = resolve_realcugan_options(
-                        models_dir,
-                        chosen_scale,
-                        job.denoise_level if job.denoise_level is not None else -1,
-                    )
-                except ValueError as exc:
-                    return False, str(exc)
+                    models_dir = os.path.join(os.path.dirname(bin_path), selected_model.internal_name)
+                    if not os.path.isdir(models_dir):
+                        return False, f"Local RealCUGAN models directory not found: {models_dir}"
 
-                if target_model_name != selected_model.internal_name:
-                    alt_dir = os.path.join(os.path.dirname(bin_path), target_model_name)
-                    if os.path.isdir(alt_dir):
-                        models_dir = alt_dir
-                    log_cmd(f"[REALCUGAN] Requested model '{selected_model.internal_name}' unavailable for scale {chosen_scale}; using {target_model_name} instead.")
-                    report(0.20, f"RealCUGAN compatibility adjustment: {target_model_name}")
-                elif effective_denoise != (job.denoise_level if job.denoise_level is not None else -1):
-                    log_cmd(f"[REALCUGAN] Requested denoise level unavailable; adjusted to {effective_denoise}.")
-                    report(0.20, f"RealCUGAN denoise adjusted to {effective_denoise}")
+                    try:
+                        chosen_scale, effective_denoise, target_model_name = resolve_realcugan_options(
+                            models_dir,
+                            chosen_scale,
+                            job.denoise_level if job.denoise_level is not None else -1,
+                        )
+                    except ValueError as exc:
+                        return False, str(exc)
 
-                ai_cmd = [
-                    bin_path,
-                    "-i", frames_in_dir,
-                    "-o", frames_out_dir,
-                    "-m", models_dir,
-                    "-s", str(chosen_scale),
-                    "-j", thread_spec,
-                    "-f", frame_ext,
-                    "-v"
-                ]
-                if effective_tile_size > 0:
-                    ai_cmd.extend(["-t", str(effective_tile_size)])
-                if job.enable_tta:
-                    ai_cmd.append("-x")
-                ai_cmd.extend(["-n", str(effective_denoise)])
-            else:
-                return False, f"Unknown engine: {selected_model.engine}"
+                    if target_model_name != selected_model.internal_name:
+                        alt_dir = os.path.join(os.path.dirname(bin_path), target_model_name)
+                        if os.path.isdir(alt_dir):
+                            models_dir = alt_dir
+                        log_cmd(f"[REALCUGAN] Requested model '{selected_model.internal_name}' unavailable for scale {chosen_scale}; using {target_model_name} instead.")
+                        report(0.20, f"RealCUGAN compatibility adjustment: {target_model_name}")
+                    elif effective_denoise != (job.denoise_level if job.denoise_level is not None else -1):
+                        log_cmd(f"[REALCUGAN] Requested denoise level unavailable; adjusted to {effective_denoise}.")
+                        report(0.20, f"RealCUGAN denoise adjusted to {effective_denoise}")
 
-            log_cmd(f"[VULKAN AI] {' '.join(ai_cmd)}")
+                    ai_cmd = [
+                        bin_path,
+                        "-i", frames_in_dir,
+                        "-o", frames_out_dir,
+                        "-m", models_dir,
+                        "-s", str(chosen_scale),
+                        "-j", thread_spec,
+                        "-f", frame_ext,
+                        "-v"
+                    ]
+                    if effective_tile_size > 0:
+                        ai_cmd.extend(["-t", str(effective_tile_size)])
+                    if job.enable_tta:
+                        ai_cmd.append("-x")
+                    ai_cmd.extend(["-n", str(effective_denoise)])
+                else:
+                    return False, f"Unknown engine: {selected_model.engine}"
 
-            self._current_process = self._start_process(
-                ai_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                errors="ignore",
-                bufsize=1
-            )
+                log_cmd(f"[VULKAN AI] {' '.join(ai_cmd)}")
 
-            # Monitor progress per completed frame
-            completed_frames = 0
-            last_report_time = 0.0
-            last_report_frames = 0
-            est_encode_s = max(2.0, total_extracted / 120.0)
-
-            report(
-                0.15,
-                f"Upscaling: 0/{total_extracted} frames (Starting engine...)",
-                {"stage": "upscaling", "completed_frames": 0, "total_frames": total_extracted, "pct": 0.0, "file_eta_str": "Calculating..."}
-            )
-
-            if self._current_process.stdout:
-                for line in self._current_process.stdout:
-                    if self._is_cancelled:
-                        self._current_process.terminate()
-                        return False, "Cancelled by user."
-
-                    line_clean = line.strip()
-                    # Real-ESRGAN and RealCUGAN output: "... -> ... done"
-                    if "->" in line_clean and line_clean.lower().endswith("done"):
-                        completed_frames += 1
-                        now = time.time()
-
-                        # Update every 4 frames or 0.25s, or at completion
-                        if (completed_frames - last_report_frames >= 4) or (now - last_report_time >= 0.25) or (completed_frames >= total_extracted):
-                            last_report_time = now
-                            last_report_frames = completed_frames
-
-                            pct = min(100.0, (completed_frames / total_extracted) * 100.0)
-                            elapsed_ai = max(0.01, now - t_start_ai)
-                            fps_est = completed_frames / elapsed_ai
-
-                            remaining_frames = max(0, total_extracted - completed_frames)
-                            inference_eta_s = remaining_frames / max(0.1, fps_est)
-                            file_total_eta_s = inference_eta_s + est_encode_s
-                            eta_str = format_eta(file_total_eta_s)
-
-                            global_ratio = 0.15 + (pct / 100.0) * 0.70
-                            report(
-                                global_ratio,
-                                f"Upscaling: {pct:.1f}% ({completed_frames}/{total_extracted} frames · {fps_est:.1f} fps · File ETA: {eta_str})",
-                                {
-                                    "stage": "upscaling",
-                                    "completed_frames": completed_frames,
-                                    "total_frames": total_extracted,
-                                    "pct": pct,
-                                    "fps": fps_est,
-                                    "file_eta_s": file_total_eta_s,
-                                    "file_eta_str": eta_str
-                                }
-                            )
-
-            ai_process = self._current_process
-            ai_process.wait()
-            self._forget_process(ai_process)
-            if ai_process.returncode != 0 and not self._is_cancelled:
-                return False, f"Upscaling engine error (exit code {ai_process.returncode})"
-
-            if self._is_cancelled:
-                return False, "Cancelled by user."
-
-            output_frames = [
-                name for name in os.listdir(frames_out_dir)
-                if name.startswith("frame_") and name.endswith(f".{frame_ext}")
-                and os.path.getsize(os.path.join(frames_out_dir, name)) > 0
-            ]
-            if len(output_frames) != total_extracted:
-                return False, (
-                    "Upscaling produced an incomplete frame sequence "
-                    f"({len(output_frames)}/{total_extracted} frames)."
+                self._current_process = self._start_process(
+                    ai_cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    errors="ignore",
+                    bufsize=1
                 )
+
+                # Monitor progress per completed frame
+                completed_frames = 0
+                last_report_time = 0.0
+                last_report_frames = 0
+                est_encode_s = max(2.0, total_extracted / 120.0)
+                vulkan_errors: List[str] = []
+
+                report(
+                    0.15,
+                    f"Upscaling: 0/{total_extracted} frames (Starting engine...)",
+                    {"stage": "upscaling", "completed_frames": 0, "total_frames": total_extracted, "pct": 0.0, "file_eta_str": "Calculating..."}
+                )
+
+                if self._current_process.stdout:
+                    for line in self._current_process.stdout:
+                        if self._is_cancelled:
+                            self._current_process.terminate()
+                            return False, "Cancelled by user."
+
+                        line_clean = line.strip()
+                        low = line_clean.lower()
+                        if any(err_token in low for err_token in (
+                            "vkallocatememory failed",
+                            "vkqueuesubmit failed",
+                            "vkwaitforfences failed",
+                            "vkcreateimage failed",
+                            "out of device memory",
+                            "out of memory"
+                        )):
+                            vulkan_errors.append(line_clean)
+
+                        # Real-ESRGAN and RealCUGAN output: "... -> ... done"
+                        if "->" in line_clean and line_clean.lower().endswith("done"):
+                            completed_frames += 1
+                            now = time.time()
+
+                            # Update every 4 frames or 0.25s, or at completion
+                            if (completed_frames - last_report_frames >= 4) or (now - last_report_time >= 0.25) or (completed_frames >= total_extracted):
+                                last_report_time = now
+                                last_report_frames = completed_frames
+
+                                pct = min(100.0, (completed_frames / total_extracted) * 100.0)
+                                elapsed_ai = max(0.01, now - t_start_ai)
+                                fps_est = completed_frames / elapsed_ai
+
+                                remaining_frames = max(0, total_extracted - completed_frames)
+                                inference_eta_s = remaining_frames / max(0.1, fps_est)
+                                file_total_eta_s = inference_eta_s + est_encode_s
+                                eta_str = format_eta(file_total_eta_s)
+
+                                global_ratio = 0.15 + (pct / 100.0) * 0.70
+                                report(
+                                    global_ratio,
+                                    f"Upscaling: {pct:.1f}% ({completed_frames}/{total_extracted} frames · {fps_est:.1f} fps · File ETA: {eta_str})",
+                                    {
+                                        "stage": "upscaling",
+                                        "completed_frames": completed_frames,
+                                        "total_frames": total_extracted,
+                                        "pct": pct,
+                                        "fps": fps_est,
+                                        "file_eta_s": file_total_eta_s,
+                                        "file_eta_str": eta_str
+                                    }
+                                )
+
+                ai_process = self._current_process
+                ai_process.wait()
+                self._forget_process(ai_process)
+
+                if self._is_cancelled:
+                    return False, "Cancelled by user."
+
+                output_frames = sorted([
+                    name for name in os.listdir(frames_out_dir)
+                    if name.startswith("frame_") and name.endswith(f".{frame_ext}")
+                    and os.path.getsize(os.path.join(frames_out_dir, name)) > 0
+                ])
+
+                # Check if output frames are corrupted blank/black (e.g. silent Vulkan OOM failure)
+                is_corrupted_black = False
+                if len(output_frames) == total_extracted and total_extracted > 0:
+                    sample_indices = [
+                        min(len(output_frames) - 1, max(0, total_extracted // 4)),
+                        min(len(output_frames) - 1, max(0, total_extracted // 2)),
+                        min(len(output_frames) - 1, max(0, (total_extracted * 3) // 4)),
+                    ]
+                    checked_any = False
+                    all_black_while_input_not = True
+                    for s_idx in sample_indices:
+                        sample_name = output_frames[s_idx]
+                        sample_in = os.path.join(frames_in_dir, sample_name)
+                        sample_out = os.path.join(frames_out_dir, sample_name)
+                        if os.path.isfile(sample_in) and os.path.isfile(sample_out):
+                            try:
+                                from PIL import Image
+                                with Image.open(sample_in) as im_in, Image.open(sample_out) as im_out:
+                                    ext_in = im_in.getextrema()
+                                    ext_out = im_out.getextrema()
+                                    def _is_ext_black(ext):
+                                        if isinstance(ext[0], tuple):
+                                            return all(e == (0, 0) for e in ext)
+                                        return ext == (0, 0)
+                                    if not _is_ext_black(ext_in):
+                                        checked_any = True
+                                        if not _is_ext_black(ext_out):
+                                            all_black_while_input_not = False
+                                            break
+                            except Exception:
+                                pass
+                    if checked_any and all_black_while_input_not:
+                        is_corrupted_black = True
+
+                has_failure = (
+                    ai_process.returncode != 0
+                    or bool(vulkan_errors)
+                    or len(output_frames) != total_extracted
+                    or is_corrupted_black
+                )
+
+                if has_failure:
+                    err_detail = (
+                        vulkan_errors[0] if vulkan_errors
+                        else ("Corrupted blank/black output frames detected" if is_corrupted_black
+                              else f"Incomplete output frames ({len(output_frames)}/{total_extracted}) with exit code {ai_process.returncode}")
+                    )
+                    if ai_attempt < max_ai_attempts:
+                        # Clear incomplete/corrupted frames and retry with safe profile
+                        for f in os.listdir(frames_out_dir):
+                            try:
+                                os.remove(os.path.join(frames_out_dir, f))
+                            except Exception:
+                                pass
+
+                        new_tile = 200 if (effective_tile_size > 200 or effective_tile_size == 0) else 100
+                        new_threads = "2:2:2"
+                        log_cmd(
+                            f"[VULKAN RETRY] GPU memory pressure detected ({err_detail}). "
+                            f"Retrying with safe parameters (tile: {new_tile}, threads: {new_threads})..."
+                        )
+                        effective_tile_size = new_tile
+                        thread_spec = new_threads
+                        ai_attempt += 1
+                        continue
+                    else:
+                        return False, f"Upscaling engine failed ({err_detail})"
+
+                break
 
             # ------------------------------------------------------------------
             # 8. Encode to Target Resolution with Hardware NVENC (Multithreaded)
@@ -1133,8 +1228,8 @@ class VideoUpscalerPipeline:
 
         # 2. Run AI upscaler on single frame
         t0 = time.time()
-        thread_spec = get_optimal_thread_spec("auto", gpu_vram_gb=self.hardware.gpu_vram_gb)
-        effective_tile_size = _auto_tile_size(self.hardware.gpu_vram_gb)
+        thread_spec = get_optimal_thread_spec("auto", gpu_vram_gb=self.hardware.gpu_vram_gb, model=selected_model)
+        effective_tile_size = _auto_tile_size(self.hardware.gpu_vram_gb, model=selected_model)
 
         if selected_model.engine == ModelEngine.REALESRGAN:
             bin_path = self.hardware.realesrgan_bin

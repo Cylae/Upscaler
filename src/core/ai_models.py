@@ -15,6 +15,7 @@ from src.core.models import (
     check_local_model_availability,
     choose_best_model_for_video,
     get_optimal_thread_spec,
+    is_heavy_model,
     recommend_model_for_video,
     resolve_realcugan_options,
 )
@@ -29,6 +30,7 @@ __all__ = [
     "check_local_model_availability",
     "choose_best_model_for_video",
     "get_optimal_thread_spec",
+    "is_heavy_model",
     "recommend_model_for_video",
     "resolve_realcugan_options",
 ]

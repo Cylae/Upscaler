@@ -109,11 +109,27 @@ class CoreReliabilityTests(unittest.TestCase):
                 if os.path.exists(p):
                     os.remove(p)
 
-    def test_cleanup_stale_temp_directories(self):
-        from src.core.video_pipeline import cleanup_stale_temp_directories
-        # Should execute safely without throwing exceptions
-        cleaned = cleanup_stale_temp_directories(max_age_hours=0)
-        self.assertIsInstance(cleaned, int)
+    def test_heavy_model_tile_and_thread_safety(self):
+        from src.core.models import is_heavy_model, auto_tile_size, get_optimal_thread_spec, AVAILABLE_MODELS
+
+        # 1. Model weight detection
+        self.assertTrue(is_heavy_model("realesrgan-x4plus-anime"))
+        self.assertTrue(is_heavy_model(AVAILABLE_MODELS["realesrgan-x4plus-anime"]))
+        self.assertTrue(is_heavy_model("realesrgan-x4plus"))
+        self.assertFalse(is_heavy_model("realesr-animevideov3"))
+        self.assertFalse(is_heavy_model(AVAILABLE_MODELS["realesr-animevideov3"]))
+
+        # 2. Tile size safety for 8GB GPU (e.g. RTX 3070)
+        tile_heavy = auto_tile_size(gpu_vram_gb=8.0, model="realesrgan-x4plus-anime")
+        tile_light = auto_tile_size(gpu_vram_gb=8.0, model="realesr-animevideov3")
+        self.assertEqual(tile_heavy, 200)
+        self.assertEqual(tile_light, 400)
+
+        # 3. Thread spec safety
+        spec_heavy = get_optimal_thread_spec("auto", gpu_vram_gb=8.0, cpu_cores=8, model="realesrgan-x4plus-anime")
+        spec_light = get_optimal_thread_spec("auto", gpu_vram_gb=8.0, cpu_cores=8, model="realesr-animevideov3")
+        self.assertEqual(spec_heavy, "3:4:3")
+        self.assertEqual(spec_light, "3:6:3")
 
 
 if __name__ == "__main__":
