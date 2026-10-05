@@ -297,3 +297,38 @@ def test_video_pipeline_respects_custom_ffmpeg_bin():
     )
     assert encode_cmd[0] == "C:/Custom/bin/ffmpeg.exe"
 
+
+def test_ui_combobox_delegates_and_frameless_controls(qapp):
+    """Verify that all QComboBoxes have QStyledItemDelegate and frameless controls exist."""
+    from PyQt6.QtWidgets import QComboBox, QStyledItemDelegate
+    from src.ui.theme import setup_combobox, apply_dark_titlebar
+
+    win = UpscalerMainWindow()
+    combos = win.findChildren(QComboBox)
+    assert len(combos) >= 10, f"Expected at least 10 comboboxes, found {len(combos)}"
+
+    for cb in combos:
+        assert isinstance(cb.itemDelegate(), QStyledItemDelegate), f"Combobox {cb} does not have QStyledItemDelegate"
+        assert cb.view().autoFillBackground() is True
+
+    # Test window control buttons
+    assert hasattr(win, "btn_win_min")
+    assert hasattr(win, "btn_win_max")
+    assert hasattr(win, "btn_win_close")
+
+    # Test maximize toggle
+    assert not win.isMaximized()
+    win._toggle_maximize()
+    assert win.isMaximized()
+    win._toggle_maximize()
+    assert not win.isMaximized()
+
+    # Test helper functions
+    test_cb = QComboBox()
+    setup_combobox(test_cb)
+    assert isinstance(test_cb.itemDelegate(), QStyledItemDelegate)
+    assert test_cb.view().autoFillBackground() is True
+    # Test titlebar helper does not crash
+    apply_dark_titlebar(win)
+
+

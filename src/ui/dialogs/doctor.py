@@ -20,7 +20,7 @@ from src.core.hardware import (
     get_hardware_info,
 )
 from src.core.models import check_local_model_availability
-from src.ui.theme import DARK_STYLESHEET
+from src.ui.theme import DARK_STYLESHEET, apply_dark_titlebar
 
 
 class DoctorDialog(QDialog):
@@ -31,6 +31,7 @@ class DoctorDialog(QDialog):
         self.setWindowTitle("System & Hardware Diagnostic")
         self.resize(580, 520)
         self.setStyleSheet(DARK_STYLESHEET)
+        apply_dark_titlebar(self)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 18, 18, 18)

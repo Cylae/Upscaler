@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from src.ui.theme import DARK_STYLESHEET
+from src.ui.theme import DARK_STYLESHEET, apply_dark_titlebar, setup_combobox
 
 
 class FrameComparisonDialog(QDialog):
@@ -30,6 +30,7 @@ class FrameComparisonDialog(QDialog):
         self.setWindowTitle("Before / After Visual Preview")
         self.resize(1100, 750)
         self.setStyleSheet(DARK_STYLESHEET)
+        apply_dark_titlebar(self)
         self.orig_path = orig_path
         self.upscaled_path = upscaled_path
         self.info = info
@@ -72,6 +73,7 @@ class FrameComparisonDialog(QDialog):
         # View Mode selector
         h_box.addWidget(QLabel("View Mode:"))
         self.cb_view_mode = QComboBox()
+        setup_combobox(self.cb_view_mode)
         self.cb_view_mode.addItems(["Side by side", "After (AI Upscaled)", "Before (Original)"])
         self.cb_view_mode.currentIndexChanged.connect(self._on_view_mode_changed)
         h_box.addWidget(self.cb_view_mode)

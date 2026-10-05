@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from src.ui.theme import DARK_STYLESHEET
+from src.ui.theme import DARK_STYLESHEET, apply_dark_titlebar
 
 
 class LogViewerDialog(QDialog):
@@ -49,6 +49,7 @@ class LogViewerDialog(QDialog):
         self.resize(900, 560)
         self.setMinimumSize(640, 360)
         self.setStyleSheet(DARK_STYLESHEET)
+        apply_dark_titlebar(self)
         self._log_buffer = log_buffer if log_buffer is not None else []
         self._auto_scroll = True
 

@@ -7,8 +7,8 @@ import subprocess
 import sys
 from typing import Dict, List, Optional
 
-from PyQt6.QtCore import QSettings, Qt, QTimer
-from PyQt6.QtGui import QAction, QColor, QCursor, QIcon, QPixmap
+from PyQt6.QtCore import QEvent, QPoint, QSettings, Qt, QTimer
+from PyQt6.QtGui import QAction, QColor, QCursor, QIcon, QMouseEvent, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -58,7 +58,12 @@ from src.ui.dialogs.comparison import FrameComparisonDialog
 from src.ui.dialogs.doctor import DoctorDialog
 from src.ui.dialogs.logs import LogViewerDialog
 from src.ui.dialogs.preflight import PreflightDialog
-from src.ui.theme import DARK_STYLESHEET
+from src.ui.theme import (
+    DARK_STYLESHEET,
+    apply_dark_titlebar,
+    setup_combobox,
+    setup_frameless_window,
+)
 from src.ui.workers import (
     FramePreviewWorker,
     ModelHintWorker,
@@ -72,6 +77,8 @@ class UpscalerMainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
+        self.setMouseTracking(True)
         self.setWindowTitle("AnimaScale 4K — Animation & Cartoon AI Studio")
         self.resize(1400, 860)
         self.setMinimumSize(960, 660)
@@ -95,6 +102,13 @@ class UpscalerMainWindow(QMainWindow):
         self.settings = QSettings("CYLAE", "VideoEnhancer4K")
 
         self._init_ui()
+        self._setup_all_comboboxes()
+
+        app_inst = QApplication.instance()
+        if app_inst:
+            if app_inst.style().objectName() != "fusion":
+                app_inst.setStyle("Fusion")
+            app_inst.setStyleSheet(DARK_STYLESHEET)
         self.setStyleSheet(DARK_STYLESHEET)
 
         last_src = self.settings.value("last_source", "")
@@ -230,6 +244,31 @@ class UpscalerMainWindow(QMainWindow):
         self.btn_open_logs.clicked.connect(self._open_log_viewer)
         h_layout.addWidget(self.btn_open_logs)
 
+        # Window control buttons (Frameless integrated titlebar)
+        win_sep = QFrame()
+        win_sep.setFrameShape(QFrame.Shape.VLine)
+        win_sep.setStyleSheet("color: #252535; max-height: 22px; margin: 0 4px;")
+        h_layout.addWidget(win_sep)
+
+        self.btn_win_min = QPushButton("🗕")
+        self.btn_win_min.setObjectName("btnWinMin")
+        self.btn_win_min.setToolTip("Minimize")
+        self.btn_win_min.clicked.connect(self.showMinimized)
+        h_layout.addWidget(self.btn_win_min)
+
+        self.btn_win_max = QPushButton("🗖")
+        self.btn_win_max.setObjectName("btnWinMax")
+        self.btn_win_max.setToolTip("Maximize")
+        self.btn_win_max.clicked.connect(self._toggle_maximize)
+        h_layout.addWidget(self.btn_win_max)
+
+        self.btn_win_close = QPushButton("✕")
+        self.btn_win_close.setObjectName("btnWinClose")
+        self.btn_win_close.setToolTip("Close")
+        self.btn_win_close.clicked.connect(self.close)
+        h_layout.addWidget(self.btn_win_close)
+
+        self.header_panel = header
         root_layout.addWidget(header)
 
         # ── 2. MIDDLE ZONE: sidebar | queue (resizable splitter) ───────────
@@ -1921,6 +1960,121 @@ class UpscalerMainWindow(QMainWindow):
 
         super().closeEvent(event)
 
+    def _setup_all_comboboxes(self):
+        """Ensures all QComboBox instances have styled item delegates and solid backgrounds."""
+        for cb in self.findChildren(QComboBox):
+            setup_combobox(cb)
+
+    def _toggle_maximize(self):
+        """Toggles between maximized and normal window state."""
+        if self.isMaximized():
+            self.showNormal()
+        else:
+            self.showMaximized()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        setup_frameless_window(self)
+        self._setup_all_comboboxes()
+
+    def changeEvent(self, event):
+        if event.type() == QEvent.Type.WindowStateChange:
+            if hasattr(self, "btn_win_max"):
+                if self.isMaximized():
+                    self.btn_win_max.setText("🗗")
+                    self.btn_win_max.setToolTip("Restore")
+                else:
+                    self.btn_win_max.setText("🗖")
+                    self.btn_win_max.setToolTip("Maximize")
+        super().changeEvent(event)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "table") and self.table is not None:
+            col_detail_width = min(520, max(260, int(self.width() * 0.22)))
+            self.table.setColumnWidth(5, col_detail_width)
+
+    def _detect_edge(self, pt: QPoint) -> Qt.Edge | None:
+        if self.isMaximized():
+            return None
+        margin = 7
+        w, h = self.width(), self.height()
+        x, y = pt.x(), pt.y()
+
+        top = y <= margin
+        bottom = y >= h - margin
+        left = x <= margin
+        right = x >= w - margin
+
+        if top and left:
+            return Qt.Edge.TopEdge | Qt.Edge.LeftEdge
+        if top and right:
+            return Qt.Edge.TopEdge | Qt.Edge.RightEdge
+        if bottom and left:
+            return Qt.Edge.BottomEdge | Qt.Edge.LeftEdge
+        if bottom and right:
+            return Qt.Edge.BottomEdge | Qt.Edge.RightEdge
+        if top:
+            return Qt.Edge.TopEdge
+        if bottom:
+            return Qt.Edge.BottomEdge
+        if left:
+            return Qt.Edge.LeftEdge
+        if right:
+            return Qt.Edge.RightEdge
+        return None
+
+    def _is_in_header_draggable_zone(self, pt: QPoint) -> bool:
+        if not hasattr(self, "header_panel") or self.header_panel is None:
+            return False
+        header_rect = self.header_panel.geometry()
+        if not header_rect.contains(pt):
+            return False
+        child = self.childAt(pt)
+        if child is not None and isinstance(child, (QPushButton, QComboBox, QLineEdit, QCheckBox)):
+            return False
+        return True
+
+    def mousePressEvent(self, event: QMouseEvent):
+        if event.button() == Qt.MouseButton.LeftButton:
+            pt = event.position().toPoint()
+            edge = self._detect_edge(pt)
+            if edge is not None:
+                wh = self.windowHandle()
+                if wh and hasattr(wh, "startSystemResize"):
+                    wh.startSystemResize(edge)
+                    return
+            if self._is_in_header_draggable_zone(pt):
+                wh = self.windowHandle()
+                if wh and hasattr(wh, "startSystemMove"):
+                    wh.startSystemMove()
+                    return
+        super().mousePressEvent(event)
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent):
+        if event.button() == Qt.MouseButton.LeftButton:
+            pt = event.position().toPoint()
+            if self._is_in_header_draggable_zone(pt):
+                self._toggle_maximize()
+                return
+        super().mouseDoubleClickEvent(event)
+
+    def mouseMoveEvent(self, event: QMouseEvent):
+        if not self.isMaximized():
+            pt = event.position().toPoint()
+            edge = self._detect_edge(pt)
+            if edge in (Qt.Edge.TopEdge | Qt.Edge.LeftEdge, Qt.Edge.BottomEdge | Qt.Edge.RightEdge):
+                self.setCursor(Qt.CursorShape.SizeFDiagCursor)
+            elif edge in (Qt.Edge.TopEdge | Qt.Edge.RightEdge, Qt.Edge.BottomEdge | Qt.Edge.LeftEdge):
+                self.setCursor(Qt.CursorShape.SizeBDiagCursor)
+            elif edge in (Qt.Edge.LeftEdge, Qt.Edge.RightEdge):
+                self.setCursor(Qt.CursorShape.SizeHorCursor)
+            elif edge in (Qt.Edge.TopEdge, Qt.Edge.BottomEdge):
+                self.setCursor(Qt.CursorShape.SizeVerCursor)
+            else:
+                self.setCursor(Qt.CursorShape.ArrowCursor)
+        super().mouseMoveEvent(event)
+
 
 def run_gui():
     if os.name == "nt":
@@ -1931,6 +2085,8 @@ def run_gui():
             pass
 
     app = QApplication(sys.argv)
+    app.setStyle("Fusion")
+    app.setStyleSheet(DARK_STYLESHEET)
     assets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
     icon_path = os.path.join(assets_dir, "app_icon.ico" if os.name == "nt" else "app_icon.png")
     if os.path.isfile(icon_path):

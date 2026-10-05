@@ -104,8 +104,7 @@ QGroupBox::title {
 
 /* Header panel (top full-width bar) */
 QFrame#headerPanel {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 #0f0f1a, stop:0.5 #121220, stop:1 #0f0f1a);
+    background-color: #0d0d10;
     border-bottom: 1px solid #1e1e2e;
     border-radius: 0px;
 }
@@ -125,35 +124,67 @@ QFrame#macPanel {
     border-radius: 12px;
 }
 
-/* ---------- Text inputs & combos ---------- */
-QLineEdit, QComboBox, QSpinBox {
+/* ---------- Text inputs ---------- */
+QLineEdit, QSpinBox {
     background-color: #0f0f18;
     border: 1px solid #252535;
     border-radius: 8px;
     padding: 7px 10px;
     color: #e2e8f0;
     selection-background-color: #4f8fff;
-    min-height: 16px;
+    min-height: 18px;
 }
 
-QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
+QLineEdit:focus, QSpinBox:focus {
     border: 1px solid #4f8fff;
     background-color: #111120;
     outline: none;
 }
 
-QLineEdit:hover, QComboBox:hover, QSpinBox:hover {
-    border-color: #2e2e42;
+QLineEdit:hover, QSpinBox:hover {
+    border-color: #3b3b55;
 }
 
 QLineEdit::clear-button {
     image: none;
 }
 
+/* ---------- ComboBox ---------- */
+QComboBox {
+    background-color: #0f0f18;
+    border: 1px solid #252535;
+    border-radius: 8px;
+    padding: 6px 12px;
+    padding-right: 32px;
+    color: #e2e8f0;
+    font-size: 12px;
+    selection-background-color: #2b3a60;
+    min-height: 18px;
+}
+
+QComboBox:hover {
+    border-color: #3b3b55;
+    background-color: #12121e;
+}
+
+QComboBox:focus {
+    border: 1px solid #4f8fff;
+    background-color: #121220;
+    outline: none;
+}
+
 QComboBox::drop-down {
-    border: none;
-    padding-right: 8px;
-    width: 20px;
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 28px;
+    border-left: 1px solid #202030;
+    border-top-right-radius: 8px;
+    border-bottom-right-radius: 8px;
+    background-color: #12121c;
+}
+
+QComboBox::drop-down:hover {
+    background-color: #1b1b2a;
 }
 
 QComboBox::down-arrow {
@@ -161,24 +192,69 @@ QComboBox::down-arrow {
     height: 10px;
 }
 
+/* Dropdown list container (solid opaque background, clean delegate support) */
 QComboBox QAbstractItemView {
-    background-color: #1a1a26;
-    border: 1px solid #252535;
+    background-color: #141420;
+    border: 1px solid #2e2e46;
     border-radius: 8px;
-    selection-background-color: #2d3a5e;
-    selection-color: #60a5fa;
+    color: #e2e8f0;
+    selection-background-color: #2b3a60;
+    selection-color: #ffffff;
     padding: 4px;
-    outline: none;
+    outline: 0px;
 }
 
 QComboBox QAbstractItemView::item {
-    padding: 6px 10px;
-    border-radius: 4px;
+    background-color: transparent;
+    color: #e2e8f0;
+    padding: 7px 10px;
+    border-radius: 5px;
     min-height: 24px;
 }
 
 QComboBox QAbstractItemView::item:hover {
-    background-color: #252535;
+    background-color: #222238;
+    color: #60a5fa;
+}
+
+QComboBox QAbstractItemView::item:selected {
+    background-color: #2b3a60;
+    color: #ffffff;
+}
+
+/* Window Controls (Frameless Header) */
+QPushButton#btnWinMin, QPushButton#btnWinMax {
+    background-color: transparent;
+    border: none;
+    border-radius: 6px;
+    color: #94a3b8;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 0;
+    min-height: 28px;
+    min-width: 32px;
+}
+
+QPushButton#btnWinMin:hover, QPushButton#btnWinMax:hover {
+    background-color: #222235;
+    color: #f1f5f9;
+}
+
+QPushButton#btnWinClose {
+    background-color: transparent;
+    border: none;
+    border-radius: 6px;
+    color: #94a3b8;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 0;
+    min-height: 28px;
+    min-width: 32px;
+}
+
+QPushButton#btnWinClose:hover {
+    background-color: #ef4444;
+    color: #ffffff;
 }
 
 /* ---------- Default buttons ---------- */
@@ -655,3 +731,88 @@ if _CHEVRON_CSS:
         "QComboBox::down-arrow {\n    width: 10px;\n    height: 10px;\n}",
         f"QComboBox::down-arrow {{\n    {_CHEVRON_CSS}width: 10px;\n    height: 10px;\n}}",
     )
+
+
+def setup_combobox(cb) -> None:
+    """Configure a QComboBox to render cleanly with dark stylesheet and styled item delegate."""
+    try:
+        from PyQt6.QtWidgets import QStyledItemDelegate
+        cb.setItemDelegate(QStyledItemDelegate(cb))
+        view = cb.view()
+        if view is not None:
+            view.setAutoFillBackground(True)
+    except Exception:
+        pass
+
+
+def apply_dark_titlebar(widget, bg_hex: str = "#0d0d10", text_hex: str = "#94a3b8", border_hex: str = "#1e1e2e") -> bool:
+    """Apply immersive dark mode, custom caption color, and border to Windows native title bars."""
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+        from ctypes import c_int, byref, sizeof
+        from PyQt6.QtGui import QColor
+
+        hwnd = int(widget.winId())
+        if hwnd <= 0:
+            return False
+
+        # DWMWA_USE_IMMERSIVE_DARK_MODE = 20 (Windows 10 20H1+ & Windows 11)
+        # Fallback to 19 for older Windows 10
+        dark_mode = c_int(1)
+        res = ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, byref(dark_mode), sizeof(dark_mode))
+        if res != 0:
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 19, byref(dark_mode), sizeof(dark_mode))
+
+        def to_bgr(h_str: str) -> int:
+            qc = QColor(h_str)
+            return (qc.blue() << 16) | (qc.green() << 8) | qc.red()
+
+        # DWMWA_CAPTION_COLOR = 35 (Windows 11)
+        cap_val = c_int(to_bgr(bg_hex))
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 35, byref(cap_val), sizeof(cap_val))
+
+        # DWMWA_TEXT_COLOR = 36 (Windows 11)
+        txt_val = c_int(to_bgr(text_hex))
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 36, byref(txt_val), sizeof(txt_val))
+
+        # DWMWA_BORDER_COLOR = 34 (Windows 11)
+        bdr_val = c_int(to_bgr(border_hex))
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 34, byref(bdr_val), sizeof(bdr_val))
+        return True
+    except Exception:
+        return False
+
+
+def setup_frameless_window(widget) -> bool:
+    """Apply Windows 11 rounded corners and native drop shadow to a frameless window."""
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+        from ctypes import c_int, byref, sizeof
+
+        hwnd = int(widget.winId())
+        if hwnd <= 0:
+            return False
+
+        # DWMWA_WINDOW_CORNER_PREFERENCE = 33, DWMWCP_ROUND = 2
+        corner_pref = c_int(2)
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 33, byref(corner_pref), sizeof(corner_pref))
+
+        # Native drop shadow via client frame extension
+        class MARGINS(ctypes.Structure):
+            _fields_ = [
+                ("cxLeftWidth", c_int),
+                ("cxRightWidth", c_int),
+                ("cyTopHeight", c_int),
+                ("cyBottomHeight", c_int),
+            ]
+
+        margins = MARGINS(1, 1, 1, 1)
+        ctypes.windll.dwmapi.DwmExtendFrameIntoClientArea(hwnd, byref(margins))
+        return True
+    except Exception:
+        return False
+

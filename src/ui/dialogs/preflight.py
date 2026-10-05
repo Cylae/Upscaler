@@ -17,7 +17,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
 )
 
-from src.ui.theme import DARK_STYLESHEET
+from src.ui.theme import DARK_STYLESHEET, apply_dark_titlebar
 
 
 class PreflightDialog(QDialog):
@@ -28,6 +28,7 @@ class PreflightDialog(QDialog):
         self.setWindowTitle("Preflight Check & Output Plan")
         self.resize(780, 560)
         self.setStyleSheet(DARK_STYLESHEET)
+        apply_dark_titlebar(self)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 18, 18, 18)
