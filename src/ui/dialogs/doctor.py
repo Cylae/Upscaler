@@ -71,9 +71,14 @@ class DoctorDialog(QDialog):
                 continue
             status = "Verified on Disk (Ready)" if ok else "Missing"
             lines.append(f"  {m_id:<23}: {status}")
+        all_models_ok = all(ok for m_id, ok in models_avail.items() if m_id != "auto")
+        if hw.has_nvidia and hw.has_nvenc_hevc and hw.ffmpeg_path and hw.realesrgan_bin and all_models_ok:
+            status_line = "Status: System is fully configured for fast 4K local upscaling."
+        else:
+            status_line = "Status: Issues detected. Verify missing dependencies above."
         lines.extend([
             "=" * 55,
-            "Status: System is fully configured for fast 4K local upscaling.",
+            status_line,
             "=" * 55
         ])
 

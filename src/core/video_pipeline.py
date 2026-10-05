@@ -105,11 +105,11 @@ class UpscaleJobConfig:
     preview_duration_s: Optional[float] = None
 
 
-def _probe_cuda_support() -> bool:
+def _probe_cuda_support(ffmpeg_bin: str = "ffmpeg") -> bool:
     """Returns True if FFmpeg was compiled with CUDA/cuvid hwaccel support."""
     try:
         out = subprocess.check_output(
-            ["ffmpeg", "-hide_banner", "-hwaccels"],
+            [ffmpeg_bin, "-hide_banner", "-hwaccels"],
             stderr=subprocess.STDOUT,
             text=True,
             errors="ignore",
@@ -218,7 +218,8 @@ class VideoUpscalerPipeline:
     def _has_cuda(self) -> bool:
         """Returns CUDA hwaccel availability, caching the result after the first check."""
         if self._cuda_available is None:
-            self._cuda_available = self.hardware.has_nvidia and _probe_cuda_support()
+            ffmpeg_bin = self.hardware.ffmpeg_path or shutil.which("ffmpeg") or "ffmpeg"
+            self._cuda_available = self.hardware.has_nvidia and _probe_cuda_support(ffmpeg_bin)
         return self._cuda_available
 
     def _build_extract_frames_cmd(
@@ -260,9 +261,10 @@ class VideoUpscalerPipeline:
         if start_offset_s > 0:
             seek_flags = ["-ss", f"{start_offset_s:.3f}"]
 
+        ffmpeg_bin = self.hardware.ffmpeg_path or shutil.which("ffmpeg") or "ffmpeg"
         if use_hwdecode:
             cmd = [
-                "ffmpeg", "-y",
+                ffmpeg_bin, "-y",
                 "-hwaccel", "cuda",
                 "-hwaccel_output_format", "cuda",
             ] + common_input_flags + seek_flags + [
@@ -273,7 +275,7 @@ class VideoUpscalerPipeline:
             ]
         else:
             cmd = [
-                "ffmpeg", "-y",
+                ffmpeg_bin, "-y",
                 "-threads", "0",
             ] + common_input_flags + seek_flags + [
                 "-i", input_file,
@@ -319,9 +321,10 @@ class VideoUpscalerPipeline:
           - filter_threads / filter_complex_threads set to 0 for maximum CPU usage
             during the Lanczos scale filter.
         """
+        ffmpeg_bin = self.hardware.ffmpeg_path or shutil.which("ffmpeg") or "ffmpeg"
         fps_arg = meta.r_frame_rate if (meta.r_frame_rate and "/" in meta.r_frame_rate and meta.r_frame_rate != "0/0") else str(meta.fps)
         cmd = [
-            "ffmpeg", "-y",
+            ffmpeg_bin, "-y",
             "-threads", "0",
             "-r", fps_arg,
             "-i", os.path.join(frames_out_dir, f"frame_%08d.{frame_ext}"),
@@ -586,7 +589,8 @@ class VideoUpscalerPipeline:
                 if not meta.has_audio:
                     return
 
-                audio_cmd = ["ffmpeg", "-y"]
+                ffmpeg_bin = self.hardware.ffmpeg_path or shutil.which("ffmpeg") or "ffmpeg"
+                audio_cmd = [ffmpeg_bin, "-y"]
                 if _preview_start_s > 0:
                     audio_cmd.extend(["-ss", f"{_preview_start_s:.3f}"])
                 audio_cmd.extend(["-i", job.input_file, "-vn", "-map", "0:a:0"])
@@ -613,7 +617,7 @@ class VideoUpscalerPipeline:
                     return
 
                 # Fallback: transcode to AAC when direct copy fails (e.g. PCM / Vorbis)
-                audio_cmd = ["ffmpeg", "-y"]
+                audio_cmd = [ffmpeg_bin, "-y"]
                 if _preview_start_s > 0:
                     audio_cmd.extend(["-ss", f"{_preview_start_s:.3f}"])
                 audio_cmd.extend(["-i", job.input_file, "-vn", "-map", "0:a:0"])
@@ -976,8 +980,9 @@ class VideoUpscalerPipeline:
                     report(0.96, "Soundtrack missing in initial encode. Repairing soundtrack stream from source...")
                     log_cmd("[AUDIO REPAIR] Warning: Soundtrack missing in initial encode. Triggering guaranteed remux from source.")
                     repair_file = part_output_file + ".fixed" + scene_cfg.container
+                    ffmpeg_bin = self.hardware.ffmpeg_path or shutil.which("ffmpeg") or "ffmpeg"
                     repair_cmd = [
-                        "ffmpeg", "-y",
+                        ffmpeg_bin, "-y",
                         "-i", part_output_file,
                     ]
                     if _preview_start_s > 0:

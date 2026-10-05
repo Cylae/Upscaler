@@ -5,6 +5,12 @@ Optimized for the sidebar + queue full-width layout.
 
 from __future__ import annotations
 
+import os
+
+_ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+_CHEVRON_DOWN_SVG = os.path.join(_ASSETS_DIR, "chevron_down.svg").replace("\\", "/")
+_CHEVRON_CSS = f'image: url("{_CHEVRON_DOWN_SVG}");\n    ' if os.path.isfile(_CHEVRON_DOWN_SVG) else ""
+
 # Color tokens
 COLOR_BG = "#0d0d10"
 COLOR_SURFACE = "#13131a"
@@ -642,3 +648,9 @@ QLabel#sectionHeader {
     text-transform: uppercase;
 }
 """
+
+if _CHEVRON_CSS:
+    DARK_STYLESHEET = DARK_STYLESHEET.replace(
+        "QComboBox::down-arrow {\n    width: 10px;\n    height: 10px;\n}",
+        f"QComboBox::down-arrow {{\n    {_CHEVRON_CSS}width: 10px;\n    height: 10px;\n}}",
+    )

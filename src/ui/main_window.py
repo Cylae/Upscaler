@@ -945,7 +945,8 @@ class UpscalerMainWindow(QMainWindow):
     def _update_auto_model_hint(self, queue: List[QueueItem]):
         if (self.cb_model.currentData() or "auto") != "auto" or not queue:
             return
-        target_preset = ("4k", "1440p", "1080p", "720p")[self.cb_resolution.currentIndex()]
+        res_idx = self.cb_resolution.currentIndex() if hasattr(self, "cb_resolution") else 0
+        target_preset = ("4k", "1440p", "1080p", "720p")[res_idx if 0 <= res_idx < 4 else 0]
         self._hint_worker = ModelHintWorker(queue[0].source_path, target_preset)
         self._hint_worker.hint_ready.connect(self._on_hint_ready)
         self._hint_worker.start()
@@ -1760,6 +1761,8 @@ class UpscalerMainWindow(QMainWindow):
             self.btn_preview.setEnabled(False)
         if hasattr(self, 'btn_preview_clip'):
             self.btn_preview_clip.setEnabled(False)
+        if hasattr(self, 'btn_compare_frame'):
+            self.btn_compare_frame.setEnabled(False)
         self.btn_stop.setEnabled(True)
 
         if preview_duration_s is not None:
@@ -1854,6 +1857,8 @@ class UpscalerMainWindow(QMainWindow):
             self.btn_preview.setEnabled(True)
         if hasattr(self, 'btn_preview_clip'):
             self.btn_preview_clip.setEnabled(True)
+        if hasattr(self, 'btn_compare_frame'):
+            self.btn_compare_frame.setEnabled(True)
         self.btn_stop.setEnabled(False)
         failed_count = sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.FAILED)
         cancelled_count = sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.CANCELLED)

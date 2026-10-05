@@ -228,7 +228,7 @@ class FrameComparisonDialog(QDialog):
                 )
             )
 
-    def closeEvent(self, event):
+    def _cleanup_temp_dir(self):
         temp_dir = self.info.get("temp_dir")
         if temp_dir and os.path.isdir(temp_dir):
             try:
@@ -236,4 +236,11 @@ class FrameComparisonDialog(QDialog):
                 shutil.rmtree(temp_dir, ignore_errors=True)
             except Exception:
                 pass
+
+    def done(self, r: int):
+        self._cleanup_temp_dir()
+        super().done(r)
+
+    def closeEvent(self, event):
+        self._cleanup_temp_dir()
         super().closeEvent(event)

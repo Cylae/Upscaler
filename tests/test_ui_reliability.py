@@ -1,6 +1,7 @@
 import os
 import sys
 import pytest
+from unittest.mock import patch
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import Qt
 
@@ -204,4 +205,95 @@ def test_ui_close_event_clean_shutdown(qapp):
     event = QCloseEvent()
     window.closeEvent(event)
     assert event.isAccepted()
+
+
+def test_compare_frame_button_lifecycle(qapp):
+    """Verify btn_compare_frame is disabled during batch execution and re-enabled on finish."""
+    window = UpscalerMainWindow()
+    assert window.btn_compare_frame.isEnabled() is True
+
+    # Simulate batch launch
+    item = QueueItem(
+        index=1,
+        source_path="C:/vids/s01e01.mp4",
+        relative_source_path="s01e01.mp4",
+        target_scene_name="Show.S01E01.mp4",
+        target_full_path="C:/out/Show.S01E01.mp4",
+        file_size_mb=25.0,
+        status=EpisodeStatus.PENDING
+    )
+    window.batch_manager.queue = [item]
+    window.txt_source.setText("C:/vids")
+    window.txt_output.setText("C:/out")
+
+    with patch("src.ui.main_window.UpscaleWorker.start"):
+        window.start_processing()
+        assert window.btn_compare_frame.isEnabled() is False
+
+    window.on_finished()
+    assert window.btn_compare_frame.isEnabled() is True
+
+
+def test_frame_comparison_dialog_done_cleans_temp(qapp, tmp_path):
+    """Verify FrameComparisonDialog.done cleans up temporary preview folder."""
+    from src.ui.dialogs.comparison import FrameComparisonDialog
+
+    preview_dir = tmp_path / "preview_temp_123"
+    preview_dir.mkdir()
+    frame1 = preview_dir / "orig.png"
+    frame2 = preview_dir / "up.png"
+    frame1.write_bytes(b"\x00" * 100)
+    frame2.write_bytes(b"\x00" * 100)
+
+    dlg = FrameComparisonDialog(
+        orig_path=str(frame1),
+        upscaled_path=str(frame2),
+        info={"temp_dir": str(preview_dir)},
+    )
+    assert preview_dir.exists()
+
+    # Calling done(0) simulates closing dialog via accept or reject
+    dlg.done(0)
+    assert not preview_dir.exists()
+
+
+def test_video_pipeline_respects_custom_ffmpeg_bin():
+    """Verify VideoUpscalerPipeline commands use custom ffmpeg binary path from HardwareInfo."""
+    from src.core.video_pipeline import VideoUpscalerPipeline
+    from src.core.probe import VideoMetadata
+
+    custom_hw = HardwareInfo(
+        gpu_name="Test GPU",
+        gpu_vram_gb=8.0,
+        ffmpeg_path="C:/Custom/bin/ffmpeg.exe",
+    )
+    pipeline = VideoUpscalerPipeline(custom_hw)
+
+    extract_cmd = pipeline._build_extract_frames_cmd(
+        input_file="in.mp4",
+        frames_in_dir="frames_in",
+        frame_ext="jpg",
+        use_hwdecode=False,
+    )
+    assert extract_cmd[0] == "C:/Custom/bin/ffmpeg.exe"
+
+    dummy_meta = VideoMetadata(
+        filepath="in.mp4",
+        width=1280, height=720, fps=24.0, duration=10.0, nb_frames=240,
+        codec_name="h264", has_audio=True, audio_codec="aac", has_subtitles=False
+    )
+    encode_cmd = pipeline._build_encode_cmd(
+        frames_out_dir="frames_out",
+        frame_ext="jpg",
+        meta=dummy_meta,
+        target_w=3840,
+        target_h=2160,
+        chosen_encoder="libx265",
+        cq_val="19",
+        p_val="fast",
+        audio_input_path=None,
+        audio_mode="copy",
+        part_output_file="out.mp4",
+    )
+    assert encode_cmd[0] == "C:/Custom/bin/ffmpeg.exe"
 
