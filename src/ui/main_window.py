@@ -25,8 +25,11 @@ from PyQt6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QSlider,
     QSpinBox,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QTextEdit,
@@ -70,8 +73,8 @@ class UpscalerMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Video Enhancer 4K — Animation & Cartoon Edition")
-        self.resize(1280, 840)
-        self.setMinimumSize(900, 640)
+        self.resize(1400, 860)
+        self.setMinimumSize(960, 660)
         self.setAcceptDrops(True)
 
         self.hardware = get_hardware_info()
@@ -113,393 +116,551 @@ class UpscalerMainWindow(QMainWindow):
     def _init_ui(self):
         central = QWidget()
         self.setCentralWidget(central)
-        main_layout = QVBoxLayout(central)
-        self.main_layout = main_layout
-        main_layout.setContentsMargins(18, 16, 18, 16)
-        main_layout.setSpacing(12)
+        root_layout = QVBoxLayout(central)
+        self.main_layout = root_layout
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        root_layout.setSpacing(0)
 
-        # 1. Header Banner
+        # ── 1. HEADER BAR (full width) ──────────────────────────────────────
         header = QFrame()
-        header.setObjectName("macPanel")
+        header.setObjectName("headerPanel")
+        header.setFixedHeight(60)
         h_layout = QHBoxLayout(header)
-        h_layout.setContentsMargins(16, 12, 16, 12)
-        h_layout.setSpacing(10)
+        h_layout.setContentsMargins(18, 0, 14, 0)
+        h_layout.setSpacing(12)
 
+        # Traffic light dots
         traffic_lights = QHBoxLayout()
         traffic_lights.setSpacing(6)
         for color, border in (("#ff5f56", "#e0443e"), ("#ffbd2e", "#dea123"), ("#27c93f", "#1aab29")):
             dot = QLabel()
             dot.setFixedSize(12, 12)
-            dot.setStyleSheet(f"background-color: {color}; border: 1px solid {border}; border-radius: 6px;")
+            dot.setStyleSheet(
+                f"background-color: {color}; border: 1px solid {border}; border-radius: 6px;"
+            )
             traffic_lights.addWidget(dot)
         h_layout.addLayout(traffic_lights)
+        h_layout.addSpacing(6)
 
+        # Title
         title_box = QVBoxLayout()
-        lbl_title = QLabel("Video Enhancer 4K — Animation & Cartoon Edition")
-        lbl_title.setStyleSheet("font-size: 16px; font-weight: 700; color: #ffffff; letter-spacing: -0.2px;")
-        lbl_sub = QLabel("Local upscaling • quality control • standardized export")
-        lbl_sub.setStyleSheet("font-size: 12px; color: #8e8e93;")
+        title_box.setSpacing(1)
+        lbl_title = QLabel("Video Enhancer 4K")
+        lbl_title.setStyleSheet(
+            "font-size: 15px; font-weight: 800; color: #f1f5f9; letter-spacing: -0.3px;"
+        )
+        lbl_sub = QLabel("Animation & Cartoon Edition  ·  Local AI Upscaler")
+        lbl_sub.setStyleSheet("font-size: 11px; color: #475569;")
         title_box.addWidget(lbl_title)
         title_box.addWidget(lbl_sub)
         h_layout.addLayout(title_box)
 
         h_layout.addStretch()
 
+        # Status chips (always visible — no hiding logic needed in new layout)
         chips_layout = QHBoxLayout()
         chips_layout.setSpacing(8)
 
-        self.lbl_gpu = QLabel(f"● {self.hardware.gpu_name} ({self.hardware.gpu_vram_gb} GB)")
-        self.lbl_gpu.setStyleSheet("color: #30d158; font-weight: 600; font-size: 11px; padding: 4px 10px; background-color: rgba(48, 209, 88, 0.12); border: 1px solid rgba(48, 209, 88, 0.3); border-radius: 12px;")
+        self.lbl_gpu = QLabel(f"⚡ {self.hardware.gpu_name}  {self.hardware.gpu_vram_gb} GB")
+        self.lbl_gpu.setStyleSheet(
+            "color: #34d399; font-weight: 700; font-size: 11px; padding: 4px 12px;"
+            "background-color: rgba(52, 211, 153, 0.10); border: 1px solid rgba(52, 211, 153, 0.25);"
+            "border-radius: 14px;"
+        )
         chips_layout.addWidget(self.lbl_gpu)
 
-        nvenc_text = "NVENC H.265 Active" if self.hardware.has_nvenc_hevc else "CPU x265"
-        self.lbl_encoder = QLabel(nvenc_text)
-        self.lbl_encoder.setStyleSheet("color: #0a84ff; font-weight: 600; font-size: 11px; padding: 4px 10px; background-color: rgba(10, 132, 255, 0.12); border: 1px solid rgba(10, 132, 255, 0.3); border-radius: 12px;")
+        nvenc_text = "NVENC H.265" if self.hardware.has_nvenc_hevc else "CPU x265"
+        self.lbl_encoder = QLabel(f"🎞 {nvenc_text}")
+        self.lbl_encoder.setStyleSheet(
+            "color: #60a5fa; font-weight: 700; font-size: 11px; padding: 4px 12px;"
+            "background-color: rgba(96, 165, 250, 0.10); border: 1px solid rgba(96, 165, 250, 0.25);"
+            "border-radius: 14px;"
+        )
         chips_layout.addWidget(self.lbl_encoder)
 
-        self.lbl_audio = QLabel("● Audio: Lossless Stream Copy (Guaranteed)")
-        self.lbl_audio.setStyleSheet("color: #30d158; font-weight: 600; font-size: 11px; padding: 4px 10px; background-color: rgba(48, 209, 88, 0.12); border: 1px solid rgba(48, 209, 88, 0.3); border-radius: 12px;")
+        self.lbl_audio = QLabel("🔊 Lossless Audio")
+        self.lbl_audio.setStyleSheet(
+            "color: #a78bfa; font-weight: 700; font-size: 11px; padding: 4px 12px;"
+            "background-color: rgba(167, 139, 250, 0.10); border: 1px solid rgba(167, 139, 250, 0.25);"
+            "border-radius: 14px;"
+        )
         chips_layout.addWidget(self.lbl_audio)
-
-        btn_doctor = QPushButton("🩺 Hardware Doctor")
-        btn_doctor.setStyleSheet("padding: 4px 12px; font-size: 11px; font-weight: 600; border-radius: 12px; background-color: #2c2c2e; border: 1px solid #3a3a3c; color: #f5f5f7;")
-        btn_doctor.clicked.connect(self.show_doctor_dialog)
-        chips_layout.addWidget(btn_doctor)
-
         h_layout.addLayout(chips_layout)
 
+        h_layout.addSpacing(6)
+
+        btn_doctor = QPushButton("🩺 Doctor")
+        btn_doctor.setToolTip("Run hardware diagnostics and verify tool availability.")
+        btn_doctor.setStyleSheet(
+            "padding: 5px 12px; font-size: 11px; font-weight: 600;"
+            "border-radius: 12px; background-color: #1c1c2a;"
+            "border: 1px solid #252535; color: #94a3b8;"
+        )
+        btn_doctor.clicked.connect(self.show_doctor_dialog)
+        h_layout.addWidget(btn_doctor)
+
         self.btn_open_logs = QPushButton("📋 Logs (0)")
-        self.btn_open_logs.setToolTip("Open the live engine log viewer. Shows FFmpeg, Vulkan AI, and audio pipeline commands with color coding.")
+        self.btn_open_logs.setToolTip(
+            "Open the live engine log viewer. Shows FFmpeg, Vulkan AI, and audio pipeline commands."
+        )
         self.btn_open_logs.setStyleSheet(
-            "padding: 4px 12px; font-size: 11px; font-weight: 600;"
-            "background-color: #2c2c2e; border: 1px solid #3a3a3c; border-radius: 12px; color: #aeaeb2;"
+            "padding: 5px 12px; font-size: 11px; font-weight: 600;"
+            "background-color: #1c1c2a; border: 1px solid #252535;"
+            "border-radius: 12px; color: #64748b;"
         )
         self.btn_open_logs.clicked.connect(self._open_log_viewer)
         h_layout.addWidget(self.btn_open_logs)
 
-        main_layout.addWidget(header)
+        root_layout.addWidget(header)
 
-        # 2. Configuration Group
-        grp_config = QGroupBox("Processing & Enhancement Configuration")
-        cfg_layout = QVBoxLayout(grp_config)
-        cfg_layout.setContentsMargins(14, 16, 14, 14)
-        cfg_layout.setSpacing(10)
+        # ── 2. MIDDLE ZONE: sidebar | queue ────────────────────────────────
+        middle = QWidget()
+        middle_layout = QHBoxLayout(middle)
+        middle_layout.setContentsMargins(0, 0, 0, 0)
+        middle_layout.setSpacing(0)
 
-        # Row 1: Source
-        row_src = QHBoxLayout()
-        lbl_src_title = QLabel("Source:")
-        lbl_src_title.setMinimumWidth(80)
-        row_src.addWidget(lbl_src_title)
+        # ── 2a. LEFT SIDEBAR ───────────────────────────────────────────────
+        sidebar = QWidget()
+        sidebar.setObjectName("sidebar")
+        sidebar.setFixedWidth(340)
+        sidebar_outer = QVBoxLayout(sidebar)
+        sidebar_outer.setContentsMargins(0, 0, 0, 0)
+        sidebar_outer.setSpacing(0)
+
+        # Scrollable inner area
+        sidebar_scroll = QScrollArea()
+        sidebar_scroll.setWidgetResizable(True)
+        sidebar_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        sidebar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        sidebar_scroll.setStyleSheet("background-color: transparent; border: none;")
+
+        sidebar_inner = QWidget()
+        sidebar_inner.setStyleSheet("background-color: transparent;")
+        s_layout = QVBoxLayout(sidebar_inner)
+        s_layout.setContentsMargins(12, 14, 10, 14)
+        s_layout.setSpacing(10)
+
+        # ── Section: Source & Output ─────────────────────────────────────
+        grp_io = QGroupBox("Source & Output")
+        grp_io.setObjectName("sideCard")
+        io_layout = QVBoxLayout(grp_io)
+        io_layout.setContentsMargins(10, 16, 10, 10)
+        io_layout.setSpacing(8)
+
+        # Source row
+        lbl_src = QLabel("Source folder / files")
+        lbl_src.setStyleSheet("color: #64748b; font-size: 11px; font-weight: 600;")
+        io_layout.addWidget(lbl_src)
         self.txt_source = QLineEdit()
-        self.txt_source.setPlaceholderText("Drag and drop cartoon directory or click browse...")
-        self.txt_source.setToolTip("Path to the input directory or files. Drag-and-drop video files or folders directly here.")
+        self.txt_source.setPlaceholderText("Drag & drop or browse...")
+        self.txt_source.setToolTip(
+            "Path to the input directory or files. Drag-and-drop video files or folders directly here."
+        )
         self.txt_source.setClearButtonEnabled(True)
-        row_src.addWidget(self.txt_source, 1)
+        io_layout.addWidget(self.txt_source)
 
-        btn_add_files = QPushButton("➕ Add Files...")
+        src_btn_row = QHBoxLayout()
+        src_btn_row.setSpacing(6)
+        btn_add_files = QPushButton("➕ Files")
         btn_add_files.setToolTip("Select one or more individual video files to add to the queue.")
         btn_add_files.clicked.connect(self.on_add_files_clicked)
-        row_src.addWidget(btn_add_files)
-
-        btn_browse_src = QPushButton("📁 Browse Folder...")
+        src_btn_row.addWidget(btn_add_files)
+        btn_browse_src = QPushButton("📁 Folder")
         btn_browse_src.setToolTip("Browse and select the input video folder.")
         btn_browse_src.clicked.connect(self.on_browse_source)
-        row_src.addWidget(btn_browse_src)
-
-        self.btn_scan = QPushButton("🔍 Scan Folder")
+        src_btn_row.addWidget(btn_browse_src)
+        self.btn_scan = QPushButton("🔍 Scan")
         self.btn_scan.setObjectName("btnScan")
         self.btn_scan.setToolTip("Scan source directory and index all video files into the queue.")
         self.btn_scan.clicked.connect(self.on_scan_clicked)
-        row_src.addWidget(self.btn_scan)
-        cfg_layout.addLayout(row_src)
+        src_btn_row.addWidget(self.btn_scan)
+        io_layout.addLayout(src_btn_row)
 
-        # Row 2: Output
-        row_out = QHBoxLayout()
-        lbl_out_title = QLabel("Output Folder:")
-        lbl_out_title.setMinimumWidth(80)
-        row_out.addWidget(lbl_out_title)
+        # Output row
+        lbl_out = QLabel("Output folder")
+        lbl_out.setStyleSheet("color: #64748b; font-size: 11px; font-weight: 600; margin-top: 4px;")
+        io_layout.addWidget(lbl_out)
         self.txt_output = QLineEdit()
-        self.txt_output.setPlaceholderText("Destination directory for converted 4K videos...")
-        self.txt_output.setToolTip("Path to the target directory where enhanced 4K files will be saved.")
+        self.txt_output.setPlaceholderText("Destination for 4K videos...")
+        self.txt_output.setToolTip(
+            "Path to the target directory where enhanced 4K files will be saved."
+        )
         self.txt_output.setClearButtonEnabled(True)
-        row_out.addWidget(self.txt_output, 1)
+        io_layout.addWidget(self.txt_output)
 
-        btn_browse_out = QPushButton("📁 Browse...")
+        out_btn_row = QHBoxLayout()
+        out_btn_row.setSpacing(6)
+        btn_browse_out = QPushButton("📁 Browse")
         btn_browse_out.setToolTip("Browse and select the destination directory.")
         btn_browse_out.clicked.connect(self.on_browse_output)
-        row_out.addWidget(btn_browse_out)
-
-        btn_open_out = QPushButton("📂 Open Output")
+        out_btn_row.addWidget(btn_browse_out)
+        btn_open_out = QPushButton("📂 Open")
         btn_open_out.setToolTip("Open destination directory in Windows File Explorer.")
         btn_open_out.clicked.connect(self.on_open_output)
-        row_out.addWidget(btn_open_out)
-        cfg_layout.addLayout(row_out)
+        out_btn_row.addWidget(btn_open_out)
+        out_btn_row.addStretch()
+        io_layout.addLayout(out_btn_row)
 
-        # Row 3: Presets & Naming
-        row_presets = QHBoxLayout()
-        row_presets.setSpacing(10)
-        lbl_preset_title = QLabel("🎯 Quality Profile:")
-        lbl_preset_title.setStyleSheet("font-weight: 700; color: #0a84ff;")
-        row_presets.addWidget(lbl_preset_title)
+        s_layout.addWidget(grp_io)
+
+        # ── Section: Quality Preset ──────────────────────────────────────
+        grp_preset = QGroupBox("Quality Preset")
+        grp_preset.setObjectName("sideCard")
+        preset_layout = QVBoxLayout(grp_preset)
+        preset_layout.setContentsMargins(10, 16, 10, 10)
+        preset_layout.setSpacing(8)
 
         self.cb_preset = QComboBox()
-        self.cb_preset.setToolTip("1-click curated enhancement profile. Auto-configures resolution, AI model, CQ factor, and NVENC.")
+        self.cb_preset.setToolTip(
+            "1-click curated enhancement profile. Auto-configures resolution, AI model, CQ, and NVENC."
+        )
         for p_id, p_obj in ENHANCEMENT_PRESETS.items():
             self.cb_preset.addItem(f"{p_obj.icon}  {p_obj.name}", p_id)
         self.cb_preset.currentIndexChanged.connect(self.on_preset_changed)
-        row_presets.addWidget(self.cb_preset, 1)
-
-        lbl_naming = QLabel("🏷️ Naming:")
-        lbl_naming.setStyleSheet("font-weight: 600; color: #f5f5f7;")
-        row_presets.addWidget(lbl_naming)
-
-        self.cb_naming_mode = QComboBox()
-        self.cb_naming_mode.setToolTip("File naming convention for enhanced output videos.")
-        self.cb_naming_mode.addItem("🏷️ Clean (e.g. Video_4K.mp4)", "clean")
-        self.cb_naming_mode.addItem("🎬 Scene Release (e.g. Show.S01E01...-CYLAE.mp4)", "scene")
-        self.cb_naming_mode.addItem("📄 Original Name (e.g. Video.mp4)", "original")
-        self.cb_naming_mode.currentIndexChanged.connect(self.on_settings_changed)
-        row_presets.addWidget(self.cb_naming_mode, 1)
-
-        self.lbl_preview_name = QLabel("Release Sample: Happy.Tree.Friends.S01E01.Spin.Fun.Knowin.Ya.2160p.WEB-DL.AAC2.0.H.265-CYLAE.mp4")
-        self.lbl_preview_name.setToolTip("Standardized Scene release filename preview generated dynamically based on active settings.")
-        self.lbl_preview_name.setStyleSheet("background-color: #1c1c1e; border: 1px solid #3a3a3c; border-radius: 8px; padding: 7px 12px; color: #0a84ff; font-family: 'SF Mono', 'Cascadia Mono', monospace; font-size: 11px;")
-        row_presets.addWidget(self.lbl_preview_name, 2)
-        cfg_layout.addLayout(row_presets)
+        preset_layout.addWidget(self.cb_preset)
 
         self.lbl_preset_desc = QLabel("")
-        self.lbl_preset_desc.setStyleSheet("color: #8e8e93; font-size: 11px; padding-left: 4px;")
-        cfg_layout.addWidget(self.lbl_preset_desc)
+        self.lbl_preset_desc.setWordWrap(True)
+        self.lbl_preset_desc.setStyleSheet("color: #475569; font-size: 11px; padding: 2px 0px;")
+        preset_layout.addWidget(self.lbl_preset_desc)
+        s_layout.addWidget(grp_preset)
 
-        # Row 4: Core Settings
-        row_settings = QHBoxLayout()
-        row_settings.setSpacing(10)
+        # ── Section: Encoding ────────────────────────────────────────────
+        grp_enc = QGroupBox("Encoding")
+        grp_enc.setObjectName("sideCard")
+        enc_layout = QVBoxLayout(grp_enc)
+        enc_layout.setContentsMargins(10, 16, 10, 10)
+        enc_layout.setSpacing(8)
 
-        row_settings.addWidget(QLabel("Resolution:"))
+        lbl_res = QLabel("Resolution")
+        lbl_res.setStyleSheet("color: #64748b; font-size: 11px; font-weight: 600;")
+        enc_layout.addWidget(lbl_res)
         self.cb_resolution = QComboBox()
-        self.cb_resolution.setToolTip("Target upscaling resolution. 4K UHD (3840x2160) provides pristine line clarity.")
-        self.cb_resolution.addItems(["4K UHD (3840x2160)", "1440p QHD (2560x1440)", "1080p FHD (1920x1080)", "720p HD (1280x720)"])
+        self.cb_resolution.setToolTip(
+            "Target upscaling resolution. 4K UHD (3840x2160) provides pristine line clarity."
+        )
+        self.cb_resolution.addItems(
+            ["4K UHD (3840×2160)", "1440p QHD (2560×1440)", "1080p FHD (1920×1080)", "720p HD (1280×720)"]
+        )
         self.cb_resolution.currentIndexChanged.connect(self.on_resolution_changed)
-        row_settings.addWidget(self.cb_resolution)
+        enc_layout.addWidget(self.cb_resolution)
 
-        row_settings.addWidget(QLabel("Codec:"))
+        lbl_codec = QLabel("Video Codec")
+        lbl_codec.setStyleSheet("color: #64748b; font-size: 11px; font-weight: 600; margin-top: 2px;")
+        enc_layout.addWidget(lbl_codec)
         self.cb_codec = QComboBox()
-        self.cb_codec.setToolTip("Video encoding engine. NVENC Hardware provides ultra-fast GPU encoding with spatial/temporal AQ.")
-        self.cb_codec.addItems(["H.265 (HEVC NVENC Hardware)", "H.264 (NVENC Hardware)", "H.265 (CPU x265)"])
+        self.cb_codec.setToolTip(
+            "Video encoding engine. NVENC Hardware provides ultra-fast GPU encoding with spatial/temporal AQ."
+        )
+        self.cb_codec.addItems(
+            ["H.265 (HEVC NVENC Hardware)", "H.264 (NVENC Hardware)", "H.265 (CPU x265)"]
+        )
         self.cb_codec.currentIndexChanged.connect(self.on_settings_changed)
-        row_settings.addWidget(self.cb_codec)
+        enc_layout.addWidget(self.cb_codec)
+        s_layout.addWidget(grp_enc)
 
-        row_settings.addWidget(QLabel("AI Model:"))
+        # ── Section: AI Model ────────────────────────────────────────────
+        grp_ai = QGroupBox("AI Upscale Model")
+        grp_ai.setObjectName("sideCard")
+        ai_layout = QVBoxLayout(grp_ai)
+        ai_layout.setContentsMargins(10, 16, 10, 10)
+        ai_layout.setSpacing(8)
+
         self.cb_model = QComboBox()
         self.cb_model.setToolTip("Neural network model used for line reconstruction and upscaling.")
         for m_id, m_spec in AVAILABLE_MODELS.items():
             self.cb_model.addItem(m_spec.name, m_id)
         self.cb_model.currentIndexChanged.connect(self.on_model_changed)
-        row_settings.addWidget(self.cb_model)
+        ai_layout.addWidget(self.cb_model)
 
-        row_settings.addStretch()
-        cfg_layout.addLayout(row_settings)
+        self.lbl_model_info = QLabel("")
+        self.lbl_model_info.setWordWrap(True)
+        self.lbl_model_info.setStyleSheet("color: #475569; font-size: 11px; padding: 2px 0px;")
+        ai_layout.addWidget(self.lbl_model_info)
+        s_layout.addWidget(grp_ai)
 
-        row_options = QHBoxLayout()
-        row_options.setSpacing(12)
+        # ── Section: Naming ──────────────────────────────────────────────
+        grp_naming = QGroupBox("File Naming")
+        grp_naming.setObjectName("sideCard")
+        naming_layout = QVBoxLayout(grp_naming)
+        naming_layout.setContentsMargins(10, 16, 10, 10)
+        naming_layout.setSpacing(8)
 
-        self.chk_preserve_folders = QCheckBox("Preserve subfolders")
-        self.chk_preserve_folders.setToolTip("Replicate source subfolder hierarchy (e.g. Season 01/) inside the output folder.")
+        self.cb_naming_mode = QComboBox()
+        self.cb_naming_mode.setToolTip("File naming convention for enhanced output videos.")
+        self.cb_naming_mode.addItem("🏷️ Clean  (e.g. Video_4K.mp4)", "clean")
+        self.cb_naming_mode.addItem("🎬 Scene Release  (Show.S01E01…-CYLAE.mp4)", "scene")
+        self.cb_naming_mode.addItem("📄 Original Name  (e.g. Video.mp4)", "original")
+        self.cb_naming_mode.currentIndexChanged.connect(self.on_settings_changed)
+        naming_layout.addWidget(self.cb_naming_mode)
+
+        self.lbl_preview_name = QLabel("")
+        self.lbl_preview_name.setWordWrap(True)
+        self.lbl_preview_name.setToolTip(
+            "Standardized Scene release filename preview generated dynamically based on active settings."
+        )
+        self.lbl_preview_name.setStyleSheet(
+            "background-color: #090912; border: 1px solid #1e1e2e; border-radius: 6px;"
+            "padding: 6px 10px; color: #4f8fff;"
+            "font-family: 'Cascadia Mono', 'Consolas', monospace; font-size: 10px;"
+        )
+        naming_layout.addWidget(self.lbl_preview_name)
+        s_layout.addWidget(grp_naming)
+
+        # ── Section: Options ─────────────────────────────────────────────
+        grp_opts = QGroupBox("Options")
+        grp_opts.setObjectName("sideCard")
+        opts_layout = QVBoxLayout(grp_opts)
+        opts_layout.setContentsMargins(10, 16, 10, 10)
+        opts_layout.setSpacing(6)
+
+        self.chk_preserve_folders = QCheckBox("Preserve subfolder structure")
+        self.chk_preserve_folders.setToolTip(
+            "Replicate source subfolder hierarchy (e.g. Season 01/) inside the output folder."
+        )
         self.chk_preserve_folders.setChecked(True)
-        row_options.addWidget(self.chk_preserve_folders)
+        opts_layout.addWidget(self.chk_preserve_folders)
 
-        self.chk_overwrite = QCheckBox("Overwrite existing")
-        self.chk_overwrite.setToolTip("Re-process and overwrite files that already exist in the output directory.")
+        self.chk_overwrite = QCheckBox("Overwrite existing files")
+        self.chk_overwrite.setToolTip(
+            "Re-process and overwrite files that already exist in the output directory."
+        )
         self.chk_overwrite.setChecked(False)
-        row_options.addWidget(self.chk_overwrite)
+        opts_layout.addWidget(self.chk_overwrite)
+        s_layout.addWidget(grp_opts)
 
-        row_options.addStretch()
-
+        # ── Expert toggle button ─────────────────────────────────────────
         self.btn_toggle_expert = QPushButton("⚙️  Advanced & Expert Controls ▼")
         self.btn_toggle_expert.setObjectName("btnToggleExpert")
-        self.btn_toggle_expert.setToolTip("Show/hide fine-tuning controls: CQ factor, NVENC preset, threads, tile size, and audio modes.")
+        self.btn_toggle_expert.setToolTip(
+            "Show/hide fine-tuning controls: CQ factor, NVENC preset, threads, tile size, and audio modes."
+        )
         self.btn_toggle_expert.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_toggle_expert.clicked.connect(self.toggle_expert_panel)
-        row_options.addWidget(self.btn_toggle_expert)
-        cfg_layout.addLayout(row_options)
+        s_layout.addWidget(self.btn_toggle_expert)
 
-        # Expert Panel
+        # ── Expert Panel ─────────────────────────────────────────────────
         self.grp_expert = QGroupBox("⚙️ Advanced & Expert Controls")
-        self.grp_expert.setStyleSheet("background-color: #252528; border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 12px; margin-top: 6px; padding: 14px;")
+        self.grp_expert.setObjectName("sideCard")
         expert_layout = QVBoxLayout(self.grp_expert)
-        expert_layout.setSpacing(10)
+        expert_layout.setContentsMargins(10, 16, 10, 10)
+        expert_layout.setSpacing(8)
 
-        # Expert Row 1
-        row_exp_1 = QHBoxLayout()
-        row_exp_1.setSpacing(14)
-
-        row_exp_1.addWidget(QLabel("CQ (Quality):"))
+        # CQ Slider
+        lbl_cq = QLabel("CQ Factor  (14 = lossless → 28 = draft)")
+        lbl_cq.setStyleSheet("color: #64748b; font-size: 11px; font-weight: 600;")
+        expert_layout.addWidget(lbl_cq)
+        cq_row = QHBoxLayout()
         self.slider_cq = QSlider(Qt.Orientation.Horizontal)
         self.slider_cq.setRange(14, 28)
         self.slider_cq.setValue(19)
-        self.slider_cq.setMinimumWidth(130)
-        self.slider_cq.setToolTip("Constant Quality factor (14-28). Lower CQ delivers higher bitrate and finer quality. 19 is visually lossless for 4K.")
+        self.slider_cq.setToolTip(
+            "Constant Quality factor (14-28). Lower CQ delivers higher bitrate. 19 is visually lossless for 4K."
+        )
         self.slider_cq.valueChanged.connect(self.on_cq_slider_changed)
-        row_exp_1.addWidget(self.slider_cq)
+        cq_row.addWidget(self.slider_cq, 1)
+        self.lbl_cq_val = QLabel("CQ 19")
+        self.lbl_cq_val.setFixedWidth(52)
+        self.lbl_cq_val.setStyleSheet("color: #60a5fa; font-weight: 700; font-size: 11px; text-align: right;")
+        cq_row.addWidget(self.lbl_cq_val)
+        expert_layout.addLayout(cq_row)
 
-        self.lbl_cq_val = QLabel("CQ 19 (Visually Lossless)")
-        self.lbl_cq_val.setStyleSheet("color: #0a84ff; font-weight: 700; font-size: 11px;")
-        row_exp_1.addWidget(self.lbl_cq_val)
-
-        row_exp_1.addWidget(QLabel("NVENC Preset:"))
+        # NVENC Preset
+        lbl_nvenc = QLabel("NVENC Preset")
+        lbl_nvenc.setStyleSheet("color: #64748b; font-size: 11px; font-weight: 600; margin-top: 2px;")
+        expert_layout.addWidget(lbl_nvenc)
         self.cb_nvenc_preset = QComboBox()
-        self.cb_nvenc_preset.setToolTip("Hardware NVENC speed vs compression trade-off preset. p7 provides highest compression and quality.")
+        self.cb_nvenc_preset.setToolTip(
+            "Hardware NVENC speed vs compression trade-off. p7 = highest quality/compression."
+        )
         self.cb_nvenc_preset.addItems([
             "p7 (Slowest / Max Compression)",
             "p6 (High Quality)",
             "p5 (Medium Quality)",
             "p4 (Fast Draft)",
-            "p1 (Fastest / Low Overhead)"
+            "p1 (Fastest / Low Overhead)",
         ])
         self.cb_nvenc_preset.currentIndexChanged.connect(self.on_expert_setting_changed)
-        row_exp_1.addWidget(self.cb_nvenc_preset)
+        expert_layout.addWidget(self.cb_nvenc_preset)
 
-        row_exp_1.addWidget(QLabel("Soundtrack Stream:"))
+        # Audio Mode
+        lbl_audio_mode = QLabel("Soundtrack")
+        lbl_audio_mode.setStyleSheet("color: #64748b; font-size: 11px; font-weight: 600; margin-top: 2px;")
+        expert_layout.addWidget(lbl_audio_mode)
         self.cb_audio_mode = QComboBox()
-        self.cb_audio_mode.setToolTip("Audio stream management. Lossless Stream Copy (-c:a copy) extracts and remuxes the original soundtrack with zero loss.")
+        self.cb_audio_mode.setToolTip(
+            "Audio stream management. Lossless Stream Copy remuxes the original soundtrack with zero loss."
+        )
         self.cb_audio_mode.addItem("Lossless Stream Copy (-c:a copy)", "copy")
         self.cb_audio_mode.addItem("Re-encode AAC 192k (Transparent)", "aac_192k")
         self.cb_audio_mode.addItem("Re-encode AAC 320k (Audiophile)", "aac_320k")
         self.cb_audio_mode.addItem("Lossless FLAC 24-bit", "flac")
         self.cb_audio_mode.currentIndexChanged.connect(self.on_expert_setting_changed)
-        row_exp_1.addWidget(self.cb_audio_mode)
+        expert_layout.addWidget(self.cb_audio_mode)
 
-        row_exp_1.addStretch()
-        expert_layout.addLayout(row_exp_1)
-
-        # Expert Row 2
-        row_exp_2 = QHBoxLayout()
-        row_exp_2.setSpacing(14)
-
-        row_exp_2.addWidget(QLabel("Workers:"))
+        # Workers & Threads
+        lbl_workers = QLabel("Workers")
+        lbl_workers.setStyleSheet("color: #64748b; font-size: 11px; font-weight: 600; margin-top: 2px;")
+        expert_layout.addWidget(lbl_workers)
         self.cb_workers = QComboBox()
-        self.cb_workers.setToolTip("Number of episodes processed simultaneously. 2 workers maximizes GPU compute saturation on RTX 3070.")
-        self.cb_workers.addItems(["2 Workers (Parallel - Recommended for RTX 3070)", "1 Worker (Sequential)", "3 Workers (Max Throughput)"])
-        row_exp_2.addWidget(self.cb_workers)
+        self.cb_workers.setToolTip(
+            "Number of episodes processed simultaneously. 2 workers saturates GPU on RTX 3070."
+        )
+        self.cb_workers.addItems(
+            ["2 Workers (Parallel — Recommended)", "1 Worker (Sequential)", "3 Workers (Max Throughput)"]
+        )
+        expert_layout.addWidget(self.cb_workers)
 
-        row_exp_2.addWidget(QLabel("Threads:"))
+        lbl_threads = QLabel("Vulkan Threads")
+        lbl_threads.setStyleSheet("color: #64748b; font-size: 11px; font-weight: 600; margin-top: 2px;")
+        expert_layout.addWidget(lbl_threads)
         self.cb_threads = QComboBox()
-        self.cb_threads.setToolTip("Vulkan worker threads allocation (load:proc:save). Auto (4:4:4) takes advantage of high core count CPUs.")
+        self.cb_threads.setToolTip(
+            "Vulkan worker threads (load:proc:save). Auto exploits high core count CPUs."
+        )
         cpu_cores = os.cpu_count() or 4
-        self.cb_threads.addItems([f"Auto ({cpu_cores} Cores - Optimal 4:4:4)", "4:4:4 (Max Multi-Core)", "2:4:2 (Balanced)", "1:2:2 (Default)"])
-        row_exp_2.addWidget(self.cb_threads)
+        self.cb_threads.addItems(
+            [f"Auto ({cpu_cores} Cores — 4:4:4)", "4:4:4 (Max Multi-Core)", "2:4:2 (Balanced)", "1:2:2 (Default)"]
+        )
+        expert_layout.addWidget(self.cb_threads)
 
-        row_exp_2.addWidget(QLabel("Frame Format:"))
+        # Frame Format & Tile Size
+        lbl_fmt = QLabel("Frame Format")
+        lbl_fmt.setStyleSheet("color: #64748b; font-size: 11px; font-weight: 600; margin-top: 2px;")
+        expert_layout.addWidget(lbl_fmt)
         self.cb_frame_fmt = QComboBox()
-        self.cb_frame_fmt.setToolTip("Intermediate extracted frame image format. Fast JPEG provides 2x-3x faster disk I/O; PNG is lossless.")
-        self.cb_frame_fmt.addItems(["Fast JPEG (2x-3x Faster I/O)", "Lossless PNG"])
-        row_exp_2.addWidget(self.cb_frame_fmt)
+        self.cb_frame_fmt.setToolTip(
+            "Intermediate frame format. Fast JPEG is 2x-3x faster disk I/O; PNG is lossless."
+        )
+        self.cb_frame_fmt.addItems(["Fast JPEG (2x–3x Faster I/O)", "Lossless PNG"])
+        expert_layout.addWidget(self.cb_frame_fmt)
 
-        row_exp_2.addWidget(QLabel("Tile Size:"))
+        lbl_tile = QLabel("Tile Size")
+        lbl_tile.setStyleSheet("color: #64748b; font-size: 11px; font-weight: 600; margin-top: 2px;")
+        expert_layout.addWidget(lbl_tile)
         self.cb_tile_size = QComboBox()
-        self.cb_tile_size.setToolTip("Image tile split size. 0 (Auto) processes entire frames at once for maximum inference performance on 8GB+ VRAM.")
-        self.cb_tile_size.addItem("0 (Auto / Full VRAM)", 0)
-        self.cb_tile_size.addItem("200 px (Low VRAM)", 200)
+        self.cb_tile_size.setToolTip(
+            "Tile split size. 0 (Auto) uses entire frame — best for 8 GB+ VRAM."
+        )
+        self.cb_tile_size.addItem("0 — Auto / Full VRAM", 0)
+        self.cb_tile_size.addItem("200 px  (Low VRAM)", 200)
         self.cb_tile_size.addItem("300 px", 300)
         self.cb_tile_size.addItem("400 px", 400)
         self.cb_tile_size.addItem("600 px", 600)
-        row_exp_2.addWidget(self.cb_tile_size)
+        expert_layout.addWidget(self.cb_tile_size)
 
-        row_exp_2.addWidget(QLabel("RealCUGAN Denoise:"))
+        # Denoise & TTA
+        lbl_denoise = QLabel("RealCUGAN Denoise Level")
+        lbl_denoise.setStyleSheet("color: #64748b; font-size: 11px; font-weight: 600; margin-top: 2px;")
+        expert_layout.addWidget(lbl_denoise)
         self.cb_denoise = QComboBox()
-        self.cb_denoise.setToolTip("Real-CUGAN noise reduction filter. Suppresses cartoon line ringing and artifacts.")
+        self.cb_denoise.setToolTip("RealCUGAN noise reduction filter. Suppresses ringing and compression artifacts.")
         self.cb_denoise.addItem("None (-1)", -1)
         self.cb_denoise.addItem("Conservative (0)", 0)
         self.cb_denoise.addItem("Standard (1)", 1)
         self.cb_denoise.addItem("Aggressive (2)", 2)
         self.cb_denoise.addItem("Ultra Clean (3)", 3)
-        row_exp_2.addWidget(self.cb_denoise)
+        expert_layout.addWidget(self.cb_denoise)
 
-        self.chk_tta = QCheckBox("Enable 8-pass TTA")
-        self.chk_tta.setToolTip("Test-Time Augmentation ensemble: 8 rotations/flips for maximum edge quality (slower)")
-        row_exp_2.addWidget(self.chk_tta)
+        self.chk_tta = QCheckBox("Enable 8-pass TTA (slower, best edges)")
+        self.chk_tta.setToolTip(
+            "Test-Time Augmentation: 8 rotations/flips ensemble for maximum edge quality."
+        )
+        expert_layout.addWidget(self.chk_tta)
 
-        row_exp_2.addStretch()
-        expert_layout.addLayout(row_exp_2)
+        # Scene release naming
+        lbl_release = QLabel("Scene Release Tags")
+        lbl_release.setStyleSheet(
+            "color: #64748b; font-size: 11px; font-weight: 600; margin-top: 6px;"
+        )
+        expert_layout.addWidget(lbl_release)
 
-        # Expert Row 3
-        row_exp_3 = QHBoxLayout()
-        row_exp_3.setSpacing(12)
-
-        row_exp_3.addWidget(QLabel("Show Name:"))
+        show_row = QHBoxLayout()
+        show_row.setSpacing(6)
+        lbl_show = QLabel("Show:")
+        lbl_show.setFixedWidth(38)
+        show_row.addWidget(lbl_show)
         self.txt_show_name = QLineEdit("Happy.Tree.Friends")
-        self.txt_show_name.setToolTip("Show title formatted with dots for standard Scene release naming.")
-        self.txt_show_name.setMaximumWidth(150)
+        self.txt_show_name.setToolTip("Show title with dots for standard Scene naming.")
         self.txt_show_name.textChanged.connect(self.on_settings_changed)
-        row_exp_3.addWidget(self.txt_show_name)
+        show_row.addWidget(self.txt_show_name, 1)
+        expert_layout.addLayout(show_row)
 
-        row_exp_3.addWidget(QLabel("Group:"))
+        grp_row = QHBoxLayout()
+        grp_row.setSpacing(6)
+        lbl_grp = QLabel("Group:")
+        lbl_grp.setFixedWidth(38)
+        grp_row.addWidget(lbl_grp)
         self.txt_group = QLineEdit("CYLAE")
         self.txt_group.setToolTip("Scene release group tag (e.g. CYLAE).")
-        self.txt_group.setMaximumWidth(80)
         self.txt_group.textChanged.connect(self.on_settings_changed)
-        row_exp_3.addWidget(self.txt_group)
+        grp_row.addWidget(self.txt_group)
+        expert_layout.addLayout(grp_row)
 
-        row_exp_3.addWidget(QLabel("Source:"))
+        src_tag_row = QHBoxLayout()
+        src_tag_row.setSpacing(6)
         self.cb_source = QComboBox()
         self.cb_source.setToolTip("Source media type tag (e.g. WEB-DL, WEBRip).")
         self.cb_source.addItems(["WEB-DL", "WEBRip", "UHD.WEB-DL", "REMASTER"])
         self.cb_source.currentIndexChanged.connect(self.on_settings_changed)
-        row_exp_3.addWidget(self.cb_source)
-
-        row_exp_3.addWidget(QLabel("Audio Tag:"))
+        src_tag_row.addWidget(self.cb_source)
         self.cb_audio_tag = QComboBox()
         self.cb_audio_tag.setToolTip("Standard audio codec release tag (e.g. AAC2.0, FLAC2.0).")
         self.cb_audio_tag.addItems(["AAC2.0", "FLAC2.0", "DDP5.1"])
         self.cb_audio_tag.currentIndexChanged.connect(self.on_settings_changed)
-        row_exp_3.addWidget(self.cb_audio_tag)
+        src_tag_row.addWidget(self.cb_audio_tag)
+        expert_layout.addLayout(src_tag_row)
 
-        row_exp_3.addStretch()
-        expert_layout.addLayout(row_exp_3)
+        # Live console
+        lbl_con_title = QLabel("🖥 Live CLI Log")
+        lbl_con_title.setStyleSheet(
+            "font-weight: 700; color: #4f8fff; font-size: 11px; margin-top: 6px;"
+        )
+        expert_layout.addWidget(lbl_con_title)
 
-        # Expert Row 4: Console
-        console_bar = QHBoxLayout()
-        lbl_con_title = QLabel("🖥️ Live Engine Logs & Raw CLI Inspector")
-        lbl_con_title.setStyleSheet("font-weight: 700; color: #0a84ff; font-size: 11px;")
-        console_bar.addWidget(lbl_con_title)
-        console_bar.addStretch()
-
-        self.btn_copy_cli = QPushButton("📋 Copy Last CLI Command")
-        self.btn_copy_cli.setToolTip("Copy the most recently executed FFmpeg or AI upscaler CLI command to clipboard.")
-        self.btn_copy_cli.setStyleSheet("padding: 3px 10px; font-size: 11px;")
+        con_btn_row = QHBoxLayout()
+        con_btn_row.setSpacing(6)
+        self.btn_copy_cli = QPushButton("📋 Copy CMD")
+        self.btn_copy_cli.setToolTip(
+            "Copy the most recently executed FFmpeg or AI upscaler CLI command to clipboard."
+        )
+        self.btn_copy_cli.setStyleSheet("padding: 3px 8px; font-size: 11px;")
         self.btn_copy_cli.clicked.connect(self.on_copy_cli_clicked)
-        console_bar.addWidget(self.btn_copy_cli)
-
-        self.btn_clear_console = QPushButton("🧹 Clear Logs")
-        self.btn_clear_console.setToolTip("Clear all engine logs and reset the logs counter.")
-        self.btn_clear_console.setStyleSheet("padding: 3px 10px; font-size: 11px;")
+        con_btn_row.addWidget(self.btn_copy_cli)
+        self.btn_clear_console = QPushButton("🧹 Clear")
+        self.btn_clear_console.setToolTip("Clear all engine logs.")
+        self.btn_clear_console.setStyleSheet("padding: 3px 8px; font-size: 11px;")
         self.btn_clear_console.clicked.connect(self.clear_all_logs)
-        console_bar.addWidget(self.btn_clear_console)
-        expert_layout.addLayout(console_bar)
+        con_btn_row.addWidget(self.btn_clear_console)
+        con_btn_row.addStretch()
+        expert_layout.addLayout(con_btn_row)
 
         self.txt_console = QTextEdit()
         self.txt_console.setObjectName("txtConsole")
         self.txt_console.setReadOnly(True)
-        self.txt_console.setMaximumHeight(110)
-        self.txt_console.setPlaceholderText("Live subprocess commands (FFmpeg, Vulkan engine) will appear here during execution...")
+        self.txt_console.setFixedHeight(90)
+        self.txt_console.setPlaceholderText("Engine commands will appear here...")
         expert_layout.addWidget(self.txt_console)
 
         self.grp_expert.setVisible(False)
-        cfg_layout.addWidget(self.grp_expert)
+        s_layout.addWidget(self.grp_expert)
 
-        self.lbl_model_info = QLabel("")
-        self.lbl_model_info.setStyleSheet("color: #8e8e93; font-size: 11px; padding: 3px 2px;")
-        cfg_layout.addWidget(self.lbl_model_info)
-        self.on_preset_changed()
+        s_layout.addStretch()
 
-        main_layout.addWidget(grp_config)
+        sidebar_inner.setLayout(s_layout)
+        sidebar_scroll.setWidget(sidebar_inner)
+        sidebar_outer.addWidget(sidebar_scroll)
+        middle_layout.addWidget(sidebar)
 
-        # 3. Queue Section
-        table_box = QVBoxLayout()
-        table_box.setSpacing(6)
+        # ── 2b. RIGHT AREA: queue ─────────────────────────────────────────
+        right_area = QWidget()
+        right_layout = QVBoxLayout(right_area)
+        right_layout.setContentsMargins(12, 10, 14, 10)
+        right_layout.setSpacing(8)
 
+        # Stat / filter pill bar
         stat_bar = QHBoxLayout()
-        stat_bar.setSpacing(8)
+        stat_bar.setSpacing(6)
 
         self.btn_stat_all = QPushButton("All: 0")
         self.btn_stat_all.setProperty("class", "statPill")
@@ -516,7 +677,7 @@ class UpscalerMainWindow(QMainWindow):
         self.btn_stat_ready.clicked.connect(lambda: self.set_filter_mode("ready"))
         stat_bar.addWidget(self.btn_stat_ready)
 
-        self.btn_stat_completed = QPushButton("Completed: 0")
+        self.btn_stat_completed = QPushButton("Done: 0")
         self.btn_stat_completed.setProperty("class", "statPill")
         self.btn_stat_completed.setCheckable(True)
         self.btn_stat_completed.setToolTip("Filter successfully upscaled episodes.")
@@ -539,7 +700,7 @@ class UpscalerMainWindow(QMainWindow):
 
         stat_bar.addStretch()
 
-        self.lbl_search = QLabel("🔍 Search:")
+        self.lbl_search = QLabel("🔍")
         stat_bar.addWidget(self.lbl_search)
         self.txt_filter = QLineEdit()
         self.txt_filter.setPlaceholderText("Filter by name or season...")
@@ -549,22 +710,18 @@ class UpscalerMainWindow(QMainWindow):
         self.txt_filter.textChanged.connect(self.on_filter_changed)
         stat_bar.addWidget(self.txt_filter)
 
-        self.btn_clear_queue = QPushButton("🧹 Clear Queue")
+        self.btn_clear_queue = QPushButton("🧹 Clear")
         self.btn_clear_queue.setToolTip("Clear all items currently in the processing queue.")
         self.btn_clear_queue.clicked.connect(self.on_clear_queue_clicked)
         stat_bar.addWidget(self.btn_clear_queue)
 
-        table_box.addLayout(stat_bar)
+        right_layout.addLayout(stat_bar)
 
+        # Queue table
         self.table = QTableWidget()
         self.table.setColumnCount(6)
         self.table.setHorizontalHeaderLabels([
-            "#",
-            "Original File",
-            "Size",
-            "Standardized Target Scene Name",
-            "Status",
-            "Detail / Progress"
+            "#", "Original File", "Size", "Target Scene Name", "Status", "Detail / Progress"
         ])
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
@@ -572,88 +729,112 @@ class UpscalerMainWindow(QMainWindow):
         self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
         self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeMode.Interactive)
-        self.table.setColumnWidth(1, 260)
-        self.table.setColumnWidth(5, 270)
+        self.table.setColumnWidth(1, 220)
+        self.table.setColumnWidth(5, 240)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setAlternatingRowColors(True)
-
+        self.table.verticalHeader().setVisible(False)
+        self.table.setShowGrid(False)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self.on_table_context_menu)
         self.table.itemDoubleClicked.connect(self.on_table_double_click)
+        right_layout.addWidget(self.table, 1)
 
-        table_box.addWidget(self.table, 1)
-        main_layout.addLayout(table_box, 1)
+        middle_layout.addWidget(right_area, 1)
+        root_layout.addWidget(middle, 1)
 
-        # 4. Progress and Controls Bottom Bar
+        # ── 3. BOTTOM BAR (full width) ──────────────────────────────────────
         bottom_bar = QFrame()
-        bottom_bar.setObjectName("macPanel")
+        bottom_bar.setObjectName("bottomBar")
         b_layout = QVBoxLayout(bottom_bar)
-        b_layout.setContentsMargins(16, 12, 16, 12)
-        b_layout.setSpacing(10)
+        b_layout.setContentsMargins(18, 10, 18, 12)
+        b_layout.setSpacing(8)
 
+        # Status row
         status_row = QHBoxLayout()
         self.lbl_overall_status = QLabel("Ready to process.")
-        self.lbl_overall_status.setStyleSheet("font-weight: 600; color: #f5f5f7; font-size: 13px;")
+        self.lbl_overall_status.setStyleSheet(
+            "font-weight: 600; color: #e2e8f0; font-size: 13px;"
+        )
         status_row.addWidget(self.lbl_overall_status)
         status_row.addStretch()
 
         self.lbl_eta = QLabel("")
-        self.lbl_eta.setStyleSheet("color: #0a84ff; font-weight: 700; font-size: 12px; padding: 4px 10px; background-color: rgba(10, 132, 255, 0.12); border: 1px solid rgba(10, 132, 255, 0.25); border-radius: 8px;")
+        self.lbl_eta.setStyleSheet(
+            "color: #60a5fa; font-weight: 700; font-size: 12px; padding: 4px 12px;"
+            "background-color: rgba(96, 165, 250, 0.10); border: 1px solid rgba(96, 165, 250, 0.20);"
+            "border-radius: 10px;"
+        )
         status_row.addWidget(self.lbl_eta)
         b_layout.addLayout(status_row)
 
+        # Progress bar
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
-        self.progress_bar.setFixedHeight(12)
+        self.progress_bar.setFixedHeight(10)
+        self.progress_bar.setTextVisible(False)
         b_layout.addWidget(self.progress_bar)
 
+        # Action buttons
         btn_row = QHBoxLayout()
-        btn_row.setSpacing(10)
+        btn_row.setSpacing(8)
 
-        self.btn_compare_frame = QPushButton("🔍  Compare Frame")
+        self.btn_compare_frame = QPushButton("🔍 Compare Frame")
         self.btn_compare_frame.setObjectName("btnCompareFrame")
-        self.btn_compare_frame.setToolTip("Generate an instant side-by-side Before/After on a single frame (no full video render required).")
+        self.btn_compare_frame.setToolTip(
+            "Generate a side-by-side Before/After on a single frame — no full video render needed."
+        )
         self.btn_compare_frame.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_compare_frame.clicked.connect(self.on_compare_frame_clicked)
         btn_row.addWidget(self.btn_compare_frame, 2)
 
+        lbl_clip = QLabel("Clip:")
+        lbl_clip.setStyleSheet("color: #475569; font-size: 12px;")
+        btn_row.addWidget(lbl_clip)
         self.spin_preview_dur = QSpinBox()
         self.spin_preview_dur.setRange(5, 300)
         self.spin_preview_dur.setValue(30)
-        self.spin_preview_dur.setSuffix(" sec")
-        self.spin_preview_dur.setToolTip("Duration of the upscaled preview clip in seconds. The clip starts 10% into the video.")
-        self.spin_preview_dur.setMaximumWidth(80)
-        btn_row.addWidget(QLabel("Clip:"))
+        self.spin_preview_dur.setSuffix(" s")
+        self.spin_preview_dur.setToolTip(
+            "Duration of the upscaled preview clip in seconds. The clip starts 10% into the video."
+        )
+        self.spin_preview_dur.setFixedWidth(66)
         btn_row.addWidget(self.spin_preview_dur)
 
-        self.btn_preview_clip = QPushButton("🎬  Render Preview Clip")
+        self.btn_preview_clip = QPushButton("🎬 Preview Clip")
         self.btn_preview_clip.setObjectName("btnPreviewClip")
         self.btn_preview_clip.setToolTip(
             "Upscale a short clip (default 30 s) from 10% into the video. "
-            "The output file is saved with a [Preview Xsec] suffix — it never overwrites the full encode."
+            "Saved with a [Preview] suffix — never overwrites the full encode."
         )
         self.btn_preview_clip.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_preview_clip.clicked.connect(self.on_preview_clip_clicked)
         btn_row.addWidget(self.btn_preview_clip, 2)
 
-        self.btn_preview = QPushButton("⚡  Test 1 Episode (Full)")
+        self.btn_preview = QPushButton("⚡ Test 1 Episode")
         self.btn_preview.setObjectName("btnPreview")
-        self.btn_preview.setToolTip("Process 1 full episode to verify visual quality, soundtrack sync, and encoding speed before launching the full batch.")
+        self.btn_preview.setToolTip(
+            "Process 1 full episode to verify visual quality, sync, and encoding speed before full batch."
+        )
         self.btn_preview.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_preview.clicked.connect(self.on_test_single_clicked)
         btn_row.addWidget(self.btn_preview, 2)
 
-        self.btn_preflight = QPushButton("📋  Preflight & Plan")
+        self.btn_preflight = QPushButton("📋 Preflight")
         self.btn_preflight.setObjectName("btnPreflight")
-        self.btn_preflight.setToolTip("View preflight verification, disk space requirements, warnings, and dry-run mappings.")
+        self.btn_preflight.setToolTip(
+            "View preflight verification, disk space requirements, warnings, and dry-run mappings."
+        )
         self.btn_preflight.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_preflight.clicked.connect(self.on_preflight_clicked)
         btn_row.addWidget(self.btn_preflight, 2)
 
-        self.btn_retry_failed = QPushButton("🔄  Retry Failed")
+        self.btn_retry_failed = QPushButton("🔄 Retry Failed")
         self.btn_retry_failed.setObjectName("btnRetryFailed")
-        self.btn_retry_failed.setToolTip("Reset failed or cancelled episodes back to Pending so they can be re-run.")
+        self.btn_retry_failed.setToolTip(
+            "Reset failed or cancelled episodes back to Pending for re-processing."
+        )
         self.btn_retry_failed.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_retry_failed.clicked.connect(self.on_retry_failed_clicked)
         btn_row.addWidget(self.btn_retry_failed, 2)
@@ -663,18 +844,23 @@ class UpscalerMainWindow(QMainWindow):
         self.btn_start.setToolTip("Launch concurrent batch processing for all pending episodes.")
         self.btn_start.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_start.clicked.connect(self.on_start_clicked)
-        btn_row.addWidget(self.btn_start, 3)
+        self.btn_start.setMinimumHeight(38)
+        btn_row.addWidget(self.btn_start, 4)
 
-        self.btn_stop = QPushButton("⏹  STOP")
+        self.btn_stop = QPushButton("⏹ STOP")
         self.btn_stop.setObjectName("btnStop")
         self.btn_stop.setToolTip("Gracefully stop active processing jobs.")
         self.btn_stop.setEnabled(False)
         self.btn_stop.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.btn_stop.clicked.connect(self.on_stop_clicked)
+        self.btn_stop.setMinimumHeight(38)
         btn_row.addWidget(self.btn_stop, 1)
 
         b_layout.addLayout(btn_row)
-        main_layout.addWidget(bottom_bar)
+        root_layout.addWidget(bottom_bar)
+
+        # Finalise sidebar config
+        self.on_preset_changed()
 
     def on_model_changed(self):
         m_id = self.cb_model.currentData() or "auto"
@@ -694,47 +880,23 @@ class UpscalerMainWindow(QMainWindow):
         self.update_scene_preview()
 
     def resizeEvent(self, event):
+        # Sidebar layout handles space naturally — no chip hiding, no margin gymnastics.
+        # Compact label shortening only applies to the bottom action bar at very small widths.
         width = event.size().width()
-        if hasattr(self, "lbl_audio"):
-            self.lbl_audio.setVisible(width >= 1180)
-        if hasattr(self, "lbl_gpu"):
-            self.lbl_gpu.setVisible(width >= 1020)
-        if hasattr(self, "lbl_encoder"):
-            self.lbl_encoder.setVisible(width >= 940)
-        if hasattr(self, "btn_preview_clip"):
-            compact = width < 1060
-            margin = 12 if compact else 18
-            self.main_layout.setContentsMargins(margin, 12 if compact else 16, margin, 12 if compact else 16)
-            self.main_layout.setSpacing(10 if compact else 12)
+        if hasattr(self, "btn_start"):
+            compact = width < 1100
             if hasattr(self, "btn_compare_frame"):
-                self.btn_compare_frame.setText("🔍 Preview" if compact else "🔍  Compare Frame")
-            self.btn_preview_clip.setText("🎬 Preview" if compact else "🎬  Render Preview Clip")
-            self.btn_preview.setText("⚡ Test 1 Episode" if compact else "⚡  Test 1 Episode (Full)")
+                self.btn_compare_frame.setText("🔍 Frame" if compact else "🔍 Compare Frame")
+            if hasattr(self, "btn_preview_clip"):
+                self.btn_preview_clip.setText("🎬 Clip" if compact else "🎬 Preview Clip")
+            if hasattr(self, "btn_preview"):
+                self.btn_preview.setText("⚡ Test" if compact else "⚡ Test 1 Episode")
             if hasattr(self, "btn_preflight"):
-                self.btn_preflight.setText("📋 Plan" if compact else "📋  Preflight & Plan")
+                self.btn_preflight.setText("📋" if compact else "📋 Preflight")
             if hasattr(self, "btn_retry_failed"):
-                self.btn_retry_failed.setText("🔄 Retry" if compact else "🔄  Retry Failed")
+                self.btn_retry_failed.setText("🔄" if compact else "🔄 Retry Failed")
             self.btn_start.setText("▶ START" if compact else "▶  START BATCH PROCESSING")
-            self.btn_stop.setText("⏹" if compact else "⏹  STOP")
-            self.lbl_search.setVisible(not compact)
-            self.txt_filter.setMaximumWidth(140 if compact else 220)
-            n_all = len(self.batch_manager.queue)
-            n_ready = sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.PENDING)
-            n_done = sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.COMPLETED)
-            n_skip = sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.SKIPPED)
-            n_err = sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.FAILED)
-            if compact:
-                self.btn_stat_all.setText(f"All: {n_all}")
-                self.btn_stat_ready.setText(f"Ready: {n_ready}")
-                self.btn_stat_completed.setText(f"Done: {n_done}")
-                self.btn_stat_skipped.setText(f"Skipped: {n_skip}")
-                self.btn_stat_failed.setText(f"Err: {n_err}")
-            else:
-                self.btn_stat_all.setText(f"All: {n_all}")
-                self.btn_stat_ready.setText(f"Ready: {n_ready}")
-                self.btn_stat_completed.setText(f"Completed: {n_done}")
-                self.btn_stat_skipped.setText(f"Skipped: {n_skip}")
-                self.btn_stat_failed.setText(f"Errors: {n_err}")
+            self.btn_stop.setText("⏹" if compact else "⏹ STOP")
         super().resizeEvent(event)
 
     def _update_auto_model_hint(self, queue: List[QueueItem]):
@@ -789,7 +951,7 @@ class UpscalerMainWindow(QMainWindow):
                         break
 
                 self.slider_cq.setValue(preset.cq_level)
-                self.lbl_cq_val.setText(f"CQ {preset.cq_level} (Visually Lossless)")
+                self.lbl_cq_val.setText(f"CQ {preset.cq_level}")
 
                 for i in range(self.cb_nvenc_preset.count()):
                     if self.cb_nvenc_preset.itemText(i).startswith(preset.nvenc_preset):
@@ -821,8 +983,7 @@ class UpscalerMainWindow(QMainWindow):
         self.update_scene_preview()
 
     def on_cq_slider_changed(self, val: int):
-        qual_desc = "Visually Lossless" if val <= 19 else ("High Quality" if val <= 22 else "Balanced")
-        self.lbl_cq_val.setText(f"CQ {val} ({qual_desc})")
+        self.lbl_cq_val.setText(f"CQ {val}")
         if not getattr(self, '_updating_preset', False):
             idx = self.cb_preset.findData("custom")
             if idx >= 0 and self.cb_preset.currentIndex() != idx:
