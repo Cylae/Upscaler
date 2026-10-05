@@ -98,9 +98,9 @@ def validate_job_config(job) -> None:
         raise ValueError(f"Input video does not exist: {job.input_file}")
     if not job.output_dir:
         raise ValueError("Output directory is required.")
-    if job.target_preset not in {"4k", "1440p", "1080p", "720p"}:
+    if job.target_preset.lower() not in {"4k", "1440p", "1080p", "720p"}:
         raise ValueError(f"Unsupported target resolution: {job.target_preset}")
-    if job.video_codec not in {"hevc_nvenc", "h264_nvenc", "libx265", "libx264"}:
+    if job.video_codec.lower() not in {"hevc_nvenc", "h264_nvenc", "libx265", "libx264"}:
         raise ValueError(f"Unsupported video codec: {job.video_codec}")
     if job.model_id not in AVAILABLE_MODELS and job.model_id != "auto":
         raise ValueError(f"Unknown AI model: {job.model_id}")
@@ -108,11 +108,11 @@ def validate_job_config(job) -> None:
         raise ValueError(f"Unsupported frame format: {job.frame_format}")
     if not 14 <= job.cq_level <= 28:
         raise ValueError("CQ level must be between 14 and 28.")
-    if job.nvenc_preset not in {f"p{index}" for index in range(1, 8)}:
+    if job.nvenc_preset.lower() not in {f"p{index}" for index in range(1, 8)}:
         raise ValueError(f"Unsupported NVENC preset: {job.nvenc_preset}")
     if job.denoise_level not in {-1, 0, 1, 2, 3}:
         raise ValueError("RealCUGAN denoise level must be between -1 and 3.")
-    if job.audio_mode not in {"copy", "aac_192k", "aac_320k", "flac"}:
+    if job.audio_mode.lower() not in {"copy", "aac_192k", "aac_320k", "flac"}:
         raise ValueError(f"Unsupported audio mode: {job.audio_mode}")
     if job.tile_size != 0 and job.tile_size < 32:
         raise ValueError("Tile size must be 0 (auto) or at least 32 pixels.")

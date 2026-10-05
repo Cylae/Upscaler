@@ -76,13 +76,24 @@ def probe_video(filepath: str, ffprobe_bin: Optional[str] = None) -> VideoMetada
 
     fps = 0.0
     for fps_str in (v_stream.get("avg_frame_rate"), v_stream.get("r_frame_rate")):
+        if not fps_str:
+            continue
         try:
-            numerator, denominator = str(fps_str).split("/", 1)
-            if float(denominator) > 0:
-                fps = float(numerator) / float(denominator)
-                if fps > 0:
+            fps_val_str = str(fps_str).strip()
+            if "/" in fps_val_str:
+                numerator, denominator = fps_val_str.split("/", 1)
+                den = float(denominator)
+                if den > 0:
+                    val = float(numerator) / den
+                    if val > 0:
+                        fps = val
+                        break
+            else:
+                val = float(fps_val_str)
+                if val > 0:
+                    fps = val
                     break
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, ZeroDivisionError):
             continue
     if fps <= 0:
         fps = 24.0

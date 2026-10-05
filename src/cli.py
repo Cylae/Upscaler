@@ -140,6 +140,8 @@ def run_cli(argv: list[str] | None = None) -> int:
         print(f"\nRestoring queue from manifest: {args.manifest} ...")
         bm.load_manifest(args.manifest)
         queue = bm.queue
+        if not args.output and queue:
+            args.output = os.path.dirname(os.path.abspath(queue[0].target_full_path))
     else:
         print(f"\nScanning folder: {args.source} ...")
         queue = bm.scan_folder(args.source, args.output, scene_cfg, preserve_folders=True)
@@ -237,10 +239,19 @@ def run_cli(argv: list[str] | None = None) -> int:
             print(f"\n[{item.index}/{len(queue)}] CANCELLED")
 
     t0 = time.time()
+    effective_base_dir = (
+        args.source
+        if (args.source and os.path.isdir(args.source))
+        else (
+            os.path.dirname(os.path.abspath(args.source))
+            if args.source
+            else (os.path.dirname(os.path.abspath(queue[0].source_path)) if queue else os.getcwd())
+        )
+    )
     try:
         bm.run_batch(
             output_dir=args.output,
-            base_dir=args.source if os.path.isdir(args.source) else os.path.dirname(os.path.abspath(args.source)),
+            base_dir=effective_base_dir,
             target_preset=res_val,
             video_codec=codec_val,
             model_id=model_val,
@@ -260,8 +271,13 @@ def run_cli(argv: list[str] | None = None) -> int:
         )
     except KeyboardInterrupt:
         bm.stop()
+        if args.manifest:
+            bm.save_manifest(args.manifest)
         print("\nBatch cancelled by user.")
         return 130
+
+    if args.manifest:
+        bm.save_manifest(args.manifest)
 
     total_time = round(time.time() - t0, 1)
     failed = sum(1 for item in queue if item.status == EpisodeStatus.FAILED)

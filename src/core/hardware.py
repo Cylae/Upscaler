@@ -212,6 +212,9 @@ def export_diagnostic_report(output_path: Optional[str] = None, redact_paths: bo
     """Exports diagnostic report to file with sensitive paths redacted by default."""
     report = generate_diagnostic_report(redact_paths=redact_paths)
     if output_path:
+        parent = os.path.dirname(os.path.abspath(output_path))
+        if parent:
+            os.makedirs(parent, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(report)
     return report

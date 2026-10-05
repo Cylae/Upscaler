@@ -89,7 +89,8 @@ class BatchManager:
         found_files: List[str] = []
 
         if os.path.isfile(folder_path):
-            found_files.append(folder_path)
+            if os.path.splitext(folder_path)[1].lower() in valid_exts:
+                found_files.append(folder_path)
             base_dir = os.path.dirname(folder_path)
         else:
             base_dir = folder_path
@@ -236,6 +237,9 @@ class BatchManager:
     def save_manifest(self, filepath: str) -> bool:
         """Saves current queue state to a JSON manifest for session recovery."""
         try:
+            parent = os.path.dirname(os.path.abspath(filepath))
+            if parent:
+                os.makedirs(parent, exist_ok=True)
             manifest_data = {
                 "version": 1,
                 "timestamp": time.time(),
@@ -269,8 +273,14 @@ class BatchManager:
         """Restores queue items from a saved JSON manifest. Returns count of loaded items."""
         if not os.path.isfile(filepath):
             return 0
-        with open(filepath, "r", encoding="utf-8") as f:
-            data = json.load(f)
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception:
+            return 0
+
+        if not isinstance(data, dict):
+            return 0
 
         raw_items = data.get("items", [])
         self.queue.clear()
@@ -353,10 +363,16 @@ class BatchManager:
 
         free_disk_mb = 0.0
         try:
-            target_check_dir = output_dir if os.path.isdir(output_dir) else os.path.dirname(os.path.abspath(output_dir))
-            if os.path.isdir(target_check_dir):
-                usage = shutil.disk_usage(target_check_dir)
-                free_disk_mb = round(usage.free / (1024**2), 1)
+            if output_dir:
+                cur = os.path.abspath(output_dir)
+                while cur and not os.path.isdir(cur):
+                    parent = os.path.dirname(cur)
+                    if parent == cur:
+                        break
+                    cur = parent
+                if os.path.isdir(cur):
+                    usage = shutil.disk_usage(cur)
+                    free_disk_mb = round(usage.free / (1024**2), 1)
         except Exception:
             pass
 

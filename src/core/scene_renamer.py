@@ -203,7 +203,19 @@ def format_clean_name(
     if custom_suffix:
         tag = custom_suffix if custom_suffix.startswith("_") else f"_{custom_suffix}"
     else:
-        res = resolution_tag.lower().replace("2160p", "4K").replace("1440p", "1440p").replace("1080p", "1080p").replace("720p", "720p")
+        r_low = resolution_tag.strip().lower()
+        if r_low in ("2160p", "4k", "uhd"):
+            res = "4K"
+        elif r_low in ("1440p", "2k", "qhd"):
+            res = "1440p"
+        elif r_low in ("1080p", "fhd"):
+            res = "1080p"
+        elif r_low in ("720p", "hd"):
+            res = "720p"
+        elif r_low in ("480p", "sd"):
+            res = "480p"
+        else:
+            res = resolution_tag.strip()
         tag = f"_{res}" if res else "_4K"
 
     clean_filename = f"{clean_stem}{tag}{ext}"

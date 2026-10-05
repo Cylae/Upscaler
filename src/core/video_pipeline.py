@@ -739,7 +739,8 @@ class VideoUpscalerPipeline:
 
             total_extracted = _frames_result["extracted"]
             if total_extracted == 0:
-                return False, "No frames extracted from source video."
+                err_msg = _frames_result.get("error") or "No frames extracted from source video."
+                return False, err_msg
 
             log_cmd(f"[FRAMES] {total_extracted} frames extracted.")
 
@@ -793,16 +794,23 @@ class VideoUpscalerPipeline:
                     return False, f"Local RealCUGAN models directory not found: {models_dir}"
 
                 try:
-                    chosen_scale, effective_denoise, adjustment = resolve_realcugan_options(
+                    chosen_scale, effective_denoise, target_model_name = resolve_realcugan_options(
                         models_dir,
                         chosen_scale,
                         job.denoise_level if job.denoise_level is not None else -1,
                     )
                 except ValueError as exc:
                     return False, str(exc)
-                if adjustment:
-                    log_cmd(f"[REALCUGAN] Requested variant unavailable; using {adjustment} based on installed weights.")
-                    report(0.20, f"RealCUGAN compatibility adjustment: {adjustment}")
+
+                if target_model_name != selected_model.internal_name:
+                    alt_dir = os.path.join(os.path.dirname(bin_path), target_model_name)
+                    if os.path.isdir(alt_dir):
+                        models_dir = alt_dir
+                    log_cmd(f"[REALCUGAN] Requested model '{selected_model.internal_name}' unavailable for scale {chosen_scale}; using {target_model_name} instead.")
+                    report(0.20, f"RealCUGAN compatibility adjustment: {target_model_name}")
+                elif effective_denoise != (job.denoise_level if job.denoise_level is not None else -1):
+                    log_cmd(f"[REALCUGAN] Requested denoise level unavailable; adjusted to {effective_denoise}.")
+                    report(0.20, f"RealCUGAN denoise adjusted to {effective_denoise}")
 
                 ai_cmd = [
                     bin_path,
@@ -1152,7 +1160,11 @@ class VideoUpscalerPipeline:
                 shutil.rmtree(temp_dir, ignore_errors=True)
                 return False, "", "", {"error": f"RealCUGAN engine not found: {bin_path}"}
             models_dir = os.path.join(os.path.dirname(bin_path), selected_model.internal_name)
-            chosen_scale, eff_denoise, _ = resolve_realcugan_options(models_dir, chosen_scale, -1)
+            chosen_scale, eff_denoise, target_model_name = resolve_realcugan_options(models_dir, chosen_scale, -1)
+            if target_model_name != selected_model.internal_name:
+                alt_dir = os.path.join(os.path.dirname(bin_path), target_model_name)
+                if os.path.isdir(alt_dir):
+                    models_dir = alt_dir
             ai_cmd = [
                 bin_path,
                 "-i", orig_frame,

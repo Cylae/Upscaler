@@ -356,15 +356,28 @@ def resolve_realcugan_options(
     req_scale = requested_scale if isinstance(requested_scale, int) else 2
     req_denoise = requested_denoise if isinstance(requested_denoise, int) else -1
 
-    if req_scale == 2 and os.path.isdir(os.path.join(mdir, "models-pro")):
+    base_name = os.path.basename(os.path.normpath(mdir))
+    parent_dir = os.path.dirname(os.path.normpath(mdir))
+
+    has_pro = (
+        (base_name == "models-pro" and os.path.isdir(mdir))
+        or os.path.isdir(os.path.join(mdir, "models-pro"))
+        or os.path.isdir(os.path.join(parent_dir, "models-pro"))
+    )
+
+    if base_name == "models-se":
+        model_name = "models-se"
+    elif req_scale == 2 and has_pro:
         model_name = "models-pro"
-        valid_denoise = {-1, 0, 2, 3}
     else:
         model_name = "models-se"
-        if req_scale in (3, 4):
-            valid_denoise = {-1, 0, 3}
-        else:
-            valid_denoise = {-1, 0, 1, 2, 3}
+
+    if model_name == "models-pro":
+        valid_denoise = {-1, 0, 2, 3}
+    elif req_scale in (3, 4):
+        valid_denoise = {-1, 0, 3}
+    else:
+        valid_denoise = {-1, 0, 1, 2, 3}
 
     actual_denoise = req_denoise if req_denoise in valid_denoise else -1
     actual_scale = req_scale if req_scale in (2, 3, 4) else 2
