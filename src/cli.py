@@ -19,7 +19,7 @@ from src.core.video_pipeline import probe_video
 
 def run_cli(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="4K Video Enhancer for Cartoons & 2D Animation (Scene / Warez Naming)"
+        description="AnimaScale 4K — Animation & Cartoon AI Studio (Scene / Warez Naming)"
     )
     parser.add_argument("--source", "-s", help="Source folder or video file path")
     parser.add_argument("--output", "-o", help="Output directory (default: '<source> (2160p)')")
@@ -111,7 +111,7 @@ def run_cli(argv: list[str] | None = None) -> int:
 
     hw = get_hardware_info()
     print("=" * 70)
-    print("  VIDEO ENHANCER 4K — ANIMATION & CARTOON EDITION")
+    print("  ANIMASCALE 4K — ANIMATION & CARTOON AI STUDIO")
     print(f"  GPU         : {hw.gpu_name} ({hw.gpu_vram_gb} GB VRAM)")
     print(f"  Encoder     : {'NVIDIA NVENC Hardware Active' if hw.has_nvenc_hevc else 'CPU (libx265)'}")
     print(f"  Preset      : {chosen_preset.name}")

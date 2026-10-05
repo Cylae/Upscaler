@@ -56,8 +56,9 @@ QMainWindow, QWidget {
 
 /* ---------- Splitter divider ---------- */
 QSplitter::handle:horizontal {
-    background-color: #1a1a28;
-    width: 2px;
+    background-color: #1c1c2a;
+    width: 4px;
+    border-radius: 2px;
 }
 
 QSplitter::handle:horizontal:hover {
@@ -398,12 +399,12 @@ QTableWidget {
 }
 
 QTableWidget::item {
-    padding: 6px 10px;
+    padding: 7px 12px;
     border-bottom: 1px solid #141422;
 }
 
 QTableWidget::item:hover {
-    background-color: #161628;
+    background-color: rgba(79, 143, 255, 0.08);
 }
 
 QTableWidget::item:selected {
@@ -515,20 +516,20 @@ QMessageBox {
 /* ---------- Scrollbars ---------- */
 QScrollBar:vertical {
     border: none;
-    background: transparent;
-    width: 6px;
+    background: rgba(255, 255, 255, 0.03);
+    width: 8px;
     margin: 2px;
-    border-radius: 3px;
+    border-radius: 4px;
 }
 
 QScrollBar::handle:vertical {
-    background: #252535;
-    min-height: 24px;
-    border-radius: 3px;
+    background: #33334d;
+    min-height: 28px;
+    border-radius: 4px;
 }
 
 QScrollBar::handle:vertical:hover {
-    background: #333348;
+    background: #4f8fff;
 }
 
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
@@ -537,20 +538,20 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
 
 QScrollBar:horizontal {
     border: none;
-    background: transparent;
-    height: 6px;
+    background: rgba(255, 255, 255, 0.03);
+    height: 8px;
     margin: 2px;
-    border-radius: 3px;
+    border-radius: 4px;
 }
 
 QScrollBar::handle:horizontal {
-    background: #252535;
-    min-width: 24px;
-    border-radius: 3px;
+    background: #33334d;
+    min-width: 28px;
+    border-radius: 4px;
 }
 
 QScrollBar::handle:horizontal:hover {
-    background: #333348;
+    background: #4f8fff;
 }
 
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {

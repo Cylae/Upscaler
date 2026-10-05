@@ -398,6 +398,7 @@ def test_format_clean_name_resolution_tags():
     assert format_clean_name("Episode_01.mp4", resolution_tag="1440p") == "Episode_01_1440p.mp4"
     assert format_clean_name("Episode_01.mp4", resolution_tag="1080p") == "Episode_01_1080p.mp4"
     assert format_clean_name("Episode_01.mp4", resolution_tag="720p") == "Episode_01_720p.mp4"
+    assert format_clean_name("mfhg 14 10 08 dee dee lynn 2160p.mp4", resolution_tag="4k") == "mfhg 14 10 08 dee dee lynn_4K.mp4"
 
 
 def test_cli_manifest_restore_without_source(tmp_path, capsys):

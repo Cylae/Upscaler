@@ -195,6 +195,9 @@ def format_clean_name(
     """Formats a clean, human-friendly output filename without scene jargon: VideoName_4K.mp4."""
     stem, orig_ext = os.path.splitext(os.path.basename(filepath))
     clean_stem = strip_forbidden_output_markers(stem).strip()
+    trimmed = re.sub(r'[\s._-]+(?:2160p|1440p|1080p|720p|480p|4k|uhd)$', '', clean_stem, flags=re.IGNORECASE).rstrip(' ._-')
+    if trimmed:
+        clean_stem = trimmed
     if not clean_stem:
         clean_stem = "video"
 

@@ -56,6 +56,7 @@ tmp/
 *.jpg
 *.jpeg
 *.webp
+!src/ui/assets/*
 
 # Python artifacts
 __pycache__/

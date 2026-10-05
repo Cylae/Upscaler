@@ -8,7 +8,7 @@ import sys
 from typing import Dict, List, Optional
 
 from PyQt6.QtCore import QSettings, Qt, QTimer
-from PyQt6.QtGui import QAction, QColor, QCursor
+from PyQt6.QtGui import QAction, QColor, QCursor, QIcon, QPixmap
 from PyQt6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -72,10 +72,15 @@ class UpscalerMainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Video Enhancer 4K — Animation & Cartoon Edition")
+        self.setWindowTitle("AnimaScale 4K — Animation & Cartoon AI Studio")
         self.resize(1400, 860)
         self.setMinimumSize(960, 660)
         self.setAcceptDrops(True)
+
+        assets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+        icon_path = os.path.join(assets_dir, "app_icon.ico" if os.name == "nt" else "app_icon.png")
+        if os.path.isfile(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
 
         self.hardware = get_hardware_info()
         self.batch_manager = BatchManager(self.hardware)
@@ -130,25 +135,40 @@ class UpscalerMainWindow(QMainWindow):
         h_layout.setSpacing(12)
 
         # Brand logo badge
-        badge = QLabel("4K")
-        badge.setFixedSize(36, 36)
+        assets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+        badge = QLabel()
+        badge.setFixedSize(38, 38)
         badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        badge.setStyleSheet(
-            "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #2563eb, stop:1 #7c3aed);"
-            "border: 1px solid #4f46e5; border-radius: 9px; color: #ffffff;"
-            "font-size: 13px; font-weight: 900; letter-spacing: 0.5px;"
-        )
+        icon_64_path = os.path.join(assets_dir, "app_icon_64.png")
+        if os.path.isfile(icon_64_path):
+            pixmap = QPixmap(icon_64_path).scaled(
+                38, 38,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            badge.setPixmap(pixmap)
+            badge.setStyleSheet(
+                "border-radius: 10px; border: 1px solid rgba(79, 143, 255, 0.4); "
+                "background-color: #12121c;"
+            )
+        else:
+            badge.setText("4K")
+            badge.setStyleSheet(
+                "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #2563eb, stop:1 #7c3aed);"
+                "border: 1px solid #4f46e5; border-radius: 9px; color: #ffffff;"
+                "font-size: 13px; font-weight: 900; letter-spacing: 0.5px;"
+            )
         h_layout.addWidget(badge)
-        h_layout.addSpacing(4)
+        h_layout.addSpacing(6)
 
         # Title
         title_box = QVBoxLayout()
         title_box.setSpacing(1)
-        lbl_title = QLabel("Video Enhancer 4K")
+        lbl_title = QLabel("AnimaScale 4K")
         lbl_title.setStyleSheet(
-            "font-size: 15px; font-weight: 800; color: #f1f5f9; letter-spacing: -0.3px;"
+            "font-size: 16px; font-weight: 800; color: #f1f5f9; letter-spacing: -0.3px;"
         )
-        lbl_sub = QLabel("Animation & Cartoon Edition  ·  Local AI Upscaler")
+        lbl_sub = QLabel("Animation & Cartoon AI Studio  ·  Local Neural Upscaler")
         lbl_sub.setStyleSheet("font-size: 11px; color: #64748b; font-weight: 500;")
         title_box.addWidget(lbl_title)
         title_box.addWidget(lbl_sub)
@@ -215,7 +235,7 @@ class UpscalerMainWindow(QMainWindow):
         # ── 2. MIDDLE ZONE: sidebar | queue (resizable splitter) ───────────
         middle = QSplitter(Qt.Orientation.Horizontal)
         middle.setObjectName("mainSplitter")
-        middle.setHandleWidth(2)
+        middle.setHandleWidth(4)
         middle.setChildrenCollapsible(False)
         self.main_splitter = middle
 
@@ -223,7 +243,7 @@ class UpscalerMainWindow(QMainWindow):
         sidebar = QWidget()
         sidebar.setObjectName("sidebar")
         sidebar.setMinimumWidth(340)
-        sidebar.setMaximumWidth(520)
+        sidebar.setMaximumWidth(680)
         sidebar_outer = QVBoxLayout(sidebar)
         sidebar_outer.setContentsMargins(0, 0, 0, 0)
         sidebar_outer.setSpacing(0)
@@ -233,6 +253,7 @@ class UpscalerMainWindow(QMainWindow):
         sidebar_scroll.setWidgetResizable(True)
         sidebar_scroll.setFrameShape(QFrame.Shape.NoFrame)
         sidebar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        sidebar_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         sidebar_scroll.setStyleSheet("background-color: transparent; border: none;")
 
         sidebar_inner = QWidget()
@@ -749,7 +770,7 @@ class UpscalerMainWindow(QMainWindow):
             if hdr_item:
                 hdr_item.setTextAlignment(align)
 
-        self.table.verticalHeader().setDefaultSectionSize(34)
+        self.table.verticalHeader().setDefaultSectionSize(38)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setAlternatingRowColors(True)
         self.table.verticalHeader().setVisible(False)
@@ -940,6 +961,15 @@ class UpscalerMainWindow(QMainWindow):
                 self.btn_retry_failed.setText("🔄" if compact else "🔄 Retry Failed")
             self.btn_start.setText("▶ START" if compact else "▶  START BATCH PROCESSING")
             self.btn_stop.setText("⏹" if compact else "⏹ STOP")
+
+        # Responsive scaling of Detail/Progress column on wide/4K monitors
+        if hasattr(self, "table") and self.table.columnCount() >= 6:
+            viewport = self.table.viewport()
+            if viewport and viewport.width() > 700:
+                target_col5 = max(260, min(520, int(viewport.width() * 0.24)))
+                if abs(self.table.columnWidth(5) - target_col5) > 15:
+                    self.table.setColumnWidth(5, target_col5)
+
         super().resizeEvent(event)
 
     def _update_auto_model_hint(self, queue: List[QueueItem]):
@@ -1893,7 +1923,18 @@ class UpscalerMainWindow(QMainWindow):
 
 
 def run_gui():
+    if os.name == "nt":
+        try:
+            import ctypes
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("CYLAE.AnimaScale.4K.1.0")
+        except Exception:
+            pass
+
     app = QApplication(sys.argv)
+    assets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
+    icon_path = os.path.join(assets_dir, "app_icon.ico" if os.name == "nt" else "app_icon.png")
+    if os.path.isfile(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
     window = UpscalerMainWindow()
     window.show()
     return app.exec()
