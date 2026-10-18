@@ -138,3 +138,49 @@ def test_cli_non_interactive_without_yes(tmp_path, capsys):
             assert ret == 2
             captured = capsys.readouterr()
             assert "Error: model validation requires an interactive terminal" in captured.out
+
+
+@pytest.mark.parametrize("selection", [["--resolution", "8k"], ["--preset", "realistic_8k"]])
+def test_cli_8k_dry_run_uses_4320p_paths_without_conversion(tmp_path, capsys, selection):
+    source = tmp_path / "source"
+    source.mkdir()
+    manager = MagicMock()
+    manager.scan_folder.return_value = [MagicMock()]
+    manager.get_preflight_summary.return_value = {
+        "total_items": 1, "pending_items": 1, "skipped_items": 0,
+        "total_source_size_mb": 1, "estimated_output_mb": 10,
+        "free_disk_mb": 1000, "warnings": [],
+    }
+    manager.plan_dry_run.return_value = []
+    with patch("src.cli.BatchManager", return_value=manager), patch("src.cli.get_hardware_info", return_value=MagicMock()):
+        assert run_cli(["--source", str(source), "--dry-run", *selection]) == 0
+
+    scan = manager.scan_folder.call_args
+    assert scan.args[1] == f"{source} (4320p)"
+    assert scan.args[2].resolution_tag == "4320p"
+    assert manager.get_preflight_summary.call_args.kwargs["target_preset"] == "8k"
+    manager.run_batch.assert_not_called()
+    assert "8K" in capsys.readouterr().out
+
+
+def test_cli_realistic_8k_profile_reaches_batch_configuration(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    manager = MagicMock()
+    manager.scan_folder.return_value = [MagicMock()]
+    manager.get_preflight_summary.return_value = {
+        "total_items": 1, "pending_items": 1, "skipped_items": 0,
+        "total_source_size_mb": 1, "estimated_output_mb": 10,
+        "free_disk_mb": 1000, "warnings": [],
+    }
+    with patch("src.cli.BatchManager", return_value=manager), patch("src.cli.get_hardware_info", return_value=MagicMock()):
+        assert run_cli(["--source", str(source), "--preset", "realistic_8k", "--yes"]) == 0
+
+    config = manager.run_batch.call_args.kwargs
+    assert config["target_preset"] == "8k"
+    assert config["model_id"] == "realesrgan-x4plus"
+    assert config["frame_format"] == "png"
+    assert config["max_workers"] == 1
+    assert config["cq_level"] == 18
+    assert config["enable_tta"] is False
+    assert config["threads"] == "auto"

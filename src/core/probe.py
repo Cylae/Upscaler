@@ -15,6 +15,8 @@ import threading
 from dataclasses import dataclass, replace
 from typing import Dict, List, Optional, Tuple
 
+from src.core.models import calculate_display_dimensions, normalize_rotation, normalize_sample_aspect_ratio
+
 
 @dataclass
 class VideoMetadata:
@@ -34,6 +36,24 @@ class VideoMetadata:
     color_primaries: str = ""
     color_transfer: str = ""
     audio_stream_count: int = 1
+    sample_aspect_ratio: str = "1:1"
+    rotation: float = 0
+
+    @property
+    def display_width(self) -> float:
+        return self._display_dimensions()[0]
+
+    @property
+    def display_height(self) -> float:
+        return self._display_dimensions()[1]
+
+    def _display_dimensions(self) -> Tuple[float, float]:
+        return calculate_display_dimensions(
+            self.width,
+            self.height,
+            sample_aspect_ratio=self.sample_aspect_ratio,
+            rotation=self.rotation,
+        )
 
 
 _PROBE_CACHE: Dict[Tuple[str, float, int], VideoMetadata] = {}
@@ -98,7 +118,11 @@ def probe_video(filepath: str, ffprobe_bin: Optional[str] = None) -> VideoMetada
     raw = subprocess.check_output(cmd, text=True, errors="ignore", timeout=30)
     data = json.loads(raw)
 
-    v_stream = next((s for s in data.get("streams", []) if s.get("codec_type") == "video"), None)
+    v_stream = next((
+        s for s in data.get("streams", [])
+        if s.get("codec_type") == "video"
+        and (s.get("disposition") or {}).get("attached_pic", 0) not in (1, "1", True)
+    ), None)
     if not v_stream:
         raise ValueError(f"No video stream found in {filepath}")
 
@@ -155,6 +179,18 @@ def probe_video(filepath: str, ffprobe_bin: Optional[str] = None) -> VideoMetada
     color_space = str(v_stream.get("color_space", "") or "")
     color_primaries = str(v_stream.get("color_primaries", "") or "")
     color_transfer = str(v_stream.get("color_transfer", "") or "")
+    sample_aspect_ratio = normalize_sample_aspect_ratio(v_stream.get("sample_aspect_ratio", "1:1"))
+    rotation = normalize_rotation((v_stream.get("tags") or {}).get("rotate", 0))
+    for side_data in v_stream.get("side_data_list") or []:
+        if "rotation" not in side_data:
+            continue
+        try:
+            side_rotation = float(side_data["rotation"])
+            if math.isfinite(side_rotation):
+                rotation = side_rotation
+                break
+        except (ValueError, TypeError, OverflowError):
+            continue
 
     meta = VideoMetadata(
         filepath=filepath,
@@ -172,7 +208,9 @@ def probe_video(filepath: str, ffprobe_bin: Optional[str] = None) -> VideoMetada
         color_space=color_space,
         color_primaries=color_primaries,
         color_transfer=color_transfer,
-        audio_stream_count=len(a_streams)
+        audio_stream_count=len(a_streams),
+        sample_aspect_ratio=sample_aspect_ratio,
+        rotation=rotation,
     )
 
     if cache_key:

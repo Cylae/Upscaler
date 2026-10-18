@@ -352,7 +352,11 @@ class BatchManager:
         model_id: str = "auto",
         cq_level: int = 19
     ) -> Dict[str, Any]:
-        """Generates a complete preflight summary before starting batch processing."""
+        """Summarizes the queue with a rough, output-only disk size estimate.
+
+        Actual compressed size varies with source detail, codec and CQ. Temporary
+        extracted/upscaled frames are not included in this planning heuristic.
+        """
         total_items = len(self.queue)
         pending_items = sum(1 for it in self.queue if it.status == EpisodeStatus.PENDING)
         skipped_items = sum(1 for it in self.queue if it.status == EpisodeStatus.SKIPPED)
@@ -361,7 +365,10 @@ class BatchManager:
         completed_items = sum(1 for it in self.queue if it.status == EpisodeStatus.COMPLETED)
 
         total_source_size_mb = sum(it.file_size_mb for it in self.queue)
-        mult = 2.5 if target_preset == "4k" else (1.8 if target_preset == "1440p" else 1.2)
+        # 8K has four times the pixels of 4K. This remains a coarse planning
+        # estimate rather than a guaranteed compressed size or disk requirement.
+        preset = target_preset.strip().lower()
+        mult = {"8k": 10.0, "4k": 2.5, "1440p": 1.8}.get(preset, 1.2)
         pending_source_size_mb = sum(it.file_size_mb for it in self.queue if it.status == EpisodeStatus.PENDING)
         estimated_output_mb = round(pending_source_size_mb * mult, 1)
 
@@ -386,7 +393,7 @@ class BatchManager:
         if pending_items > 0 and free_disk_mb > 0 and free_disk_mb < estimated_output_mb:
             warnings.append(
                 f"Low disk space on target volume: {free_disk_mb:.0f} MB free, "
-                f"estimated {estimated_output_mb:.0f} MB needed."
+                f"roughly {estimated_output_mb:.0f} MB estimated for output alone."
             )
 
         target_paths: Dict[str, List[str]] = {}
@@ -414,6 +421,10 @@ class BatchManager:
             "cancelled_items": cancelled_items,
             "total_source_size_mb": round(total_source_size_mb, 1),
             "estimated_output_mb": estimated_output_mb,
+            "output_estimate_note": (
+                "Rough estimate: actual output size depends on content, codec and CQ. "
+                "Temporary extracted and upscaled frames require additional disk space."
+            ),
             "free_disk_mb": free_disk_mb,
             "target_preset": target_preset,
             "video_codec": video_codec,

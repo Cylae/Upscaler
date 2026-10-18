@@ -1,4 +1,4 @@
-"""Main application window for Video Enhancer 4K."""
+"""Main application window for Video Enhancer."""
 
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ from src.core.models import (
     recommend_model_for_video,
 )
 from src.core.pipeline import VideoUpscalerPipeline
-from src.core.presets import ENHANCEMENT_PRESETS, get_preset
+from src.core.presets import ENHANCEMENT_PRESETS, RESOLUTION_LABELS, RESOLUTION_TAGS, get_preset
 from src.core.probe import probe_video
 from src.core.scene_namer import (
     SceneNamingConfig,
@@ -80,7 +80,7 @@ class UpscalerMainWindow(QMainWindow):
         super().__init__()
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
         self.setMouseTracking(True)
-        self.setWindowTitle("AnimaScale 4K — Animation & Cartoon AI Studio")
+        self.setWindowTitle("AnimaScale — AI Video Studio · Up to 8K")
         self.resize(1400, 860)
         self.setMinimumSize(960, 660)
         self.setAcceptDrops(True)
@@ -167,7 +167,7 @@ class UpscalerMainWindow(QMainWindow):
                 "background-color: #12121c;"
             )
         else:
-            badge.setText("4K")
+            badge.setText("8K")
             badge.setStyleSheet(
                 "background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #2563eb, stop:1 #7c3aed);"
                 "border: 1px solid #4f46e5; border-radius: 9px; color: #ffffff;"
@@ -179,11 +179,11 @@ class UpscalerMainWindow(QMainWindow):
         # Title
         title_box = QVBoxLayout()
         title_box.setSpacing(1)
-        lbl_title = QLabel("AnimaScale 4K")
+        lbl_title = QLabel("AnimaScale")
         lbl_title.setStyleSheet(
             "font-size: 16px; font-weight: 800; color: #f1f5f9; letter-spacing: -0.3px;"
         )
-        lbl_sub = QLabel("Animation & Cartoon AI Studio  ·  Local Neural Upscaler")
+        lbl_sub = QLabel("AI Video Studio  ·  Local Neural Upscaler up to 8K")
         lbl_sub.setStyleSheet("font-size: 11px; color: #64748b; font-weight: 500;")
         title_box.addWidget(lbl_title)
         title_box.addWidget(lbl_sub)
@@ -343,9 +343,9 @@ class UpscalerMainWindow(QMainWindow):
         lbl_out.setStyleSheet("color: #64748b; font-size: 11px; font-weight: 600; margin-top: 4px;")
         io_layout.addWidget(lbl_out)
         self.txt_output = QLineEdit()
-        self.txt_output.setPlaceholderText("Destination for 4K videos...")
+        self.txt_output.setPlaceholderText("Destination for enhanced videos...")
         self.txt_output.setToolTip(
-            "Path to the target directory where enhanced 4K files will be saved."
+            "Path to the target directory where enhanced files will be saved."
         )
         self.txt_output.setClearButtonEnabled(True)
         io_layout.addWidget(self.txt_output)
@@ -399,11 +399,11 @@ class UpscalerMainWindow(QMainWindow):
         enc_layout.addWidget(lbl_res)
         self.cb_resolution = QComboBox()
         self.cb_resolution.setToolTip(
-            "Target upscaling resolution. 4K UHD (3840x2160) provides pristine line clarity."
+            "Target resolution preserves display aspect ratio and orientation. "
+            "8K: 7680x4320 landscape or 4320x7680 portrait at 16:9 / 9:16."
         )
-        self.cb_resolution.addItems(
-            ["4K UHD (3840×2160)", "1440p QHD (2560×1440)", "1080p FHD (1920×1080)", "720p HD (1280×720)"]
-        )
+        for resolution, label in RESOLUTION_LABELS.items():
+            self.cb_resolution.addItem(label, resolution)
         self.cb_resolution.currentIndexChanged.connect(self.on_resolution_changed)
         enc_layout.addWidget(self.cb_resolution)
 
@@ -517,7 +517,7 @@ class UpscalerMainWindow(QMainWindow):
         self.slider_cq.setRange(14, 28)
         self.slider_cq.setValue(19)
         self.slider_cq.setToolTip(
-            "Constant Quality factor (14-28). Lower CQ delivers higher bitrate. 19 is visually lossless for 4K."
+            "Constant Quality factor (14-28). Lower CQ delivers higher bitrate; quality also depends on the source."
         )
         self.slider_cq.valueChanged.connect(self.on_cq_slider_changed)
         cq_row.addWidget(self.slider_cq, 1)
@@ -566,7 +566,7 @@ class UpscalerMainWindow(QMainWindow):
         expert_layout.addWidget(lbl_workers)
         self.cb_workers = QComboBox()
         self.cb_workers.setToolTip(
-            "Number of episodes processed simultaneously. 2 workers saturates GPU on RTX 3070."
+            "Number of videos processed simultaneously. Use one worker for memory-intensive 8K inference."
         )
         self.cb_workers.addItems(
             ["2 Workers (Parallel — Recommended)", "1 Worker (Sequential)", "3 Workers (Max Throughput)"]
@@ -582,7 +582,7 @@ class UpscalerMainWindow(QMainWindow):
         )
         cpu_cores = os.cpu_count() or 4
         self.cb_threads.addItems(
-            [f"Auto ({cpu_cores} Cores — 4:4:4)", "4:4:4 (Max Multi-Core)", "2:4:2 (Balanced)", "1:2:2 (Default)"]
+            [f"Auto ({cpu_cores} Cores / GPU VRAM)", "4:4:4 (Max Multi-Core)", "2:4:2 (Balanced)", "1:2:2 (Default)"]
         )
         expert_layout.addWidget(self.cb_threads)
 
@@ -602,9 +602,9 @@ class UpscalerMainWindow(QMainWindow):
         expert_layout.addWidget(lbl_tile)
         self.cb_tile_size = QComboBox()
         self.cb_tile_size.setToolTip(
-            "Tile split size. 0 (Auto) uses entire frame — best for 8 GB+ VRAM."
+            "Tile split size. Auto adapts to GPU VRAM; lower manual sizes reduce memory use."
         )
-        self.cb_tile_size.addItem("0 — Auto / Full VRAM", 0)
+        self.cb_tile_size.addItem("0 — Auto / VRAM Tuning", 0)
         self.cb_tile_size.addItem("200 px  (Low VRAM)", 200)
         self.cb_tile_size.addItem("300 px", 300)
         self.cb_tile_size.addItem("400 px", 400)
@@ -1019,8 +1019,7 @@ class UpscalerMainWindow(QMainWindow):
     def _update_auto_model_hint(self, queue: List[QueueItem]):
         if (self.cb_model.currentData() or "auto") != "auto" or not queue:
             return
-        res_idx = self.cb_resolution.currentIndex() if hasattr(self, "cb_resolution") else 0
-        target_preset = ("4k", "1440p", "1080p", "720p")[res_idx if 0 <= res_idx < 4 else 0]
+        target_preset = self._get_target_preset()
         self._hint_worker = ModelHintWorker(queue[0].source_path, target_preset)
         self._hint_worker.hint_ready.connect(self._on_hint_ready)
         self._hint_worker.start()
@@ -1046,10 +1045,9 @@ class UpscalerMainWindow(QMainWindow):
         if p_id != "custom":
             self._updating_preset = True
             try:
-                for i in range(self.cb_resolution.count()):
-                    if preset.target_preset in self.cb_resolution.itemText(i).lower():
-                        self.cb_resolution.setCurrentIndex(i)
-                        break
+                resolution_index = self.cb_resolution.findData(preset.target_preset)
+                if resolution_index >= 0:
+                    self.cb_resolution.setCurrentIndex(resolution_index)
 
                 for i in range(self.cb_codec.count()):
                     txt = self.cb_codec.itemText(i).lower()
@@ -1345,8 +1343,7 @@ class UpscalerMainWindow(QMainWindow):
             self.lbl_overall_status.setText("No episodes available for comparison.")
             return
 
-        res_idx = self.cb_resolution.currentIndex()
-        target_preset = ("4k", "1440p", "1080p", "720p")[res_idx]
+        target_preset = self._get_target_preset()
         model_id = self.cb_model.currentData() or "auto"
 
         if hasattr(self, "btn_compare_frame"):
@@ -1502,6 +1499,8 @@ class UpscalerMainWindow(QMainWindow):
     def _infer_resolution_hint(filepath: str) -> Optional[Tuple[int, int]]:
         """Quickly infers standard resolution dimensions from filename tokens if present."""
         fname = os.path.basename(filepath).lower()
+        if any(tag in fname for tag in ("8k", "4320p")):
+            return (7680, 4320)
         if any(tag in fname for tag in ("4k", "2160p", "uhd")):
             return (3840, 2160)
         if any(tag in fname for tag in ("1440p", "2k", "qhd")):
@@ -1523,8 +1522,7 @@ class UpscalerMainWindow(QMainWindow):
         if cb_val and cb_val != "auto":
             return get_model_display_name(cb_val)
 
-        res_idx = self.cb_resolution.currentIndex() if hasattr(self, "cb_resolution") else 0
-        target_preset = ("4k", "1440p", "1080p", "720p")[res_idx if 0 <= res_idx < 4 else 0]
+        target_preset = self._get_target_preset()
 
         if getattr(item, "resolution_str", ""):
             try:
@@ -1585,8 +1583,7 @@ class UpscalerMainWindow(QMainWindow):
                 os.startfile(os.path.dirname(filepath))
 
     def get_current_scene_config(self) -> SceneNamingConfig:
-        res_idx = self.cb_resolution.currentIndex()
-        res_tag = "2160p" if res_idx == 0 else ("1440p" if res_idx == 1 else ("1080p" if res_idx == 2 else "720p"))
+        res_tag = self._get_output_tag_for_current_resolution()
 
         codec_idx = self.cb_codec.currentIndex()
         codec_tag = "H.265" if codec_idx in (0, 2) else "H.264"
@@ -1616,14 +1613,19 @@ class UpscalerMainWindow(QMainWindow):
             container=".mp4"
         )
 
+    def _get_target_preset(self) -> str:
+        if hasattr(self, "cb_resolution"):
+            return self.cb_resolution.currentData() or "4k"
+        return "4k"
+
     def _get_output_tag_for_current_resolution(self) -> str:
-        idx = self.cb_resolution.currentIndex() if hasattr(self, 'cb_resolution') else 0
-        return "2160p" if idx == 0 else ("1440p" if idx == 1 else ("1080p" if idx == 2 else "720p"))
+        return RESOLUTION_TAGS[self._get_target_preset()]
 
     def on_resolution_changed(self):
         old_out = self.txt_output.text().strip()
         new_tag = self._get_output_tag_for_current_resolution()
-        for tag in ("(2160p)", "(1440p)", "(1080p)", "(720p)"):
+        for resolution_tag in RESOLUTION_TAGS.values():
+            tag = f"({resolution_tag})"
             if old_out.endswith(tag):
                 updated_out = old_out[:-len(tag)] + f"({new_tag})"
                 self.txt_output.setText(updated_out)
@@ -1690,8 +1692,7 @@ class UpscalerMainWindow(QMainWindow):
             return
 
         out_dir = self.txt_output.text().strip()
-        res_idx = self.cb_resolution.currentIndex()
-        target_preset = "4k" if res_idx == 0 else ("1440p" if res_idx == 1 else ("1080p" if res_idx == 2 else "720p"))
+        target_preset = self._get_target_preset()
         codec_idx = self.cb_codec.currentIndex()
         video_codec = "hevc_nvenc" if codec_idx == 0 else ("h264_nvenc" if codec_idx == 1 else "libx265")
         model_id = self.cb_model.currentData() or "auto"
@@ -1916,8 +1917,7 @@ class UpscalerMainWindow(QMainWindow):
             self.lbl_overall_status.setText("Please specify an output folder.")
             return
 
-        res_idx = self.cb_resolution.currentIndex()
-        target_preset = "4k" if res_idx == 0 else ("1440p" if res_idx == 1 else ("1080p" if res_idx == 2 else "720p"))
+        target_preset = self._get_target_preset()
 
         codec_idx = self.cb_codec.currentIndex()
         video_codec = "hevc_nvenc" if codec_idx == 0 else ("h264_nvenc" if codec_idx == 1 else "libx265")

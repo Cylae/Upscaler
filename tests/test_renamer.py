@@ -113,3 +113,16 @@ def test_format_clean_and_original_naming_modes():
     # 3. Direct format_clean_name
     direct = format_clean_name("My Great Cartoon.avi", resolution_tag="1080p", container=".mp4")
     assert direct == "My Great Cartoon_1080p.mp4"
+
+
+@pytest.mark.parametrize("old_suffix", ["_8K", " 4320p", "_4K", " 2160p", ""])
+@pytest.mark.parametrize("resolution_tag", ["4320p", "8k"])
+def test_clean_8k_filename_tag_replaces_previous_resolution(old_suffix, resolution_tag):
+    from src.core.scene_renamer import format_clean_name
+
+    assert format_clean_name(f"Sample{old_suffix}.mkv", resolution_tag) == "Sample_8K.mp4"
+
+
+def test_scene_8k_filename_uses_4320p_tag():
+    cfg = SceneNamingConfig(resolution_tag="4320p")
+    assert ".4320p." in format_scene_name("Sample.S01E01.mp4", config=cfg)

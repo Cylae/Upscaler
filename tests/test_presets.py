@@ -36,3 +36,16 @@ def test_clean_denoise_defaults():
 def test_fallback_preset():
     preset = get_preset("non_existent_preset_id")
     assert preset.id == "cartoon_4k_master"
+
+
+def test_realistic_8k_profile_uses_general_model_and_lossless_intermediates():
+    preset = get_preset("realistic_8k")
+    assert preset.target_preset == "8k"
+    assert preset.model_id == "realesrgan-x4plus"
+    assert preset.video_codec == "hevc_nvenc"
+    assert preset.cq_level == 18
+    assert preset.nvenc_preset == "p7"
+    assert preset.frame_format == "png"
+    assert preset.workers == 1
+    assert preset.enable_tta is False
+    assert preset.audio_mode == "copy"

@@ -2,6 +2,17 @@ from dataclasses import dataclass
 from typing import Dict, Optional
 
 
+# Ordered to preserve the existing desktop defaults and resolution choices.
+RESOLUTION_LABELS = {
+    "4k": "4K UHD (3840×2160)",
+    "1440p": "1440p QHD (2560×1440)",
+    "1080p": "1080p FHD (1920×1080)",
+    "720p": "720p HD (1280×720)",
+    "8k": "8K UHD (7680×4320 / Portrait)",
+}
+RESOLUTION_TAGS = {"8k": "4320p", "4k": "2160p", "1440p": "1440p", "1080p": "1080p", "720p": "720p"}
+
+
 @dataclass(frozen=True)
 class EnhancementPreset:
     id: str
@@ -9,7 +20,7 @@ class EnhancementPreset:
     icon: str
     description: str
     recommended_for: str
-    target_preset: str = "4k"  # "4k", "1440p", "1080p", "720p"
+    target_preset: str = "4k"  # "8k", "4k", "1440p", "1080p", "720p"
     video_codec: str = "hevc_nvenc"  # "hevc_nvenc", "h264_nvenc", "libx265"
     model_id: str = "auto"
     cq_level: int = 19  # Constant Quality: 14 (near lossless) to 28 (compact)
@@ -55,6 +66,23 @@ ENHANCEMENT_PRESETS: Dict[str, EnhancementPreset] = {
         audio_mode="copy",
         workers=2,
         frame_format="jpg"
+    ),
+    "realistic_8k": EnhancementPreset(
+        id="realistic_8k",
+        name="Realistic Video 8K",
+        icon="📷",
+        description="General Real-ESRGAN x4, lossless PNG intermediates, and HEVC CQ 18 for realistic footage.",
+        recommended_for="Live-action footage, including portrait video. One worker keeps GPU memory available for inference.",
+        target_preset="8k",
+        video_codec="hevc_nvenc",
+        model_id="realesrgan-x4plus",
+        cq_level=18,
+        nvenc_preset="p7",
+        enable_tta=False,
+        denoise_level=-1,
+        audio_mode="copy",
+        workers=1,
+        frame_format="png"
     ),
     "archival": EnhancementPreset(
         id="archival",

@@ -195,7 +195,7 @@ def format_clean_name(
     """Formats a clean, human-friendly output filename without scene jargon: VideoName_4K.mp4."""
     stem, orig_ext = os.path.splitext(os.path.basename(filepath))
     clean_stem = strip_forbidden_output_markers(stem).strip()
-    trimmed = re.sub(r'[\s._-]+(?:2160p|1440p|1080p|720p|480p|4k|uhd)$', '', clean_stem, flags=re.IGNORECASE).rstrip(' ._-')
+    trimmed = re.sub(r'[\s._-]+(?:4320p|2160p|1440p|1080p|720p|480p|8k|4k|uhd)$', '', clean_stem, flags=re.IGNORECASE).rstrip(' ._-')
     if trimmed:
         clean_stem = trimmed
     if not clean_stem:
@@ -207,7 +207,9 @@ def format_clean_name(
         tag = custom_suffix if custom_suffix.startswith("_") else f"_{custom_suffix}"
     else:
         r_low = resolution_tag.strip().lower()
-        if r_low in ("2160p", "4k", "uhd"):
+        if r_low in ("4320p", "8k"):
+            res = "8K"
+        elif r_low in ("2160p", "4k", "uhd"):
             res = "4K"
         elif r_low in ("1440p", "2k", "qhd"):
             res = "1440p"

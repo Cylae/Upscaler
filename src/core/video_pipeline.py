@@ -77,6 +77,27 @@ from src.core.validator import (
 
 _auto_tile_size = auto_tile_size
 
+# Image files and neural engines do not reliably honor pixel-aspect metadata.
+# FFmpeg autorotates first; normalize the resulting display geometry before AI.
+_SQUARE_PIXEL_FILTER = "scale=w='max(2,round(iw*sar/2)*2)':h='max(2,round(ih/2)*2)',setsar=1"
+
+
+def _display_frame_dimensions(meta: VideoMetadata) -> Tuple[int, int]:
+    return tuple(max(2, int(math.floor(value / 2 + 0.5)) * 2)
+                 for value in (meta.display_width, meta.display_height))
+
+
+def _square_pixel_filter(meta: Optional[VideoMetadata] = None) -> str:
+    if meta is None:
+        return _SQUARE_PIXEL_FILTER
+    width, height = _display_frame_dimensions(meta)
+    return f"scale={width}:{height}:flags=lanczos,setsar=1"
+
+
+def _select_model_scale(model: AIModelSpec, required_scale: float) -> int:
+    scales = model.supported_scales or [model.default_scale]
+    return min((scale for scale in scales if scale >= required_scale - 0.05), default=max(scales))
+
 
 
 @dataclass
@@ -84,7 +105,7 @@ class UpscaleJobConfig:
     input_file: str
     output_dir: str
     base_dir: Optional[str] = None
-    target_preset: str = "4k"  # "4k", "1440p", "1080p", "720p"
+    target_preset: str = "4k"  # "8k", "4k", "1440p", "1080p", "720p"
     video_codec: str = "hevc_nvenc"  # "hevc_nvenc", "h264_nvenc", "libx265", "libx264"
     model_id: str = "auto"
     scene_config: Optional[SceneNamingConfig] = None
@@ -223,6 +244,81 @@ class VideoUpscalerPipeline:
             self._cuda_available = self.hardware.has_nvidia and _probe_cuda_support(ffmpeg_bin)
         return self._cuda_available
 
+    def _check_nvenc_target(
+        self,
+        meta: VideoMetadata,
+        target_w: int,
+        target_h: int,
+        encoder: str,
+        cq_val: str,
+        p_val: str,
+    ) -> Tuple[bool, str]:
+        """Test the actual encoder configuration using one synthetic frame.
+
+        A compiled NVENC encoder does not guarantee that the GPU supports the
+        target geometry. Check before extracting thousands of frames or running
+        neural inference. Results are not cached: available sessions/VRAM change.
+        """
+        cmd = self._build_encode_cmd(
+            frames_out_dir="", frame_ext="png", meta=meta,
+            target_w=target_w, target_h=target_h, chosen_encoder=encoder,
+            cq_val=cq_val, p_val=p_val, audio_input_path=None,
+            audio_mode="copy", part_output_file="-",
+        )
+        input_pos = cmd.index("-i")
+        fps_arg = cmd[cmd.index("-r") + 1]
+        # Replace the image-sequence input, including its input -r, with lavfi.
+        cmd = cmd[:input_pos - 2] + [
+            "-hide_banner", "-loglevel", "error", "-nostdin",
+            "-f", "lavfi", "-i", f"color=c=black:s={target_w}x{target_h}:r={fps_arg}",
+        ] + cmd[input_pos + 2:-1] + ["-frames:v", "1", "-f", "null", "-"]
+        proc = self._start_process(
+            cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+            text=True, errors="replace",
+        )
+        try:
+            try:
+                _, stderr_out = proc.communicate(timeout=30)
+            except subprocess.TimeoutExpired:
+                safe_kill_process_tree(proc)
+                proc.communicate()
+                return False, "Encoder check timed out after 30 seconds."
+            if self._is_cancelled:
+                raise RuntimeError("Operation cancelled by user.")
+            if proc.returncode == 0:
+                return True, ""
+            detail = (stderr_out or "").strip()
+            return False, detail[-2000:] or f"Encoder check failed (exit code {proc.returncode})."
+        finally:
+            self._forget_process(proc)
+
+    def _resolve_encoder(
+        self,
+        job: UpscaleJobConfig,
+        meta: VideoMetadata,
+        target_w: int,
+        target_h: int,
+        log: Callable[[str], None],
+    ) -> str:
+        encoder = job.video_codec.lower()
+        fallback = {"hevc_nvenc": "libx265", "h264_nvenc": "libx264"}
+        if encoder not in fallback:
+            return encoder
+        available = self.hardware.has_nvenc_hevc if encoder == "hevc_nvenc" else self.hardware.has_nvenc_h264
+        if not available:
+            log(f"[ENCODER] {encoder} unavailable; using {fallback[encoder]} on CPU.")
+            return fallback[encoder]
+        supported, reason = self._check_nvenc_target(
+            meta, target_w, target_h, encoder, str(job.cq_level), job.nvenc_preset.lower(),
+        )
+        if self._is_cancelled:
+            raise RuntimeError("Operation cancelled by user.")
+        if supported:
+            log(f"[ENCODER] {encoder} verified for {target_w}x{target_h}.")
+            return encoder
+        log(f"[ENCODER] {encoder} check failed: {reason}\nUsing {fallback[encoder]} on CPU.")
+        return fallback[encoder]
+
     def _build_extract_frames_cmd(
         self,
         input_file: str,
@@ -231,6 +327,7 @@ class VideoUpscalerPipeline:
         use_hwdecode: bool,
         start_offset_s: float = 0.0,
         duration_s: Optional[float] = None,
+        meta: Optional[VideoMetadata] = None,
     ) -> list:
         """Builds an optimised FFmpeg command to extract video frames.
 
@@ -270,7 +367,8 @@ class VideoUpscalerPipeline:
                 "-hwaccel_output_format", "cuda",
             ] + common_input_flags + seek_flags + [
                 "-i", input_file,
-                "-vf", "hwdownload,format=nv12,format=yuvj420p",
+                "-map", "0:V:0", "-an", "-sn",
+                "-vf", f"hwdownload,format=nv12,{_square_pixel_filter(meta)}",
                 "-filter_threads", "0",
                 "-filter_complex_threads", "0",
             ]
@@ -280,6 +378,8 @@ class VideoUpscalerPipeline:
                 "-threads", "0",
             ] + common_input_flags + seek_flags + [
                 "-i", input_file,
+                "-map", "0:V:0", "-an", "-sn",
+                "-vf", _square_pixel_filter(meta),
                 "-filter_threads", "0",
                 "-filter_complex_threads", "0",
             ]
@@ -345,7 +445,7 @@ class VideoUpscalerPipeline:
 
         # High-quality Lanczos resize with all CPU cores assigned
         cmd.extend([
-            "-vf", f"scale={target_w}:{target_h}:flags=lanczos",
+            "-vf", f"scale={target_w}:{target_h}:flags=lanczos,setsar=1",
             "-filter_threads", "0",
             "-filter_complex_threads", "0",
         ])
@@ -492,7 +592,10 @@ class VideoUpscalerPipeline:
             return False, f"Video analysis error: {e}"
 
         # 2. Resolve target dimensions & scene naming
-        target_w, target_h, res_tag = calculate_target_dimensions(meta.width, meta.height, job.target_preset)
+        target_w, target_h, res_tag = calculate_target_dimensions(
+            meta.width, meta.height, job.target_preset,
+            sample_aspect_ratio=meta.sample_aspect_ratio, rotation=meta.rotation,
+        )
 
         # Every concurrent job gets an isolated naming configuration. Mutating
         # the shared batch object here caused cross-worker naming races.
@@ -500,7 +603,7 @@ class VideoUpscalerPipeline:
         scene_cfg.resolution_tag = res_tag
 
         # Set codec tag in scene name according to chosen encoder
-        if "hevc" in job.video_codec or "x265" in job.video_codec:
+        if "hevc" in job.video_codec.lower() or "x265" in job.video_codec.lower():
             scene_cfg.codec_tag = "H.265"
         else:
             scene_cfg.codec_tag = "H.264"
@@ -535,35 +638,38 @@ class VideoUpscalerPipeline:
 
         # 4. Resolve Model
         resolved_model_id = job.model_id
-        req_scale = max(target_w / max(1, meta.width), target_h / max(1, meta.height))
+        req_scale = max(target_w / max(1, meta.display_width), target_h / max(1, meta.display_height))
         if resolved_model_id in AVAILABLE_MODELS and resolved_model_id != "auto":
             selected_model = AVAILABLE_MODELS[resolved_model_id]
-            viable_scales = [s for s in selected_model.supported_scales if s >= req_scale - 0.05]
-            if viable_scales:
-                chosen_scale = min(viable_scales)
-            else:
-                chosen_scale = max(selected_model.supported_scales) if selected_model.supported_scales else selected_model.default_scale
+            chosen_scale = _select_model_scale(selected_model, req_scale)
         else:
             found = False
             if resolved_model_id and resolved_model_id != "auto":
                 for m_id, spec in AVAILABLE_MODELS.items():
                     if m_id != "auto" and (resolved_model_id in (spec.name, spec.internal_name, spec.name.split(" (")[0])):
                         selected_model = spec
-                        viable_scales = [s for s in spec.supported_scales if s >= req_scale - 0.05]
-                        if viable_scales:
-                            chosen_scale = min(viable_scales)
-                        else:
-                            chosen_scale = max(spec.supported_scales) if spec.supported_scales else spec.default_scale
+                        chosen_scale = _select_model_scale(spec, req_scale)
                         found = True
                         break
             if not found:
                 selected_model, chosen_scale = choose_best_model_for_video(
-                    meta.width, meta.height, job.target_preset
+                    meta.display_width, meta.display_height, job.target_preset
                 )
 
         report(0.05, f"Selected model: {selected_model.name} (Scale {chosen_scale}x)", {"model_name": selected_model.name, "scale": chosen_scale})
         model_reason = f"Auto-selected for {meta.width}×{meta.height}" if job.model_id == "auto" else "User selected"
         log_cmd(f"[AI MODEL] {selected_model.name} ×{chosen_scale} ({model_reason})")
+        if req_scale > chosen_scale + 0.05:
+            log_cmd(
+                f"[RESIZE] Target exceeds the model's native {chosen_scale}x output; "
+                f"a final Lanczos resize produces {target_w}x{target_h}."
+            )
+
+        report(0.06, f"Checking encoder for {target_w}x{target_h}...")
+        try:
+            chosen_encoder = self._resolve_encoder(job, meta, target_w, target_h, log_cmd)
+        except (OSError, RuntimeError) as exc:
+            return False, "Cancelled by user." if self._is_cancelled else f"Encoder check failed: {exc}"
 
         # Prepare workspace & temp directory
         root_temp = job.temp_dir or os.path.join(job.output_dir, ".temp_upscaler")
@@ -685,6 +791,7 @@ class VideoUpscalerPipeline:
                     use_hwdecode=use_hw,
                     start_offset_s=_preview_start_s,
                     duration_s=_preview_dur_s,
+                    meta=meta,
                 )
                 log_cmd(f"[FFMPEG EXTRACT ({'CUDA' if use_hw else 'CPU'})] {' '.join(extract_cmd)}")
                 try:
@@ -710,6 +817,7 @@ class VideoUpscalerPipeline:
                         use_hwdecode=False,
                         start_offset_s=_preview_start_s,
                         duration_s=_preview_dur_s,
+                        meta=meta,
                     )
                     log_cmd(f"[FFMPEG EXTRACT (CPU)] {' '.join(extract_cmd)}")
                     # Clear any partial frames before retry
@@ -1031,13 +1139,6 @@ class VideoUpscalerPipeline:
             # ------------------------------------------------------------------
             # 8. Encode to Target Resolution with Hardware NVENC (Multithreaded)
             # ------------------------------------------------------------------
-            chosen_encoder = job.video_codec
-            if "nvenc" in chosen_encoder:
-                if "hevc" in chosen_encoder and not self.hardware.has_nvenc_hevc:
-                    chosen_encoder = "libx265"
-                elif "h264" in chosen_encoder and not self.hardware.has_nvenc_h264:
-                    chosen_encoder = "libx264"
-
             encode_eta_str = format_eta(est_encode_s)
             report(
                 0.86,
@@ -1052,7 +1153,7 @@ class VideoUpscalerPipeline:
                 audio_input_path = job.input_file
 
             cq_val = str(job.cq_level) if job.cq_level else "19"
-            p_val = job.nvenc_preset or "p7"
+            p_val = (job.nvenc_preset or "p7").lower()
 
             encode_cmd = self._build_encode_cmd(
                 frames_out_dir=frames_out_dir,
@@ -1197,7 +1298,8 @@ class VideoUpscalerPipeline:
         """Extracts a single representative frame from video and upscales it with AI model.
 
         Returns (success, original_frame_path, upscaled_frame_path, info_dict).
-        Takes ~0.5s and provides instant before/after visual verification before batch encoding.
+        The returned preview uses the same display geometry and final dimensions
+        as the full encode, including targets beyond the model's native scale.
         """
         if not os.path.isfile(video_path):
             return False, "", "", {"error": f"Video file not found: {video_path}"}
@@ -1210,13 +1312,19 @@ class VideoUpscalerPipeline:
         if offset_seconds is None:
             offset_seconds = max(0.5, meta.duration * 0.15) if meta.duration > 1 else 0.0
 
-        target_w, target_h, res_tag = calculate_target_dimensions(meta.width, meta.height, target_preset)
+        target_w, target_h, res_tag = calculate_target_dimensions(
+            meta.width, meta.height, target_preset,
+            sample_aspect_ratio=meta.sample_aspect_ratio, rotation=meta.rotation,
+        )
 
         if model_id == "auto" or model_id not in AVAILABLE_MODELS:
-            selected_model, chosen_scale = choose_best_model_for_video(meta.width, meta.height, target_preset)
+            selected_model, chosen_scale = choose_best_model_for_video(
+                meta.display_width, meta.display_height, target_preset,
+            )
         else:
             selected_model = AVAILABLE_MODELS[model_id]
-            chosen_scale = selected_model.default_scale
+            required_scale = max(target_w / max(1, meta.display_width), target_h / max(1, meta.display_height))
+            chosen_scale = _select_model_scale(selected_model, required_scale)
 
         temp_dir = ""
         try:
@@ -1237,6 +1345,8 @@ class VideoUpscalerPipeline:
             ffmpeg_bin, "-y",
             "-ss", f"{offset_seconds:.3f}",
             "-i", video_path,
+            "-map", "0:V:0", "-an", "-sn",
+            "-vf", _square_pixel_filter(meta),
             "-vframes", "1",
             orig_frame
         ]
@@ -1301,10 +1411,25 @@ class VideoUpscalerPipeline:
             shutil.rmtree(temp_dir, ignore_errors=True)
             return False, "", "", {"error": f"Image upscaling failed (code {proc.returncode})"}
 
+        final_frame = os.path.join(temp_dir, "preview_target.png")
+        resize_cmd = [
+            ffmpeg_bin, "-y", "-i", up_frame,
+            "-vf", f"scale={target_w}:{target_h}:flags=lanczos,setsar=1",
+            "-frames:v", "1", final_frame,
+        ]
+        resize_rc = subprocess.run(
+            resize_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        ).returncode
+        if resize_rc != 0 or not os.path.isfile(final_frame) or os.path.getsize(final_frame) == 0:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return False, "", "", {"error": "Cannot resize preview to the requested output dimensions."}
+        os.replace(final_frame, up_frame)
+        infer_time = time.time() - t0
+
         return True, orig_frame, up_frame, {
             "model_name": selected_model.name,
-            "orig_width": meta.width,
-            "orig_height": meta.height,
+            "orig_width": _display_frame_dimensions(meta)[0],
+            "orig_height": _display_frame_dimensions(meta)[1],
             "target_width": target_w,
             "target_height": target_h,
             "scale": chosen_scale,

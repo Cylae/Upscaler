@@ -48,7 +48,7 @@ class ModelHintWorker(QThread):
     def run(self):
         try:
             meta = probe_video(self.source_path)
-            recommendation = recommend_model_for_video(meta.width, meta.height, self.target_preset)
+            recommendation = recommend_model_for_video(meta.display_width, meta.display_height, self.target_preset)
             text = (
                 f"🧠 AI Detection: {recommendation.model.name} ×{recommendation.scale} — "
                 "full details will be pending validation before batch."

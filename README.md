@@ -1,6 +1,6 @@
-# Video Enhancer 4K — Animation & Cartoon Edition
+# Video Enhancer — AI Video Upscaling up to 8K
 
-High-performance Windows desktop application and CLI for batch upscaling and enhancing 2D animation and cartoon videos (such as *Happy Tree Friends*) to **4K UHD** (or custom resolutions like 1440p, 1080p, 720p).
+High-performance Windows desktop application and CLI for upscaling realistic footage and 2D animation to **8K UHD**, 4K, 1440p, 1080p, or 720p. Portrait and landscape videos keep their display aspect ratio and orientation.
 
 Built for **exceptional visual fidelity** without ringing or seam artifacts, accelerated via **Vulkan neural inference** and **NVIDIA NVENC hardware encoding**, and adhering strictly to the standardized release conventions of the **Scene / Warez** community.
 
@@ -14,7 +14,7 @@ Built for **exceptional visual fidelity** without ringing or seam artifacts, acc
 - **Top-Tier Animation AI Models**:
   - **Real-ESRGAN Anime 6B (`realesrgan-x4plus-anime`)**: Specialized neural network for 2D animation. Sharpens linework, eliminates heavy compression macroblocking, and reconstructs clean outlines from SD/480p sources.
   - **Real-ESRGAN AnimeVideo V3 (`realesr-animevideov3`)**: High-throughput video model designed for temporal consistency and minimal frame-to-frame flickering.
-  - **Real-ESRGAN General High-Detail (`realesrgan-x4plus`)**: 16-block RRDB architecture for photorealistic detail and complex backgrounds.
+  - **Real-ESRGAN General High-Detail (`realesrgan-x4plus`)**: General x4 model for realistic footage and complex backgrounds, selected by the `realistic_8k` profile.
   - **RealCUGAN Pro / SE (`realcugan-pro`, `realcugan-se`)**: Specialized deep U-Net architectures for anime illustration with adjustable denoise levels (-1 to 3).
   - **Intelligent Auto-Selection**: Evaluates input resolution, aspect ratio, and target dimensions to select the optimal model and scale multiplier automatically.
 - **Robust Pipeline & Strict Verification**:
@@ -71,6 +71,9 @@ python main.py --source "D:\Videos\Source" --output "D:\Videos\Source (2160p)" -
 # Run non-destructive dry-run mapping
 python main.py --source "D:\Videos\Source" --output "D:\Videos\Source (2160p)" --dry-run
 
+# Review a generic realistic 8K batch plan without converting files
+python main.py --source "D:\Videos\Source" --preset realistic_8k --dry-run
+
 # Save or resume from a batch manifest
 python main.py --source "D:\Videos\Source" --manifest "D:\Videos\batch_state.json"
 
@@ -84,8 +87,8 @@ python main.py --source "D:\Videos\Source" --retry-failed
 | :--- | :--- | :--- | :--- |
 | `--source` | `-s` | Path | Source folder or single video file path *(required unless `--doctor`, `--list-presets`, or `--manifest` is provided)* |
 | `--output` | `-o` | Path | Output directory (default: `'<source> (<resolution>)'`) |
-| `--preset` | `-p` | `cartoon_4k_master`, `fast_draft`, `archival`, `lightweight_1080p`, `clean_denoise`, `custom` | Quality profile preset |
-| `--resolution`| `-r` | `4k`, `1440p`, `1080p`, `720p` | Target resolution preset |
+| `--preset` | `-p` | `cartoon_4k_master`, `realistic_8k`, `fast_draft`, `archival`, `lightweight_1080p`, `clean_denoise`, `custom` | Quality profile preset |
+| `--resolution`| `-r` | `8k`, `4k`, `1440p`, `1080p`, `720p` | Target resolution preset; orientation and display aspect ratio are preserved |
 | `--codec` | `-c` | `hevc_nvenc`, `h264_nvenc`, `libx265`, `libx264` | Video encoder codec |
 | `--model` | `-m` | `auto`, `realesrgan-x4plus-anime`, `realesr-animevideov3`, `realcugan-pro`, `realcugan-se`, `realesrgan-x4plus`, `realesrnet-x4plus` | AI upscaling model |
 | `--cq` | | `14` to `28` (default: `19`) | NVENC Constant Quality rate control |
@@ -93,7 +96,7 @@ python main.py --source "D:\Videos\Source" --retry-failed
 | `--tta` | | Flag | Enables 8-pass Test-Time Augmentation ensemble inference |
 | `--denoise` | | `-1`, `0`, `1`, `2`, `3` | RealCUGAN denoise level (`-1` = conservative) |
 | `--audio-mode` | | `copy`, `aac_192k`, `aac_320k`, `flac` | Audio stream handling mode (default: `copy`) |
-| `--tile-size` | | Integer (pixels) | Vulkan inference tile size (`0` = auto / full VRAM) |
+| `--tile-size` | | Integer (pixels) | Vulkan inference tile size (`0` = auto, tuned to GPU VRAM) |
 | `--workers` | `-w` | `1` to `4` | Concurrent batch workers (default: `2`) |
 | `--threads` | `-t` | `auto` or `LOAD:PROC:SAVE` (e.g. `2:4:2`) | Engine thread specification |
 | `--frame-format`| `-f` | `jpg`, `png` | Extracted frame format (`jpg` = 2x–3x faster I/O) |
@@ -106,6 +109,16 @@ python main.py --source "D:\Videos\Source" --retry-failed
 | `--export-diagnostics` | | [File path] | Export diagnostic report with redacted user paths |
 | `--list-presets` | | Flag | Display available quality profiles and exit |
 | `--yes` | `-y` | Flag | Accept displayed AI model choice without interactive prompt |
+
+### Realistic 8K and hardware tuning
+
+Choose **Realistic Video 8K** in the desktop Quality Preset menu, or use `--preset realistic_8k` in the CLI. It selects the general `realesrgan-x4plus` model rather than an animation model, HEVC CQ 18 / P7, lossless PNG intermediate frames, original audio, and one worker. TTA is off by default because its eight inference passes are expensive; it remains an optional expert setting (`--tta`). PNG preserves intermediate image quality but needs more disk space and I/O than JPEG.
+
+At 16:9, 8K output is **7680×4320**; a vertical 9:16 video becomes **4320×7680**. Other aspect ratios fit inside the corresponding landscape or portrait bounds without stretching. Rotation and non-square source pixels are accounted for in the display geometry. Output folders and Scene filenames use `4320p`; Clean filenames use `_8K`.
+
+The AI model runs at its native x4 factor, then the encoder resizes to the selected target. For example, a small source that requires more than x4 enlargement also receives conventional resizing. A larger pixel count cannot recover missing original detail; AI can invent textures, and quality depends on the source. Check the frame comparison or short clip preview before committing to a long job.
+
+Keep **Vulkan Threads: Auto** (`--threads auto`) and **Tile Size: Auto** (`--tile-size 0`) to tune work to the detected CPU and GPU memory. One 8K worker leaves VRAM available for large inference tiles and avoids competing GPU jobs; a higher worker count does not necessarily increase throughput. If memory is tight, use a smaller tile size. TTA trades substantial processing time for a possible quality improvement. Encoder dimension support varies by GPU; CPU encoding is available when the requested dimensions exceed the hardware encoder's capabilities.
 
 ### 3. System Diagnostic & Privacy Export
 
@@ -163,7 +176,7 @@ Upscaler/
 │           ├── doctor.py     # System environment diagnostic modal
 │           ├── logs.py       # Live color-coded log viewer with HTML escaping
 │           └── preflight.py  # Preflight validation & dry-run mapping plan
-├── tests/                    # 94 automated unit, integration, and UI tests
+├── tests/                    # Automated unit, integration, and UI tests
 └── tools/                    # Local Vulkan AI binaries (Real-ESRGAN, RealCUGAN)
 ```
 
@@ -171,12 +184,12 @@ Upscaler/
 
 ## 🧪 Testing & Verification
 
-Run the full automated test suite (94 tests):
+Run the full automated test suite:
 ```powershell
 python -m pytest -v
 ```
 
-All 94 tests validate audio preservation, contract integrity, CLI argument parsing, dry-run mappings, process cancellation safety, 1080p UI responsiveness, and privacy filters.
+The tests validate audio preservation, display geometry, contract integrity, CLI argument parsing, 8K profile and UI routing, dry-run mappings, process cancellation safety, UI responsiveness, and privacy filters.
 
 ---
 

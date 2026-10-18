@@ -6,9 +6,11 @@ and high-detail upscaling.
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass
 from enum import Enum
+from fractions import Fraction
 from typing import Dict, List, Optional, Tuple
 
 
@@ -187,20 +189,30 @@ def recommend_model_for_video(
             "Real-ESRGAN Anime 6B is favored for reconstructing contours and reducing compression artifacts.",
         )
 
+    video_model = AVAILABLE_MODELS["realesr-animevideov3"]
+    scale = min(
+        (value for value in video_model.supported_scales if value >= required_scale),
+        default=max(video_model.supported_scales),
+    )
+    scale_reason = (
+        f"{scale}× native scaling covers the {target_w}×{target_h} target. "
+        if scale >= required_scale
+        else f"Maximum native {scale}× scaling precedes a final resize to {target_w}×{target_h}. "
+    )
+
     if width <= 1366 and height <= 768:
-        scale = 3 if required_scale > 2 else 2
         return ModelRecommendation(
-            AVAILABLE_MODELS["realesr-animevideov3"],
+            video_model,
             scale,
-            f"HD source ({source_label}): {scale}× scale neatly covers the {target_w}×{target_h} target. "
+            f"HD source ({source_label}): {scale_reason}"
             "AnimeVideo V3 is chosen to preserve temporal consistency and limit flickering.",
         )
 
     return ModelRecommendation(
-        AVAILABLE_MODELS["realesr-animevideov3"],
-        2,
-        f"{source_label} source already detailed: a moderate upscale before resizing to "
-        f"{target_w}×{target_h} avoids over-sharpening. AnimeVideo V3 preserves stability between frames.",
+        video_model,
+        scale,
+        f"Detailed source ({source_label}): {scale_reason}"
+        "AnimeVideo V3 preserves stability between frames.",
     )
 
 
@@ -245,29 +257,77 @@ def get_model_display_name(model_id_or_name: str, include_scale: bool = False, s
     return clean_str.split(" (")[0]
 
 
+def normalize_sample_aspect_ratio(value: object = "1:1") -> str:
+    """Returns a valid, reduced sample aspect ratio, defaulting to square pixels."""
+    try:
+        ratio = Fraction(str(value).strip().replace(":", "/"))
+        if ratio > 0 and math.isfinite(float(ratio)):
+            return f"{ratio.numerator}:{ratio.denominator}"
+    except (ValueError, TypeError, ZeroDivisionError, OverflowError):
+        pass
+    return "1:1"
+
+
+def normalize_rotation(value: object = 0) -> float:
+    """Reads a finite rotation in degrees; missing or malformed metadata means zero."""
+    try:
+        rotation = float(value)
+        if math.isfinite(rotation):
+            return rotation
+    except (ValueError, TypeError, OverflowError):
+        pass
+    return 0.0
+
+
+def calculate_display_dimensions(
+    orig_w: int,
+    orig_h: int,
+    *,
+    sample_aspect_ratio: str = "1:1",
+    rotation: float = 0,
+) -> Tuple[float, float]:
+    """Returns square-pixel geometry after SAR correction and FFmpeg autorotation.
+
+    Quarter turns exchange the display axes. Other angles retain the coded frame
+    bounds, as FFmpeg's automatic rotate filter does rather than expanding its canvas.
+    """
+    sar = Fraction(normalize_sample_aspect_ratio(sample_aspect_ratio).replace(":", "/"))
+    width = max(2, orig_w) * float(sar)
+    height = float(max(2, orig_h))
+    degrees = normalize_rotation(rotation) % 360
+    if math.isclose(degrees, 90, abs_tol=1e-3) or math.isclose(degrees, 270, abs_tol=1e-3):
+        width, height = height, width
+    return width, height
+
+
 def calculate_target_dimensions(
     orig_w: int,
     orig_h: int,
     target_preset: str = "4k",
+    *,
+    sample_aspect_ratio: str = "1:1",
+    rotation: float = 0,
 ) -> Tuple[int, int, str]:
-    """Calculates target output resolution while strictly preserving original aspect ratio.
+    """Fits display geometry into the requested landscape or portrait resolution.
 
-    Supported presets: '4k' (2160p), '1440p', '1080p', '720p', '2x', '4x'.
+    Supported presets: '8k' (4320p), '4k' (2160p), '1440p', '1080p',
+    '720p', '2x', '4x'. A 9:16 source produces 4320x7680 for 8K.
     Returns (width, height, tag).
     """
-    orig_w = max(2, orig_w)
-    orig_h = max(2, orig_h)
-    aspect = orig_w / float(orig_h)
+    display_w, display_h = calculate_display_dimensions(
+        orig_w, orig_h, sample_aspect_ratio=sample_aspect_ratio, rotation=rotation,
+    )
+    aspect = display_w / display_h
 
     preset_clean = (target_preset or "4k").lower().strip()
 
     if preset_clean in ("2x", "x2"):
-        target_w = orig_w * 2
-        target_h = orig_h * 2
+        target_w = int(round(display_w * 2))
+        target_h = int(round(display_h * 2))
         tag = f"{target_h}p"
     elif preset_clean in ("4x", "x4"):
-        target_w = orig_w * 4
-        target_h = orig_h * 4
+        target_w = int(round(display_w * 4))
+        target_h = int(round(display_h * 4))
         tag = f"{target_h}p"
     else:
         if preset_clean in ("8k", "4320p"):
@@ -283,12 +343,15 @@ def calculate_target_dimensions(
         else:
             base_h, max_w, tag = 2160, 3840, "2160p"
 
-        if aspect > (16.0 / 9.0 + 0.05):
+        if aspect > 16.0 / 9.0:
             target_w = max_w
             target_h = int(round(target_w / aspect))
         elif aspect < 1.0:
-            target_h = base_h
-            target_w = int(round(target_h * aspect))
+            target_w = base_h
+            target_h = int(round(target_w / aspect))
+            if target_h > max_w:
+                target_h = max_w
+                target_w = int(round(target_h * aspect))
         else:
             target_h = base_h
             target_w = int(round(target_h * aspect))

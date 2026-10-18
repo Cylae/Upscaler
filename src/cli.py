@@ -12,19 +12,19 @@ if __name__ == "__main__" or "src" not in sys.modules:
 from src.core.ai_models import AVAILABLE_MODELS, recommend_model_for_video
 from src.core.batch_manager import BatchManager, EpisodeStatus, QueueItem
 from src.core.detector import export_diagnostic_report, get_hardware_info, print_doctor_report
-from src.core.presets import ENHANCEMENT_PRESETS, get_preset
+from src.core.presets import ENHANCEMENT_PRESETS, RESOLUTION_TAGS, get_preset
 from src.core.scene_renamer import SceneNamingConfig
 from src.core.video_pipeline import probe_video
 
 
 def run_cli(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="AnimaScale 4K — Animation & Cartoon AI Studio (Scene / Warez Naming)"
+        description="AnimaScale — AI Video Upscaling up to 8K (Portrait and Landscape)"
     )
     parser.add_argument("--source", "-s", help="Source folder or video file path")
-    parser.add_argument("--output", "-o", help="Output directory (default: '<source> (2160p)')")
+    parser.add_argument("--output", "-o", help="Output directory (default: '<source> (<resolution>)', 8K uses 4320p)")
     parser.add_argument("--preset", "-p", choices=list(ENHANCEMENT_PRESETS.keys()), default=None, help="Enhancement profile preset")
-    parser.add_argument("--resolution", "-r", choices=["4k", "1440p", "1080p", "720p"], default=None, help="Target resolution preset")
+    parser.add_argument("--resolution", "-r", choices=list(RESOLUTION_TAGS), default=None, help="Target resolution; 8K is 7680x4320 landscape or 4320x7680 portrait at 16:9 / 9:16")
     parser.add_argument("--codec", "-c", choices=["hevc_nvenc", "h264_nvenc", "libx265", "libx264"], default=None, help="Video codec")
     parser.add_argument("--model", "-m", choices=list(AVAILABLE_MODELS.keys()), default=None, help="Upscaling model")
     parser.add_argument("--cq", type=int, default=None, help="Constant Quality rate control (14-28, default: 19)")
@@ -32,7 +32,7 @@ def run_cli(argv: list[str] | None = None) -> int:
     parser.add_argument("--tta", action="store_true", help="Enable 8-pass Test-Time Augmentation ensemble inference")
     parser.add_argument("--denoise", type=int, choices=[-1, 0, 1, 2, 3], default=None, help="RealCUGAN denoise level (-1 to 3)")
     parser.add_argument("--audio-mode", choices=["copy", "aac_192k", "aac_320k", "flac"], default=None, help="Audio handling mode (default: copy)")
-    parser.add_argument("--tile-size", type=int, default=0, help="Tile size in pixels (0 = auto / full VRAM)")
+    parser.add_argument("--tile-size", type=int, default=0, help="Tile size in pixels (0 = auto, tuned to available VRAM)")
     parser.add_argument("--group", "-g", default="CYLAE", help="Scene release group tag (e.g. CYLAE)")
     parser.add_argument("--show-name", default="Happy Tree Friends", help="Show name used in generated release filenames")
     parser.add_argument("--source-tag", default="WEB-DL", choices=["WEB-DL", "WEBRip", "UHD.WEB-DL", "REMASTER"], help="Scene source tag")
@@ -101,7 +101,7 @@ def run_cli(argv: list[str] | None = None) -> int:
     fmt_val = args.frame_format or chosen_preset.frame_format
 
     if not args.output and args.source:
-        output_tag = "2160p" if res_val == "4k" else res_val
+        output_tag = RESOLUTION_TAGS[res_val]
         if os.path.isdir(args.source):
             args.output = f"{args.source} ({output_tag})"
         else:
@@ -111,7 +111,7 @@ def run_cli(argv: list[str] | None = None) -> int:
 
     hw = get_hardware_info()
     print("=" * 70)
-    print("  ANIMASCALE 4K — ANIMATION & CARTOON AI STUDIO")
+    print("  ANIMASCALE — AI VIDEO UPSCALING UP TO 8K")
     print(f"  GPU         : {hw.gpu_name} ({hw.gpu_vram_gb} GB VRAM)")
     print(f"  Encoder     : {'NVIDIA NVENC Hardware Active' if hw.has_nvenc_hevc else 'CPU (libx265)'}")
     print(f"  Preset      : {chosen_preset.name}")
@@ -127,7 +127,7 @@ def run_cli(argv: list[str] | None = None) -> int:
 
     scene_cfg = SceneNamingConfig(
         show_name=args.show_name,
-        resolution_tag="2160p" if res_val == "4k" else res_val,
+        resolution_tag=RESOLUTION_TAGS[res_val],
         source_tag=args.source_tag,
         audio_tag="AAC2.0",
         codec_tag="H.265" if "hevc" in codec_val or "x265" in codec_val else "H.264",
@@ -166,7 +166,7 @@ def run_cli(argv: list[str] | None = None) -> int:
         for item in queue:
             try:
                 meta = probe_video(item.source_path)
-                rec = recommend_model_for_video(meta.width, meta.height, res_val)
+                rec = recommend_model_for_video(meta.display_width, meta.display_height, res_val)
                 key = (rec.model.name, rec.scale, rec.reason)
                 recommendations[key] = recommendations.get(key, 0) + 1
             except Exception as exc:
