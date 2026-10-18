@@ -1,0 +1,552 @@
+{
+  "validation": "Engine discovery recovery in a clean temporary checkout and fresh virtual environment",
+  "client_date": "2026-10-18",
+  "started_at_utc": "2026-10-18T09:14:11.652057+00:00",
+  "method": {
+    "source": "C:\\Users\\Cylae\\Documents\\GitHub\\Upscaler",
+    "selection": "git ls-files --cached --others --exclude-standard -z; copy current on-disk contents",
+    "excluded_directories": [
+      ".git",
+      ".venv",
+      "venv",
+      "tools",
+      "bin",
+      "__pycache__"
+    ],
+    "excluded_media_extensions": [
+      ".mp4",
+      ".mkv",
+      ".avi",
+      ".mov",
+      ".ts",
+      ".webm",
+      ".m4v",
+      ".m4a",
+      ".aac",
+      ".flac",
+      ".wav",
+      ".opus",
+      ".ac3",
+      ".eac3",
+      ".dts"
+    ],
+    "ui_assets": "Tracked application icons and other UI assets are copied",
+    "environment": "New venv with default system_site_packages=False; PYTHONPATH/PYTHONHOME removed, PYTHONNOUSERSITE=1, QT_QPA_PLATFORM=offscreen",
+    "cleanup": "Python tempfile.TemporaryDirectory cleans temporary checkout and venv; no shell deletion or moving",
+    "source_modifications": "None; only this report is written to the original checkout"
+  },
+  "steps": [
+    {
+      "name": "create_fresh_venv",
+      "command": [
+        "C:\\Users\\Cylae\\AppData\\Local\\Programs\\Python\\Python314\\python.exe",
+        "-m",
+        "venv",
+        "C:\\Users\\Cylae\\AppData\\Local\\Temp\\upscaler-engine-recovery-clean-a82xz_n3\\venv"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "",
+      "duration_seconds": 2.952
+    },
+    {
+      "name": "install_requirements_dev",
+      "command": [
+        "C:\\Users\\Cylae\\AppData\\Local\\Temp\\upscaler-engine-recovery-clean-a82xz_n3\\venv\\Scripts\\python.exe",
+        "-m",
+        "pip",
+        "install",
+        "-r",
+        "requirements-dev.txt"
+      ],
+      "exit_code": 0,
+      "stdout": "Collecting PyQt6>=6.7.0 (from -r C:\\Users\\Cylae\\AppData\\Local\\Temp\\upscaler-engine-recovery-clean-a82xz_n3\\checkout\\requirements.txt (line 1))\n  Using cached pyqt6-6.11.0-cp310-abi3-win_amd64.whl.metadata (2.2 kB)\nCollecting Pillow>=10.0.0 (from -r C:\\Users\\Cylae\\AppData\\Local\\Temp\\upscaler-engine-recovery-clean-a82xz_n3\\checkout\\requirements.txt (line 2))\n  Using cached pillow-13.0.0-cp314-cp314-win_amd64.whl.metadata (9.3 kB)\nCollecting pytest>=8.0.0 (from -r requirements-dev.txt (line 2))\n  Downloading pytest-9.1.1-py3-none-any.whl.metadata (7.6 kB)\nCollecting PyQt6-sip<14,>=13.8 (from PyQt6>=6.7.0->-r C:\\Users\\Cylae\\AppData\\Local\\Temp\\upscaler-engine-recovery-clean-a82xz_n3\\checkout\\requirements.txt (line 1))\n  Using cached pyqt6_sip-13.13.0-cp314-cp314-win_amd64.whl.metadata (516 bytes)\nCollecting PyQt6-Qt6<6.12.0,>=6.11.0 (from PyQt6>=6.7.0->-r C:\\Users\\Cylae\\AppData\\Local\\Temp\\upscaler-engine-recovery-clean-a82xz_n3\\checkout\\requirements.txt (line 1))\n  Using cached pyqt6_qt6-6.11.2-py3-none-win_amd64.whl.metadata (552 bytes)\nCollecting colorama>=0.4 (from pytest>=8.0.0->-r requirements-dev.txt (line 2))\n  Downloading colorama-0.4.6-py2.py3-none-any.whl.metadata (17 kB)\nCollecting iniconfig>=1.0.1 (from pytest>=8.0.0->-r requirements-dev.txt (line 2))\n  Downloading iniconfig-2.3.1-py3-none-any.whl.metadata (2.8 kB)\nCollecting packaging>=22 (from pytest>=8.0.0->-r requirements-dev.txt (line 2))\n  Downloading packaging-26.3-py3-none-any.whl.metadata (3.5 kB)\nCollecting pluggy<2,>=1.5 (from pytest>=8.0.0->-r requirements-dev.txt (line 2))\n  Downloading pluggy-1.7.0-py3-none-any.whl.metadata (5.0 kB)\nCollecting pygments>=2.7.2 (from pytest>=8.0.0->-r requirements-dev.txt (line 2))\n  Using cached pygments-2.21.0-py3-none-any.whl.metadata (2.5 kB)\nUsing cached pyqt6-6.11.0-cp310-abi3-win_amd64.whl (6.8 MB)\nUsing cached pyqt6_qt6-6.11.2-py3-none-win_amd64.whl (78.0 MB)\nUsing cached pyqt6_sip-13.13.0-cp314-cp314-win_amd64.whl (55 kB)\nUsing cached pillow-13.0.0-cp314-cp314-win_amd64.whl (7.3 MB)\nDownloading pytest-9.1.1-py3-none-any.whl (386 kB)\nDownloading pluggy-1.7.0-py3-none-any.whl (27 kB)\nDownloading colorama-0.4.6-py2.py3-none-any.whl (25 kB)\nDownloading iniconfig-2.3.1-py3-none-any.whl (7.6 kB)\nDownloading packaging-26.3-py3-none-any.whl (129 kB)\nUsing cached pygments-2.21.0-py3-none-any.whl (1.3 MB)\nInstalling collected packages: PyQt6-Qt6, PyQt6-sip, pygments, pluggy, Pillow, packaging, iniconfig, colorama, pytest, PyQt6\n\nSuccessfully installed Pillow-13.0.0 PyQt6-6.11.0 PyQt6-Qt6-6.11.2 PyQt6-sip-13.13.0 colorama-0.4.6 iniconfig-2.3.1 packaging-26.3 pluggy-1.7.0 pygments-2.21.0 pytest-9.1.1\n",
+      "stderr": "",
+      "duration_seconds": 5.401
+    },
+    {
+      "name": "runtime_versions",
+      "command": [
+        "C:\\Users\\Cylae\\AppData\\Local\\Temp\\upscaler-engine-recovery-clean-a82xz_n3\\venv\\Scripts\\python.exe",
+        "-c",
+        "import importlib.metadata, json, platform, shutil, sys; from PyQt6.QtCore import PYQT_VERSION_STR, QT_VERSION_STR; print(json.dumps({'python': platform.python_version(), 'python_executable': sys.executable, 'base_prefix': sys.base_prefix, 'prefix': sys.prefix, 'PyQt6': PYQT_VERSION_STR, 'Qt': QT_VERSION_STR, 'Pillow': importlib.metadata.version('Pillow'), 'pytest': importlib.metadata.version('pytest'), 'ffmpeg': shutil.which('ffmpeg'), 'ffprobe': shutil.which('ffprobe')}))"
+      ],
+      "exit_code": 0,
+      "stdout": "{\"python\": \"3.14.7\", \"python_executable\": \"C:\\\\Users\\\\Cylae\\\\AppData\\\\Local\\\\Temp\\\\upscaler-engine-recovery-clean-a82xz_n3\\\\venv\\\\Scripts\\\\python.exe\", \"base_prefix\": \"C:\\\\Users\\\\Cylae\\\\AppData\\\\Local\\\\Programs\\\\Python\\\\Python314\", \"prefix\": \"C:\\\\Users\\\\Cylae\\\\AppData\\\\Local\\\\Temp\\\\upscaler-engine-recovery-clean-a82xz_n3\\\\venv\", \"PyQt6\": \"6.11.0\", \"Qt\": \"6.11.0\", \"Pillow\": \"13.0.0\", \"pytest\": \"9.1.1\", \"ffmpeg\": \"C:\\\\Users\\\\Cylae\\\\AppData\\\\Local\\\\Microsoft\\\\WinGet\\\\Links\\\\ffmpeg.EXE\", \"ffprobe\": \"C:\\\\Users\\\\Cylae\\\\AppData\\\\Local\\\\Microsoft\\\\WinGet\\\\Links\\\\ffprobe.EXE\"}\n",
+      "stderr": "",
+      "duration_seconds": 0.175
+    },
+    {
+      "name": "full_pytest_suite",
+      "command": [
+        "C:\\Users\\Cylae\\AppData\\Local\\Temp\\upscaler-engine-recovery-clean-a82xz_n3\\venv\\Scripts\\python.exe",
+        "-m",
+        "pytest",
+        "-q"
+      ],
+      "exit_code": 0,
+      "stdout": "....................................................................... [ 18%]\n........................................................................ [ 37%]\n........................................................................ [ 56%]\n........................................................................ [ 75%]\n........................................................................ [ 94%]\n....................                                                     [100%]\n379 passed, 1 subtests passed in 44.30s\n",
+      "stderr": "",
+      "duration_seconds": 44.703
+    },
+    {
+      "name": "pip_check",
+      "command": [
+        "C:\\Users\\Cylae\\AppData\\Local\\Temp\\upscaler-engine-recovery-clean-a82xz_n3\\venv\\Scripts\\python.exe",
+        "-m",
+        "pip",
+        "check"
+      ],
+      "exit_code": 0,
+      "stdout": "No broken requirements found.\n",
+      "stderr": "",
+      "duration_seconds": 0.385
+    },
+    {
+      "name": "installed_packages",
+      "command": [
+        "C:\\Users\\Cylae\\AppData\\Local\\Temp\\upscaler-engine-recovery-clean-a82xz_n3\\venv\\Scripts\\python.exe",
+        "-m",
+        "pip",
+        "list",
+        "--format=json"
+      ],
+      "exit_code": 0,
+      "stdout": "[{\"name\": \"colorama\", \"version\": \"0.4.6\"}, {\"name\": \"iniconfig\", \"version\": \"2.3.1\"}, {\"name\": \"packaging\", \"version\": \"26.3\"}, {\"name\": \"pillow\", \"version\": \"13.0.0\"}, {\"name\": \"pip\", \"version\": \"26.2.1\"}, {\"name\": \"pluggy\", \"version\": \"1.7.0\"}, {\"name\": \"Pygments\", \"version\": \"2.21.0\"}, {\"name\": \"PyQt6\", \"version\": \"6.11.0\"}, {\"name\": \"PyQt6-Qt6\", \"version\": \"6.11.2\"}, {\"name\": \"PyQt6_sip\", \"version\": \"13.13.0\"}, {\"name\": \"pytest\", \"version\": \"9.1.1\"}]\n",
+      "stderr": "",
+      "duration_seconds": 0.31
+    }
+  ],
+  "snapshot": {
+    "copied_file_count": 100,
+    "files": [
+      {
+        "path": "REPORTS/ENGINE_RECOVERY_2026-10-18.md",
+        "sha256": "5697acf531220f3cb25c18b1c5227f4433807c8b324968978827a1ebe94bf663"
+      },
+      {
+        "path": "REPORTS/engine_recovery_2026-10-18.json",
+        "sha256": "51b6cc260bcaf463db58250962708d61c2964fdfc39bb16e0e0c71d556b7cac8"
+      },
+      {
+        "path": "benchmarks/verify_engine_recovery.py",
+        "sha256": "27b995aa1a09bcf0a0f126342b20721263387d7861f17c17a6f4a90056f94974"
+      },
+      {
+        "path": "tests/test_engine_discovery.py",
+        "sha256": "d1f26266ce3514f9548cd85f52b9ecf2e4cc6a4c9e1e12e22553ee91809c6068"
+      },
+      {
+        "path": ".gitignore",
+        "sha256": "6fa882625167f7f6212da3e07651cfa76e3eb8c397d8a58d724cfb2c3f2fac71"
+      },
+      {
+        "path": "ARCHITECTURE.md",
+        "sha256": "01cba1122e98ed2717339b1431fea4d1837f6cf653c065022078e5910b2cbd5b"
+      },
+      {
+        "path": "README.md",
+        "sha256": "7e786b5965a5f28034c6e6679104e1cd5447c734e37c0731294bbe943ac8e6be"
+      },
+      {
+        "path": "REPORTS/EFFICIENCY_2026-10-18.md",
+        "sha256": "a738354ae1352f39e6e978aa91e3ed6a954bc76b0e8ed526d86798597000419b"
+      },
+      {
+        "path": "REPORTS/FINAL_DELIVERY_REPORT.md",
+        "sha256": "a34f4f1515613ccec4a9e454455f54cff81f9a6026f7c4fc3f5d5a5cb5cd00d8"
+      },
+      {
+        "path": "REPORTS/FUNCTIONAL_UI_2026-10-18.md",
+        "sha256": "860259f7e3cc76291a411d5f47151a9a2faba5b6aeed7300c93e43275e2178b3"
+      },
+      {
+        "path": "REPORTS/clean_dependency_audit_2026-10-18.json",
+        "sha256": "f3919b4851b7bfd6bbb08087ed453013e74f7022cab60b482aabee4a355c384d"
+      },
+      {
+        "path": "REPORTS/clean_environment_2026-10-18.json",
+        "sha256": "46e880ecaa96770b91daeddf575fe09dd18aa6d4bbd01df721b79572b480eadc"
+      },
+      {
+        "path": "REPORTS/dependency_audit_2026-10-18.json",
+        "sha256": "53e240932fb7947fa06c1d3ef5e941f81aea672a163290fdd2e6d50a0a77a3bd"
+      },
+      {
+        "path": "REPORTS/functional_clean_environment_2026-10-18.json",
+        "sha256": "8abd95e7f59151b445fd84dd4050af79056f9eca3ca9ca6e8497b3a1e6ec4ba6"
+      },
+      {
+        "path": "REPORTS/functional_preview_2026-10-18.json",
+        "sha256": "24b0870fa6a2e31b5bc6180858a540dedc15353003ae04105d368eebaeb969ff"
+      },
+      {
+        "path": "REPORTS/performance_2026-10-18.json",
+        "sha256": "f2bb6b65d7d235b3fea650f1b079f0571b87a59f26b8208cfdcfba933445848c"
+      },
+      {
+        "path": "REPORTS/secret_scan_2026-10-18.json",
+        "sha256": "c5f5cab4079bf8ff1f2a2de215acdcf8d132eea3618e1d654ca6ecd4b12487ee"
+      },
+      {
+        "path": "benchmarks/benchmark_efficiency.py",
+        "sha256": "e8277bb04941f4a157ac650b0cf790095e5ec188bbaabf93e0c846812684d183"
+      },
+      {
+        "path": "favicon.ico",
+        "sha256": "224a00c675fc1fc90b12d11e5fb1ce87e59b42d537ff1291e381653adadccc4f"
+      },
+      {
+        "path": "launch.bat",
+        "sha256": "62f3969bc85c1e53b099ede6bedfe84af17fc94a1f6aadb5a7599fc8aba37bcb"
+      },
+      {
+        "path": "main.py",
+        "sha256": "59cbfdf60d7193c24b5b762ba7b81c536eda3497cf07e64ac81e36c157af2042"
+      },
+      {
+        "path": "pytest.ini",
+        "sha256": "b160d82f7811555051f8966d8e02750a985227c1d022208c784e606946f2eada"
+      },
+      {
+        "path": "requirements-dev.txt",
+        "sha256": "c1815f938262f9a92e8442880be0ee5a53df890eca361e8101367cf621a0245a"
+      },
+      {
+        "path": "requirements.txt",
+        "sha256": "5c1614d583113dc60e5658b4be47b7f3416db95a13a70b82f9de67d751ef6113"
+      },
+      {
+        "path": "skills/autonomous-software-engineering/SKILL.md",
+        "sha256": "5534dcbe4935cb6ee05c38177e98365065c6b31bd1d2a5aa3d372ef30836bd4d"
+      },
+      {
+        "path": "skills/autonomous-software-engineering/evaluations/calibration_results.md",
+        "sha256": "26919bad09f449b9f487713189c432517915c663afba81962ee9c8e231bcccb2"
+      },
+      {
+        "path": "skills/autonomous-software-engineering/references/architecture.md",
+        "sha256": "2c9163f958ee483b119e70cc488551f99d4e20efe7cc6a841395fa52d4c25d5c"
+      },
+      {
+        "path": "skills/autonomous-software-engineering/references/discovery.md",
+        "sha256": "a694c6c52313d89bd868480ed81b47b10c3e8becd07efa198f21228e02c4acbe"
+      },
+      {
+        "path": "skills/autonomous-software-engineering/references/maintainability.md",
+        "sha256": "a74790b34f2cce2db95b1ad88eaff3980dad6536f792233b2f165eb409810c4a"
+      },
+      {
+        "path": "skills/autonomous-software-engineering/references/reporting.md",
+        "sha256": "44ce609c4ac5677d5d2151ec2b78957d478063433e62f1c2aca9195c258441a5"
+      },
+      {
+        "path": "skills/autonomous-software-engineering/references/security_and_reliability.md",
+        "sha256": "4b807b2b678a93c5f0488af8f323ab64f8ec55a6a7b5ce6a70aa37e1c159cbe1"
+      },
+      {
+        "path": "skills/autonomous-software-engineering/references/testing.md",
+        "sha256": "a371a287a86ba5895cd0a1684ec5fd050d23f54de226cb542dfe5e7d69a16e8e"
+      },
+      {
+        "path": "skills/autonomous-software-engineering/scripts/validate_skill.py",
+        "sha256": "e7454158d7b949bef69ec9fdd2abc029b0a767c48cb960f4a5ca74c3063bbf66"
+      },
+      {
+        "path": "skills/autonomous-software-engineering/templates/before_after_comparison.md",
+        "sha256": "66319c2d1e405db83c63c0c32e319f80ca299edb3acfe68e34609914aa04bba7"
+      },
+      {
+        "path": "skills/autonomous-software-engineering/templates/findings_log.md",
+        "sha256": "b0101003c32e78fcc08a42471c85a1048757dba81b681d6798b7205ccce5b168"
+      },
+      {
+        "path": "skills/autonomous-software-engineering/templates/requirements.md",
+        "sha256": "37d0c8c7157f32a9dab3201664a4eb43e8d54836cb574d001090459166af2e62"
+      },
+      {
+        "path": "skills/autonomous-software-engineering/templates/verification_matrix.md",
+        "sha256": "77223bd92e3e5646889f1e7a90d1424004f199485cae99d70bb34a0675d5f310"
+      },
+      {
+        "path": "src/__init__.py",
+        "sha256": "c0773abbd7ab21ce76db68ca7e59b36c679755bbecda3d6839e3dfc0e502fcce"
+      },
+      {
+        "path": "src/cli.py",
+        "sha256": "24227904c929f7a8f4893fb4ed793504f51167a45d9cade1c5a113a3df34fd25"
+      },
+      {
+        "path": "src/core/__init__.py",
+        "sha256": "5d21070956458d55a1d0c8893c0da184747f5cd2fa96147a58c86d7389d4860c"
+      },
+      {
+        "path": "src/core/ai_models.py",
+        "sha256": "a48d6a16f8654e0323e5773b9df0034f7dc7a6ade122078dc9f7c376556e9008"
+      },
+      {
+        "path": "src/core/batch.py",
+        "sha256": "c364e5fcf402ac7db414c2ab62a1c40591389ae3c0081a7c3a5972426f785e2b"
+      },
+      {
+        "path": "src/core/batch_manager.py",
+        "sha256": "fa598438e927a3054e3fc08c0b6031d2de0021b8e04e92f079f6f8fb09800f3d"
+      },
+      {
+        "path": "src/core/detector.py",
+        "sha256": "87984ec2690402894c9e2ccf0efdb5dbd2b260ef109849da29332224d4f1d71b"
+      },
+      {
+        "path": "src/core/hardware.py",
+        "sha256": "a0c68c03765799190ea559218dae02ac2684ccbf6b4b720e56da7a8620272063"
+      },
+      {
+        "path": "src/core/metadata_provider.py",
+        "sha256": "6d86fda42ac6a9450c55c109f2e44798861d7874db474956c4ead0771c53e8e4"
+      },
+      {
+        "path": "src/core/models.py",
+        "sha256": "fe18ab36306c0f603137efe2d5c7ef27ffe58b7dec397a7744d3b5d8cb248eb1"
+      },
+      {
+        "path": "src/core/pipeline.py",
+        "sha256": "d4d8f939ca153be082c227a086ef42676e412e46fc7ca882d68af502059ce2aa"
+      },
+      {
+        "path": "src/core/presets.py",
+        "sha256": "5d750ce78529a422a1ab85a7e9808c52444c40175ea236d91c93f22737aff7c0"
+      },
+      {
+        "path": "src/core/probe.py",
+        "sha256": "ca8d0bc35dfef6e2f0686fee9c136c3d3f0a6739a67c1896770e3b1ce7a124a7"
+      },
+      {
+        "path": "src/core/process.py",
+        "sha256": "3ee9a5f4ed101e99594a7f84b201f96ab8e7245697d70eb854c99d6bc835d523"
+      },
+      {
+        "path": "src/core/scene_namer.py",
+        "sha256": "296899ae41d98b288e48f0724141d07d7376bd95b02161a07a38a8672d1e96d4"
+      },
+      {
+        "path": "src/core/scene_renamer.py",
+        "sha256": "79ea31651fd166dc9464f9d9d9b962c513f815f81ec8f8b3e68d96e5fe543f94"
+      },
+      {
+        "path": "src/core/storage.py",
+        "sha256": "00d93fb9b480e8441e184272122da451dfd15116f233bb0abb4f7e931d8ab0a9"
+      },
+      {
+        "path": "src/core/validator.py",
+        "sha256": "bfd1c83866313e62a93d36bd9bd064bda1d31f7f90f3a11f896fc504b2fe6efa"
+      },
+      {
+        "path": "src/core/video_pipeline.py",
+        "sha256": "934a8ab7b5571c2be3760603f3bae9c6e6313cfa7cce2c0364efbf2714d6f0cc"
+      },
+      {
+        "path": "src/ui/__init__.py",
+        "sha256": "9c3e2c5292cbcafaf8bb96b1851db42fe4e6692fe87ff99b34e7997fd2e79d31"
+      },
+      {
+        "path": "src/ui/app_qt.py",
+        "sha256": "27b8c72b85ce788ff437168c4d0cfb1f8435f105b205643f9fdd90794363a506"
+      },
+      {
+        "path": "src/ui/assets/app_icon.ico",
+        "sha256": "f4eb1aa4c7d28e5c316e31b2c3c9765dab54b451a5853d8f199b804df9fac5b4"
+      },
+      {
+        "path": "src/ui/assets/app_icon.png",
+        "sha256": "fea02106bf34976a1670a612cafec011609e489e97d8e029bcf433dd6e051f70"
+      },
+      {
+        "path": "src/ui/assets/app_icon_128.png",
+        "sha256": "94a85130f1fad5a9af08ab79762374c7fbfcc4d753ca9a08bccddd03403dbfef"
+      },
+      {
+        "path": "src/ui/assets/app_icon_64.png",
+        "sha256": "536f4099c3cda56f53b6f52f23dc0c8e38cc568d71b403e3efb17ef5f563ea6b"
+      },
+      {
+        "path": "src/ui/assets/chevron_down.svg",
+        "sha256": "3e61bca01a604f2edf3381d477079bddefeddb8f7451542860540cdbe8450104"
+      },
+      {
+        "path": "src/ui/dialogs/__init__.py",
+        "sha256": "02b5a5e0c808e9b17ea327cf7480fce60bc272ffcbd668d242169257daf9d823"
+      },
+      {
+        "path": "src/ui/dialogs/comparison.py",
+        "sha256": "4d6a692079aadbcf8a61b4c0cf6a41184d712d2c7b284cfd20648a318bd46e2d"
+      },
+      {
+        "path": "src/ui/dialogs/doctor.py",
+        "sha256": "d2e700ffca41ee79157f890b7a6e1184f04a7d761ef5f76e7bb5f46c1feac177"
+      },
+      {
+        "path": "src/ui/dialogs/logs.py",
+        "sha256": "943485e8c3ddb06e92b9305b79c024571e946495e7e470c85745f5a0bada654c"
+      },
+      {
+        "path": "src/ui/dialogs/preflight.py",
+        "sha256": "0616e6342c1149f84d09e65ea158b3742dc776a29e6d8835cd22f5613f1c1f16"
+      },
+      {
+        "path": "src/ui/main_window.py",
+        "sha256": "8a32a03605a771b89944bb95df2bc932c015b7e5205a78b3c06eac0026c31113"
+      },
+      {
+        "path": "src/ui/theme.py",
+        "sha256": "3324db5c4f15fcda04e10818e1c4f05894afcfd00b6cca3a2a7678d471d25e4f"
+      },
+      {
+        "path": "src/ui/workers.py",
+        "sha256": "41f6ba51d1350eb3ba1b973e4ee5333a0b2dcbf0cc214849a50d993d87dedb05"
+      },
+      {
+        "path": "tests/conftest.py",
+        "sha256": "86ee0ef80768fba5b23a2e583cfe75c1b12a1346cc5e1cb62682bd28218fc133"
+      },
+      {
+        "path": "tests/test_8k_preflight.py",
+        "sha256": "5d3b7f7a35af5f5a3cf299d6bbf80ebb608be08abbaad49e4336fe00349337e2"
+      },
+      {
+        "path": "tests/test_8k_ui.py",
+        "sha256": "2220fd680ce51e5d07f3f60f504bf06be4ae96e334ae4f9cc9bbd6bd738c4b7c"
+      },
+      {
+        "path": "tests/test_audio_preservation.py",
+        "sha256": "32f3335fd2c8fba2b7b83a9a23e5e0db634d087492401304e0ff1b7df7930199"
+      },
+      {
+        "path": "tests/test_batch_efficiency.py",
+        "sha256": "27ec20d6574a698d3b037758648ece9fa711c8a73876781fc714e9d01b324e84"
+      },
+      {
+        "path": "tests/test_batch_scan.py",
+        "sha256": "9f3d70b56f361265fdf68f2f6d64883da4e06d068ae8c41ee9df4ab11915bce8"
+      },
+      {
+        "path": "tests/test_cancellation_races.py",
+        "sha256": "cb0ce718e1559811f429035acd2cb8a0ebc9e5bfaefdcb9f92977e12d581b094"
+      },
+      {
+        "path": "tests/test_cli.py",
+        "sha256": "3659ff7e2fedcf2998df387067d336d3d59d87d76fbbbb928151881698bca720"
+      },
+      {
+        "path": "tests/test_core_reliability.py",
+        "sha256": "eea2fdf33c4460b910e8bd1f59edc036f8dfdb52b62d72846334a9ce21b67685"
+      },
+      {
+        "path": "tests/test_detector.py",
+        "sha256": "741ab1ac85ffc260ef7d815b1394780f93f9f1fee1c568d596af0ee5ed27918c"
+      },
+      {
+        "path": "tests/test_display_geometry.py",
+        "sha256": "66fd343d8af799750c854de2cba353072ca44aeada9d9c3ab5e16749489ec344"
+      },
+      {
+        "path": "tests/test_expert_config.py",
+        "sha256": "6b9183d961943d545ac284f716cad209401fbba50666368f936696a5abefe4f5"
+      },
+      {
+        "path": "tests/test_frame_preview_settings.py",
+        "sha256": "07c9d2e8ff778db26981b0a872d28079797490ce0d19c1aecddd8eab9e6d1dd7"
+      },
+      {
+        "path": "tests/test_macos_ui_design.py",
+        "sha256": "be2089884659e35682e1761fe7b8b3c7165b5d08b2f4143ab85ffde6c505102c"
+      },
+      {
+        "path": "tests/test_performance.py",
+        "sha256": "8afda8e295593f484979f2173f012d469544a03da7d67733093670b92db4cb2f"
+      },
+      {
+        "path": "tests/test_pipeline_8k.py",
+        "sha256": "64f24fac496a7d805568792992da96a5c986023d1fbe945af262383994fce0e1"
+      },
+      {
+        "path": "tests/test_pipeline_efficiency.py",
+        "sha256": "290deb4c7b820b1c47c5b0048c9dd9e2d0d393f432ed5f865344eba3b7ec0f26"
+      },
+      {
+        "path": "tests/test_presets.py",
+        "sha256": "85cc0af3dcca368fa8577d1bcfd97aa1bb82faaf16f88029fa3a20c936a614a5"
+      },
+      {
+        "path": "tests/test_preview_and_efficiency.py",
+        "sha256": "7fdfaaa96df959f7658d63328fc6ae06af808d2e21c526eee247e31a2d766c23"
+      },
+      {
+        "path": "tests/test_privacy.py",
+        "sha256": "e053fe046bc461bb1ac176ccd317255dff5a2ee5820c1a846ca12324516a3642"
+      },
+      {
+        "path": "tests/test_probe_efficiency.py",
+        "sha256": "45bf8371eb8688104317df7377698b8e3a32c7f03e97dfe313a1b68d17b07276"
+      },
+      {
+        "path": "tests/test_queue_replan.py",
+        "sha256": "3535c124ee84b6801d79f70d686859e9c1b1183a429f7f6608d81bd07e1a0207"
+      },
+      {
+        "path": "tests/test_reliability_audit.py",
+        "sha256": "e05e6a84442dfc4c26dd472c0a005f96c686cd181c512ce299e17de1e85fdeb9"
+      },
+      {
+        "path": "tests/test_renamer.py",
+        "sha256": "f2dcd23cd986dd1d64ed91417c98843f476f73d5b414ba312b909e848688737c"
+      },
+      {
+        "path": "tests/test_startup.py",
+        "sha256": "8b0f20ab17884169d87cf4d2bb841ce4b8174d1218d01756a11bd209ee9b97ee"
+      },
+      {
+        "path": "tests/test_ui_dialogs.py",
+        "sha256": "73037b63b4ba22852c6857a122981db0b54fd43b87d3a651cdcb33804220feee"
+      },
+      {
+        "path": "tests/test_ui_efficiency.py",
+        "sha256": "3a46935d1c8781c4f9d97ae71a8515f8b1641546b33cc54460d689cf1ef3ddfd"
+      },
+      {
+        "path": "tests/test_ui_functional.py",
+        "sha256": "4018a6ff99a2377b6088e6d45554f1c8926c88d51034e4bfa2bfff7c2453c031"
+      },
+      {
+        "path": "tests/test_ui_reliability.py",
+        "sha256": "f7f862e4355dad3d20aad1ee08ae128ad232cef9478bfe5d867638897a82d038"
+      }
+    ],
+    "skipped": [],
+    "includes_engine_discovery_regression": true,
+    "source_test_dependencies_still_match_after_validation": true,
+    "changed_source_test_dependencies": []
+  },
+  "versions": {
+    "python": "3.14.7",
+    "python_executable": "C:\\Users\\Cylae\\AppData\\Local\\Temp\\upscaler-engine-recovery-clean-a82xz_n3\\venv\\Scripts\\python.exe",
+    "base_prefix": "C:\\Users\\Cylae\\AppData\\Local\\Programs\\Python\\Python314",
+    "prefix": "C:\\Users\\Cylae\\AppData\\Local\\Temp\\upscaler-engine-recovery-clean-a82xz_n3\\venv",
+    "PyQt6": "6.11.0",
+    "Qt": "6.11.2",
+    "Pillow": "13.0.0",
+    "pytest": "9.1.1",
+    "ffmpeg": "C:\\Users\\Cylae\\AppData\\Local\\Microsoft\\WinGet\\Links\\ffmpeg.EXE",
+    "ffprobe": "C:\\Users\\Cylae\\AppData\\Local\\Microsoft\\WinGet\\Links\\ffprobe.EXE",
+    "Qt_compile_version": "6.11.0",
+    "Qt_runtime_version": "6.11.2"
+  },
+  "temporary_environment_cleaned": true,
+  "finished_at_utc": "2026-10-18T09:15:06.743189+00:00",
+  "passed": true,
+  "additional_runtime_check": {
+    "method": "Executed the temporary venv Python before cleanup and queried PyQt6.QtCore.QT_VERSION_STR and qVersion()",
+    "exit_code": 0,
+    "stdout": "{\"Qt_compile_version\": \"6.11.0\", \"Qt_runtime_version\": \"6.11.2\"}\n",
+    "stderr": ""
+  }
+}

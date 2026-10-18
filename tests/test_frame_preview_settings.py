@@ -9,7 +9,7 @@ import pytest
 from src.core.detector import HardwareInfo
 from src.core.models import AVAILABLE_MODELS
 from src.core.probe import VideoMetadata
-from src.core.video_pipeline import VideoUpscalerPipeline
+from src.core.video_pipeline import UpscaleJobConfig, VideoUpscalerPipeline
 from src.ui.workers import FramePreviewWorker
 
 
@@ -151,3 +151,64 @@ def test_preview_launch_failure_cleans_intermediate_directory(preview_pipeline, 
     assert not result[0]
     assert "engine unavailable" in result[3]["error"]
     assert not list((Path(source).parent / ".temp_upscaler").glob("preview_*"))
+
+
+@pytest.mark.parametrize("model_id,attribute", [
+    ("realesr-animevideov3", "realesrgan_bin"), ("realcugan-pro", "realcugan_bin"),
+])
+@pytest.mark.parametrize("stale", [None, "removed-engine.exe"])
+def test_preview_rediscovers_engine_in_existing_hardware_snapshot(
+    preview_pipeline, monkeypatch, model_id, attribute, stale,
+):
+    pipeline, source, commands = preview_pipeline
+    paths = pipeline.hardware.realesrgan_bin, pipeline.hardware.realcugan_bin
+    expected = getattr(pipeline.hardware, attribute)
+    shared_hardware = pipeline.hardware
+    setattr(shared_hardware, attribute, stale)
+    monkeypatch.setattr("src.core.hardware.detect_ai_binaries", lambda _base: paths)
+
+    result = pipeline.extract_and_upscale_single_frame(source, model_id, "720p")
+
+    assert result[0], result[3]
+    assert pipeline.hardware is shared_hardware
+    assert getattr(shared_hardware, attribute) == expected
+    assert commands[1][0] == expected
+    if model_id == "realesr-animevideov3":
+        assert commands[1][commands[1].index("-n") + 1] == AVAILABLE_MODELS[model_id].internal_name
+    else:
+        assert commands[1][commands[1].index("-m") + 1].endswith("models-pro")
+
+
+@pytest.mark.parametrize("model_id", ["realesr-animevideov3", "realcugan-pro"])
+@pytest.mark.parametrize("operation", ["frame", "video"])
+def test_missing_engine_fails_before_extraction_or_encoder_probe(
+    preview_pipeline, monkeypatch, tmp_path, model_id, operation,
+):
+    pipeline, source, commands = preview_pipeline
+    pipeline.hardware.realesrgan_bin = None
+    pipeline.hardware.realcugan_bin = None
+    monkeypatch.setattr("src.core.hardware.get_base_dir", lambda: str(tmp_path / "no-engines"))
+    monkeypatch.setattr("src.core.hardware.shutil.which", lambda _name: None)
+    encoder = Mock(side_effect=AssertionError("No encoder probe before engine discovery"))
+    monkeypatch.setattr(pipeline, "_resolve_encoder", encoder)
+    start = Mock(side_effect=AssertionError("No extraction without the chosen AI engine"))
+    monkeypatch.setattr(pipeline, "_start_process", start)
+
+    if operation == "frame":
+        ok, _original, _upscaled, info = pipeline.extract_and_upscale_single_frame(source, model_id, "720p")
+        error = info["error"]
+    else:
+        ok, error = pipeline.process_video(UpscaleJobConfig(
+            source, str(tmp_path / "out"), model_id=model_id, overwrite=True,
+        ))
+
+    assert not ok
+    expected_engine = AVAILABLE_MODELS[model_id].engine.value
+    assert f"{expected_engine}-ncnn-vulkan" in error
+    assert str(tmp_path / "no-engines" / "tools" / expected_engine) in error
+    assert "None" not in error
+    assert not commands
+    encoder.assert_not_called()
+    start.assert_not_called()
+    assert not list(tmp_path.rglob("preview_*"))
+    assert not list(tmp_path.rglob("job_*"))

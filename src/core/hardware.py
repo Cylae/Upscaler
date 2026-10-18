@@ -127,6 +127,43 @@ def detect_ai_binaries(base_dir: str) -> Tuple[Optional[str], Optional[str]]:
     return realesrgan_path, realcugan_path
 
 
+def resolve_ai_binary(hardware: HardwareInfo, engine: str) -> str:
+    """Resolve an engine at use time, including installations made after startup.
+
+    Keep valid caller-provided paths. Refresh only a missing/stale engine path;
+    GPU and FFmpeg capability probes remain cached and no model is substituted.
+    """
+    if engine == "realesrgan":
+        engine, attribute, label = "realesrgan", "realesrgan_bin", "Real-ESRGAN"
+    elif engine == "realcugan":
+        engine, attribute, label = "realcugan", "realcugan_bin", "RealCUGAN"
+    else:
+        raise ValueError(f"Unknown AI engine: {engine}")
+
+    previous_path = getattr(hardware, attribute)
+    if previous_path and os.path.isfile(previous_path):
+        return previous_path
+
+    base_dir = get_base_dir()
+    realesrgan, realcugan = detect_ai_binaries(base_dir)
+    resolved = realesrgan if engine == "realesrgan" else realcugan
+    if resolved and os.path.isfile(resolved):
+        # The window and batch manager can hold the same snapshot for a whole
+        # session. Update that object so subsequent operations see the repair.
+        setattr(hardware, attribute, resolved)
+        return resolved
+
+    filename = f"{engine}-ncnn-vulkan" + (".exe" if os.name == "nt" else "")
+    expected = os.path.join(base_dir, "tools", engine, filename)
+    previous = f"\nPrevious path is unavailable: {previous_path}" if previous_path else ""
+    raise FileNotFoundError(
+        f"{label} engine not found.\nExpected executable: {expected}{previous}\n"
+        f"Extract the {label} executable and its model folders into "
+        f"{os.path.dirname(expected)} (see README.md, Prerequisites). "
+        f"An installation of {filename} on PATH is also supported."
+    )
+
+
 _CACHED_HARDWARE_INFO: Optional[HardwareInfo] = None
 _HARDWARE_LOCK = threading.Lock()
 

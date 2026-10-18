@@ -22,6 +22,7 @@ from src.core.hardware import (
     detect_nvidia_gpu,
     get_base_dir,
     get_hardware_info,
+    resolve_ai_binary,
 )
 from src.core.models import (
     AVAILABLE_MODELS,
@@ -691,6 +692,13 @@ class VideoUpscalerPipeline:
                 f"a final Lanczos resize produces {target_w}x{target_h}."
             )
 
+        # A long-lived GUI may have started before the portable engines were
+        # installed. Resolve again before doing expensive extraction/encoding.
+        try:
+            bin_path = resolve_ai_binary(self.hardware, selected_model.engine)
+        except (FileNotFoundError, ValueError) as exc:
+            return False, str(exc)
+
         report(0.06, f"Checking encoder for {target_w}x{target_h}...")
         try:
             chosen_encoder = self._resolve_encoder(job, meta, target_w, target_h, log_cmd)
@@ -935,10 +943,6 @@ class VideoUpscalerPipeline:
 
             while ai_attempt <= max_ai_attempts:
                 if selected_model.engine == ModelEngine.REALESRGAN:
-                    bin_path = self.hardware.realesrgan_bin
-                    if not bin_path or not os.path.isfile(bin_path):
-                        return False, f"Real-ESRGAN binary not found: {bin_path}"
-
                     models_dir = os.path.join(os.path.dirname(bin_path), "models")
                     if not os.path.isdir(models_dir):
                         return False, f"Local Real-ESRGAN models directory not found: {models_dir}"
@@ -960,10 +964,6 @@ class VideoUpscalerPipeline:
                         ai_cmd.append("-x")
 
                 elif selected_model.engine == ModelEngine.REALCUGAN:
-                    bin_path = self.hardware.realcugan_bin
-                    if not bin_path or not os.path.isfile(bin_path):
-                        return False, f"RealCUGAN binary not found: {bin_path}"
-
                     models_dir = os.path.join(os.path.dirname(bin_path), selected_model.internal_name)
                     if not os.path.isdir(models_dir):
                         return False, f"Local RealCUGAN models directory not found: {models_dir}"
@@ -1357,6 +1357,11 @@ class VideoUpscalerPipeline:
             required_scale = max(target_w / max(1, meta.display_width), target_h / max(1, meta.display_height))
             chosen_scale = _select_model_scale(selected_model, required_scale)
 
+        try:
+            bin_path = resolve_ai_binary(self.hardware, selected_model.engine)
+        except (FileNotFoundError, ValueError) as exc:
+            return False, "", "", {"error": str(exc)}
+
         temp_dir = ""
         try:
             base_dir = os.path.dirname(video_path)
@@ -1396,10 +1401,6 @@ class VideoUpscalerPipeline:
         effective_tile_size = tile_size if tile_size > 0 else _auto_tile_size(self.hardware.gpu_vram_gb, model=selected_model)
 
         if selected_model.engine == ModelEngine.REALESRGAN:
-            bin_path = self.hardware.realesrgan_bin
-            if not bin_path or not os.path.isfile(bin_path):
-                shutil.rmtree(temp_dir, ignore_errors=True)
-                return False, "", "", {"error": f"Real-ESRGAN engine not found: {bin_path}"}
             models_dir = os.path.join(os.path.dirname(bin_path), "models")
             ai_cmd = [
                 bin_path,
@@ -1414,10 +1415,6 @@ class VideoUpscalerPipeline:
             if effective_tile_size > 0:
                 ai_cmd.extend(["-t", str(effective_tile_size)])
         elif selected_model.engine == ModelEngine.REALCUGAN:
-            bin_path = self.hardware.realcugan_bin
-            if not bin_path or not os.path.isfile(bin_path):
-                shutil.rmtree(temp_dir, ignore_errors=True)
-                return False, "", "", {"error": f"RealCUGAN engine not found: {bin_path}"}
             models_dir = os.path.join(os.path.dirname(bin_path), selected_model.internal_name)
             chosen_scale, eff_denoise, target_model_name = resolve_realcugan_options(
                 models_dir, chosen_scale, denoise_level if denoise_level is not None else -1,

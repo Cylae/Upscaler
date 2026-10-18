@@ -1,0 +1,81 @@
+{
+  "baseline": "a5d0aff",
+  "environment": {
+    "platform": "Windows-11-10.0.29683-SP0",
+    "python": "3.14.7",
+    "gpu": "NVIDIA GeForce RTX 3070",
+    "ffmpeg": "ffmpeg version 9.0.1-full_build-www.gyan.dev"
+  },
+  "preview": [
+    {
+      "model": "realesr-animevideov3",
+      "cached_path": "None",
+      "baseline_missing_path_error": "Real-ESRGAN engine not found: None",
+      "success": true,
+      "size": [
+        960,
+        720
+      ],
+      "pixels_equal_to_baseline_with_valid_path": true,
+      "pixel_sha256": "6efc88ce02494d7dc50b14997b26f97c194b4949aa2530f8cd9691181e2b0a41",
+      "active_processes_after": 0
+    },
+    {
+      "model": "realesr-animevideov3",
+      "cached_path": "removed",
+      "baseline_missing_path_error": "Real-ESRGAN engine not found: None",
+      "success": true,
+      "size": [
+        960,
+        720
+      ],
+      "pixels_equal_to_baseline_with_valid_path": true,
+      "pixel_sha256": "6efc88ce02494d7dc50b14997b26f97c194b4949aa2530f8cd9691181e2b0a41",
+      "active_processes_after": 0
+    },
+    {
+      "model": "realcugan-pro",
+      "cached_path": "None",
+      "baseline_missing_path_error": "RealCUGAN engine not found: None",
+      "success": true,
+      "size": [
+        960,
+        720
+      ],
+      "pixels_equal_to_baseline_with_valid_path": true,
+      "pixel_sha256": "ca8bb60cb894dca44c29a8e09cde398fa5d713c9a36ca36aa7f4ec6dcc344708",
+      "active_processes_after": 0
+    },
+    {
+      "model": "realcugan-pro",
+      "cached_path": "removed",
+      "baseline_missing_path_error": "RealCUGAN engine not found: None",
+      "success": true,
+      "size": [
+        960,
+        720
+      ],
+      "pixels_equal_to_baseline_with_valid_path": true,
+      "pixel_sha256": "ca8bb60cb894dca44c29a8e09cde398fa5d713c9a36ca36aa7f4ec6dcc344708",
+      "active_processes_after": 0
+    }
+  ],
+  "video": [
+    {
+      "model": "realesr-animevideov3",
+      "cached_path": "None",
+      "success": true,
+      "equal_decoded_video_frames": 4,
+      "equal_decoded_audio_blocks": 47,
+      "active_processes_after": 0
+    },
+    {
+      "model": "realcugan-pro",
+      "cached_path": "None",
+      "success": true,
+      "equal_decoded_video_frames": 4,
+      "equal_decoded_audio_blocks": 47,
+      "active_processes_after": 0
+    }
+  ]
+}

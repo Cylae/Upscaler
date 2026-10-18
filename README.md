@@ -46,6 +46,8 @@ Built for **exceptional visual fidelity** without ringing or seam artifacts, acc
   - *Note: Multi-threaded CPU encoding fallback (`libx265` / `libx264`) is supported if NVENC is unavailable.*
 - **AI Upscaler Binaries**: Vulkan ncnn executables (`realesrgan-ncnn-vulkan.exe` and `realcugan-ncnn-vulkan.exe`) placed in `tools/realesrgan/` and `tools/realcugan/`.
 
+Frame comparison and video jobs recheck a missing or moved AI executable before extraction, so installing the portable tools after the application starts does not leave a stale “engine not found: None” result. Valid custom engine paths are retained. If an engine is absent, the error gives its expected full path; extract its model folders alongside it, then retry. The selected engine/model is preserved.
+
 ---
 
 ## 🚀 Quick Start

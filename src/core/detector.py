@@ -16,6 +16,7 @@ from src.core.hardware import (
     get_base_dir,
     get_hardware_info,
     print_doctor_report,
+    resolve_ai_binary,
 )
 
 __all__ = [
@@ -29,4 +30,5 @@ __all__ = [
     "get_base_dir",
     "get_hardware_info",
     "print_doctor_report",
+    "resolve_ai_binary",
 ]
