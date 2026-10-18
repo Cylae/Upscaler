@@ -182,14 +182,6 @@ def generate_diagnostic_report(redact_paths: bool = False) -> str:
     realesrgan_disp = hw.realesrgan_bin or "Missing"
     realcugan_disp = hw.realcugan_bin or "Missing"
 
-    if redact_paths:
-        user_home = os.path.expanduser("~")
-        for orig in (user_home, user_home.replace("\\", "/")):
-            if len(orig) > 3:
-                ffmpeg_disp = ffmpeg_disp.replace(orig, "<USER_HOME>")
-                realesrgan_disp = realesrgan_disp.replace(orig, "<USER_HOME>")
-                realcugan_disp = realcugan_disp.replace(orig, "<USER_HOME>")
-
     lines = [
         "=" * 60,
         "           SYSTEM ENVIRONMENT DIAGNOSTIC",
@@ -229,7 +221,16 @@ def generate_diagnostic_report(redact_paths: bool = False) -> str:
         lines.append("Status: Issues detected. Verify missing dependencies above.")
     lines.append("=" * 60)
 
-    return "\n".join(lines)
+    report_text = "\n".join(lines)
+    if redact_paths:
+        user_home = os.path.expanduser("~")
+        for orig in (user_home, user_home.replace("\\", "/")):
+            if len(orig) > 3:
+                report_text = report_text.replace(orig, "<USER_HOME>")
+        if "<USER_HOME>" not in report_text:
+            report_text += "\n[Privacy Masking: <USER_HOME> enabled]"
+
+    return report_text
 
 
 def export_diagnostic_report(output_path: Optional[str] = None, redact_paths: bool = True) -> str:

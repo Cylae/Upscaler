@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from src.core.hardware import (
     HardwareInfo,
+    clear_hardware_cache,
     detect_ai_binaries,
     detect_ffmpeg,
     detect_nvidia_gpu,
@@ -19,6 +20,7 @@ from src.core.hardware import (
 
 __all__ = [
     "HardwareInfo",
+    "clear_hardware_cache",
     "detect_ai_binaries",
     "detect_ffmpeg",
     "detect_nvidia_gpu",

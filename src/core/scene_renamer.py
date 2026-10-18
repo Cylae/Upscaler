@@ -79,8 +79,19 @@ def parse_episode_metadata(filepath: str, base_dir: Optional[str] = None) -> Tup
     - episode (e.g. 'E01', 'E25')
     - episode_title (e.g. 'Spin.Fun.Knowin.Ya')
     """
-    rel_path = os.path.relpath(filepath, base_dir) if base_dir else os.path.basename(filepath)
-    parts = rel_path.split(os.sep)
+    norm_path = filepath.replace("\\", "/")
+    if base_dir:
+        norm_base = base_dir.replace("\\", "/")
+        try:
+            rel_path = os.path.relpath(norm_path, norm_base)
+            if rel_path.startswith(".."):
+                rel_path = norm_path
+        except ValueError:
+            rel_path = norm_path
+    else:
+        rel_path = norm_path.split("/")[-1]
+
+    parts = rel_path.replace("\\", "/").split("/")
     filename = os.path.splitext(parts[-1])[0]
 
     folder = parts[0] if len(parts) > 1 else ""
@@ -193,7 +204,8 @@ def format_clean_name(
     custom_suffix: str = ""
 ) -> str:
     """Formats a clean, human-friendly output filename without scene jargon: VideoName_4K.mp4."""
-    stem, orig_ext = os.path.splitext(os.path.basename(filepath))
+    norm_path = filepath.replace("\\", "/")
+    stem, orig_ext = os.path.splitext(norm_path.split("/")[-1])
     clean_stem = strip_forbidden_output_markers(stem).strip()
     trimmed = re.sub(r'[\s._-]+(?:4320p|2160p|1440p|1080p|720p|480p|8k|4k|uhd)$', '', clean_stem, flags=re.IGNORECASE).rstrip(' ._-')
     if trimmed:
@@ -241,7 +253,8 @@ def format_output_name(
     if mode == "clean":
         return format_clean_name(filepath, cfg.resolution_tag, cfg.container, cfg.custom_suffix)
     elif mode == "original":
-        stem, orig_ext = os.path.splitext(os.path.basename(filepath))
+        norm_path = filepath.replace("\\", "/")
+        stem, orig_ext = os.path.splitext(norm_path.split("/")[-1])
         ext = cfg.container if cfg.container else orig_ext
         return f"{stem}{ext}"
     else:
@@ -262,13 +275,22 @@ def get_scene_relative_output_path(
     if not preserve_folders or not base_dir:
         return target_name
 
-    rel_path = os.path.relpath(filepath, base_dir)
+    norm_path = filepath.replace("\\", "/")
+    norm_base = base_dir.replace("\\", "/")
+    try:
+        rel_path = os.path.relpath(norm_path, norm_base)
+        if rel_path.startswith(".."):
+            return target_name
+    except ValueError:
+        return target_name
+
     folder = os.path.dirname(rel_path)
-    if folder:
+    if folder and folder != ".":
+        parts = folder.replace("\\", "/").split("/")
         if mode == "scene":
-            cleaned_folder_parts = [clean_scene_text(p) for p in folder.split(os.sep) if clean_scene_text(p)]
+            cleaned_folder_parts = [clean_scene_text(p) for p in parts if clean_scene_text(p)]
         else:
-            cleaned_folder_parts = [p for p in folder.split(os.sep) if p]
+            cleaned_folder_parts = [p for p in parts if p]
         if cleaned_folder_parts:
             return os.path.join(*cleaned_folder_parts, target_name)
     return target_name

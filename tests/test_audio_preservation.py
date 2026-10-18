@@ -114,7 +114,7 @@ def test_audio_integrity_check_failure_aborts_output():
     mock_proc.wait = MagicMock()
 
     with patch("src.core.video_pipeline.probe_video", side_effect=[meta_in, meta_out_silent, meta_out_silent, meta_out_silent]):
-        with patch("os.makedirs"), patch("os.path.isfile", return_value=True), patch("os.path.getsize", return_value=1_000_000):
+        with patch("os.makedirs"), patch("os.path.isfile", return_value=True), patch("os.path.isdir", return_value=True), patch("os.path.getsize", return_value=1_000_000):
             with patch("subprocess.Popen", return_value=mock_proc):
                 with patch("src.core.video_pipeline.probe_audio_stream", return_value=True):
                     # Patch os.listdir at the module level so worker threads see it too
@@ -170,7 +170,7 @@ def test_audio_integrity_repair_pass_restores_audio():
     mock_proc.wait = MagicMock()
 
     with patch("src.core.video_pipeline.probe_video", side_effect=[meta_in, meta_out_silent, meta_out_fixed, meta_out_fixed]):
-        with patch("os.makedirs"), patch("os.path.isfile", return_value=True), patch("os.path.getsize", return_value=1_000_000):
+        with patch("os.makedirs"), patch("os.path.isfile", return_value=True), patch("os.path.isdir", return_value=True), patch("os.path.getsize", return_value=1_000_000):
             with patch("subprocess.Popen", return_value=mock_proc):
                 with patch("src.core.video_pipeline.probe_audio_stream", return_value=True):
                     with patch("src.core.video_pipeline.os.listdir", return_value=["frame_00000001.jpg"]):
