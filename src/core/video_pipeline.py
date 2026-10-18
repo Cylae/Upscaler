@@ -684,7 +684,7 @@ class VideoUpscalerPipeline:
                 )
 
         report(0.05, f"Selected model: {selected_model.name} (Scale {chosen_scale}x)", {"model_name": selected_model.name, "scale": chosen_scale})
-        model_reason = f"Auto-selected for {meta.width}×{meta.height}" if job.model_id == "auto" else "User selected"
+        model_reason = f"Auto-selected for {round(meta.display_width)}×{round(meta.display_height)} display size" if job.model_id == "auto" else "User selected"
         log_cmd(f"[AI MODEL] {selected_model.name} ×{chosen_scale} ({model_reason})")
         if req_scale > chosen_scale + 0.05:
             log_cmd(

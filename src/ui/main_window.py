@@ -1519,7 +1519,7 @@ class UpscalerMainWindow(QMainWindow):
                 first_item = next((it for it in self.batch_manager.queue if not target_indices or it.index in target_indices), None)
                 if first_item:
                     meta = probe_video(first_item.source_path)
-                    rec = recommend_model_for_video(meta.width, meta.height, target_preset)
+                    rec = recommend_model_for_video(meta.display_width, meta.display_height, target_preset)
                     self.on_log_received(f"[AI MODEL AUTO] {rec.model.name} ×{rec.scale} ({rec.reason})")
             except Exception:
                 pass
