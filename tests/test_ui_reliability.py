@@ -150,9 +150,9 @@ def test_ui_1080p_layout_and_column_distribution(qapp):
     # Verify table column configuration
     header = window.table.horizontalHeader()
     assert header.sectionResizeMode(0) == QHeaderView.ResizeMode.Fixed
-    assert header.sectionResizeMode(1) == QHeaderView.ResizeMode.Stretch
+    assert header.sectionResizeMode(1) == QHeaderView.ResizeMode.Interactive
     assert header.sectionResizeMode(2) == QHeaderView.ResizeMode.Fixed
-    assert header.sectionResizeMode(3) == QHeaderView.ResizeMode.Stretch
+    assert header.sectionResizeMode(3) == QHeaderView.ResizeMode.Interactive
     assert header.sectionResizeMode(4) == QHeaderView.ResizeMode.Fixed
     assert header.sectionResizeMode(5) == QHeaderView.ResizeMode.Fixed
     assert header.sectionResizeMode(6) == QHeaderView.ResizeMode.Interactive
@@ -312,10 +312,11 @@ def test_ui_combobox_delegates_and_frameless_controls(qapp):
         assert isinstance(cb.itemDelegate(), QStyledItemDelegate), f"Combobox {cb} does not have QStyledItemDelegate"
         assert cb.view().autoFillBackground() is True
 
-    # Test window control buttons
-    assert hasattr(win, "btn_win_min")
-    assert hasattr(win, "btn_win_max")
-    assert hasattr(win, "btn_win_close")
+    # Native window controls replace the custom frameless titlebar.
+    assert not win.windowFlags() & Qt.WindowType.FramelessWindowHint
+    assert win.windowFlags() & Qt.WindowType.WindowMinimizeButtonHint
+    assert win.windowFlags() & Qt.WindowType.WindowMaximizeButtonHint
+    assert win.windowFlags() & Qt.WindowType.WindowCloseButtonHint
 
     # Test maximize toggle
     assert not win.isMaximized()

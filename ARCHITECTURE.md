@@ -158,18 +158,21 @@ The naming engine (`src/core/scene_renamer.py`) strictly adheres to Scene releas
 
 ---
 
-## 5. UI Architecture & Responsive 1080p Layout
+## 5. Utility UI and parameter access
 
-The desktop interface (`src/ui/main_window.py`) is styled using a custom dark theme (`src/ui/theme.py`) and engineered specifically for Full HD (1920×1080) and higher resolutions:
+The desktop processing window (`src/ui/main_window.py`) uses native window decorations and a compact utility stylesheet. Sources, destinations, actions and a bounded live console remain visible. Four scrollable parameter pages are directly selectable: Video, Audio, Engine and Naming. Inspection dialogs retain their existing theme.
 
-- **Splitter Architecture**: The main window utilizes a `QSplitter` dividing the left configuration sidebar (380px) and the central queue / logs area (1060px+).
+- **Splitter Architecture**: A `QSplitter` separates the parameter panel and queue/logs. Controls fit a 1024×768 window; parameter pages scroll vertically if needed. Filename columns stay individually resizable and retain readable minimum widths, with horizontal table scrolling on smaller windows.
 - **Balanced Column Stretch**:
-  - `#` : Fixed 48px
-  - `Original File` : Stretch mode (~500px on 1080p)
-  - `Size` : Fixed 85px
-  - `Target Scene Name` : Stretch mode (~500px on 1080p)
-  - `Status` : Fixed 115px
-  - `Detail / Progress` : Interactive 260px
+  - `#` : Fixed 40px
+  - `Original File` : Interactive, automatically apportioned on window resize
+  - `Size` : Fixed 70px
+  - `Output File` : Interactive, automatically apportioned on window resize
+  - `Status` : Fixed 105px
+  - `Detail / Progress` : Interactive, 180–360px default depending on viewport
+- **Parameter contracts**: Combo boxes carry codec/preset/worker/format values in item data instead of interpreting their display position. Custom thread/tile text is validated before starting a worker. Manual changes select Custom. Unfocused controls ignore wheel edits; active-job parameters are locked while pages remain navigable.
+- **Current output plan**: `BatchManager.refresh_output_plan` recalculates destinations and revalidates existing geometry/audio/duration immediately before preflight/start, retaining queue IDs and model overrides. A previous SKIPPED state cannot suppress a newly requested destination/resolution. Preview clips remain executable when the full output already exists.
+- **Frame comparison**: `FramePreviewWorker` forwards optional inference settings to the pipeline. All three preview subprocesses use tracked execution, so Stop reaches extraction, inference and final resizing. A PNG comparison checks AI output; a clip also exercises the final codec/audio path.
 - **Interactive Before/After Dialog (`src/ui/dialogs/comparison.py`)**:
   - Dual `QScrollArea` panels displaying the source frame alongside the AI upscaled frame.
   - Proportional scroll synchronization (ratio-based `0.0`–`1.0`) with re-entrancy locks to prevent recursive signal loops.

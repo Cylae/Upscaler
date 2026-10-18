@@ -17,19 +17,38 @@ class FramePreviewWorker(QThread):
     """Generates a Before/After comparison for a single extracted frame in the background."""
     preview_ready = pyqtSignal(bool, str, str, dict)
 
-    def __init__(self, pipeline: VideoUpscalerPipeline, video_path: str, model_id: str, target_preset: str):
+    def __init__(
+        self,
+        pipeline: VideoUpscalerPipeline,
+        video_path: str,
+        model_id: str,
+        target_preset: str,
+        *,
+        threads: str = "auto",
+        tile_size: int = 0,
+        denoise_level: int = -1,
+        enable_tta: bool = False,
+    ):
         super().__init__()
         self.pipeline = pipeline
         self.video_path = video_path
         self.model_id = model_id
         self.target_preset = target_preset
+        self.threads = threads
+        self.tile_size = tile_size
+        self.denoise_level = denoise_level
+        self.enable_tta = enable_tta
 
     def run(self):
         try:
             ok, orig, up, info = self.pipeline.extract_and_upscale_single_frame(
                 self.video_path,
                 model_id=self.model_id,
-                target_preset=self.target_preset
+                target_preset=self.target_preset,
+                threads=self.threads,
+                tile_size=self.tile_size,
+                denoise_level=self.denoise_level,
+                enable_tta=self.enable_tta,
             )
             self.preview_ready.emit(ok, orig, up, info)
         except Exception as exc:

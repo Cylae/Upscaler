@@ -1,0 +1,14 @@
+{
+  "method": "Fresh temporary source copy and empty venv; install documented development requirements; full tests and offscreen GUI smoke",
+  "external_tools": "System FFmpeg/FFprobe remain available. Ignored portable Vulkan binaries are excluded.",
+  "installed": {
+    "PyQt6": "6.11.0",
+    "PyQt6-Qt6": "6.11.2",
+    "Pillow": "13.0.0",
+    "pytest": "9.1.1"
+  },
+  "tests_exit_code": 0,
+  "tests_output": "....................................................................... [ 20%]\n........................................................................ [ 42%]\n........................................................................ [ 63%]\n........................................................................ [ 84%]\n....................................................                     [100%]\n339 passed, 1 subtests passed in 57.50s\n",
+  "gui_exit_code": 0,
+  "gui_output": "FRESH_FUNCTIONAL_GUI_OK\n"
+}

@@ -58,6 +58,7 @@ class QueueItem:
     error_message: str = ""
     id: str = field(default_factory=lambda: uuid.uuid4().hex)
     model: str = ""
+    resolved_model: str = ""  # Last-run information, never a user override.
 
 
 class BatchManager:
@@ -216,6 +217,95 @@ class BatchManager:
         self.reindex_queue()
         return self.queue
 
+    def refresh_output_plan(
+        self,
+        output_dir: str,
+        base_dir: str,
+        scene_config: Optional[SceneNamingConfig] = None,
+        preserve_folders: bool = True,
+        *,
+        target_preset: str = "4k",
+        overwrite: bool = False,
+    ) -> List[QueueItem]:
+        """Replan existing rows without rescanning or replacing their identities.
+
+        Call before preflight or starting a batch after output settings change.
+        Existing destinations are checked against the current source geometry,
+        soundtrack and duration before they can be skipped. Missing destinations
+        need no media probe. Running jobs are never changed.
+        """
+        cfg = scene_config or SceneNamingConfig()
+        for item in list(self.queue):
+            with self._lock:
+                if self._is_running:
+                    return self.queue
+                if item.status == EpisodeStatus.PROCESSING:
+                    continue
+
+            item_base = base_dir or os.path.dirname(item.source_path)
+            # Direct-file input uses its parent as the naming root, just as scan.
+            if os.path.normcase(os.path.abspath(item_base)) == os.path.normcase(os.path.abspath(item.source_path)):
+                item_base = os.path.dirname(item.source_path)
+            relative_output = get_scene_relative_output_path(
+                item.source_path, item_base, cfg, preserve_folders=preserve_folders
+            )
+            target_full = os.path.join(output_dir, relative_output)
+            same_target = (
+                os.path.normcase(os.path.abspath(target_full))
+                == os.path.normcase(os.path.abspath(item.target_full_path))
+            )
+            valid_output = False
+            output_size_mb = 0.0
+            if not overwrite and os.path.isfile(target_full):
+                try:
+                    source = probe_video(item.source_path, self.hardware.ffprobe_path)
+                    width, height, _ = calculate_target_dimensions(
+                        source.width, source.height, target_preset,
+                        sample_aspect_ratio=getattr(source, "sample_aspect_ratio", "1:1"),
+                        rotation=getattr(source, "rotation", 0),
+                    )
+                    valid_output = is_file_complete_and_valid(
+                        target_full,
+                        expect_audio=source.has_audio,
+                        expected_width=width,
+                        expected_height=height,
+                        expected_duration=source.duration,
+                    )
+                    if valid_output:
+                        output_size_mb = round(os.path.getsize(target_full) / (1024**2), 1)
+                except Exception:
+                    # An unreadable source or a disappearing destination cannot
+                    # establish a valid resume contract; processing must check it.
+                    valid_output = False
+
+            with self._lock:
+                if self._is_running:
+                    return self.queue
+                if item.status == EpisodeStatus.PROCESSING:
+                    continue
+                old_status = item.status
+                item.target_scene_name = os.path.basename(relative_output)
+                item.target_full_path = target_full
+                item.output_size_mb = output_size_mb
+                if not same_target or not valid_output:
+                    item.resolved_model = ""
+
+                if valid_output:
+                    if not (same_target and old_status == EpisodeStatus.COMPLETED):
+                        item.status = EpisodeStatus.SKIPPED
+                        item.status_detail = "Already present (will be skipped)"
+                        item.progress = 1.0
+                    item.file_eta = ""
+                    item.error_message = ""
+                elif not same_target or old_status in (EpisodeStatus.SKIPPED, EpisodeStatus.COMPLETED):
+                    item.status = EpisodeStatus.PENDING
+                    item.status_detail = "Ready"
+                    item.progress = 0.0
+                    item.file_eta = ""
+                    item.error_message = ""
+
+        return self.queue
+
     def reindex_queue(self):
         """Re-indexes queue items 1..N sequentially."""
         for idx, it in enumerate(self.queue, start=1):
@@ -269,6 +359,7 @@ class BatchManager:
                         "output_size_mb": item.output_size_mb,
                         "error_message": item.error_message,
                         "model": getattr(item, "model", ""),
+                        "resolved_model": item.resolved_model,
                     }
                     for item in self.queue
                 ]
@@ -317,6 +408,7 @@ class BatchManager:
                 error_message=raw.get("error_message", ""),
                 id=raw.get("id", uuid.uuid4().hex),
                 model=raw.get("model", ""),
+                resolved_model=raw.get("resolved_model", ""),
             )
             self.queue.append(item)
         self.reindex_queue()
@@ -502,7 +594,7 @@ class BatchManager:
                     item_callback(item)
                 return
 
-            if item.status == EpisodeStatus.SKIPPED and not overwrite:
+            if item.status == EpisodeStatus.SKIPPED and not overwrite and preview_duration_s is None:
                 with self._lock:
                     completed_items[0] += 1
                     pct = (completed_items[0] / total_items) * 100.0 if total_items > 0 else 0.0
@@ -569,13 +661,13 @@ class BatchManager:
                 item.status_detail = status_text
                 item.file_eta = extra.get("file_eta_str", "")
                 if "model_name" in extra:
-                    item.model = extra["model_name"]
+                    item.resolved_model = extra["model_name"]
                 elif status_text.startswith("Selected model: "):
                     parts = status_text.split("Selected model: ", 1)[1]
-                    item.model = parts.split(" (Scale")[0].strip()
+                    item.resolved_model = parts.split(" (Scale")[0].strip()
                 elif "Upscaling with " in status_text:
                     parts = status_text.split("Upscaling with ", 1)[1]
-                    item.model = parts.split(" (Threads")[0].strip()
+                    item.resolved_model = parts.split(" (Threads")[0].strip()
 
                 if item_callback:
                     item_callback(item)
@@ -687,7 +779,7 @@ class BatchManager:
                                 return
                             # Already validated files need callbacks, not worker
                             # futures. Long resumed batches should stay cheap.
-                            if item.status == EpisodeStatus.SKIPPED and not overwrite:
+                            if item.status == EpisodeStatus.SKIPPED and not overwrite and preview_duration_s is None:
                                 process_single_item(item)
                                 continue
                             futures.add(executor.submit(process_single_item, item))

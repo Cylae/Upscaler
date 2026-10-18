@@ -1316,14 +1316,22 @@ class VideoUpscalerPipeline:
         video_path: str,
         model_id: str = "auto",
         target_preset: str = "4k",
-        offset_seconds: Optional[float] = None
+        offset_seconds: Optional[float] = None,
+        *,
+        threads: str = "auto",
+        tile_size: int = 0,
+        denoise_level: int = -1,
+        enable_tta: bool = False,
     ) -> Tuple[bool, str, str, Dict]:
         """Extracts a single representative frame from video and upscales it with AI model.
 
         Returns (success, original_frame_path, upscaled_frame_path, info_dict).
         The returned preview uses the same display geometry and final dimensions
-        as the full encode, including targets beyond the model's native scale.
+        as the full encode, including targets beyond the model's native scale,
+        and honors the selected inference settings used by the full batch.
         """
+        if self._is_cancelled:
+            return False, "", "", {"error": "Cancelled by user."}
         if not os.path.isfile(video_path):
             return False, "", "", {"error": f"Video file not found: {video_path}"}
 
@@ -1373,15 +1381,19 @@ class VideoUpscalerPipeline:
             "-vframes", "1",
             orig_frame
         ]
-        rc = subprocess.run(cmd_extract, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode
+        try:
+            rc = self._run_tracked(cmd_extract, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except (OSError, RuntimeError) as exc:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return False, "", "", {"error": str(exc)}
         if rc != 0 or not os.path.isfile(orig_frame) or os.path.getsize(orig_frame) == 0:
             shutil.rmtree(temp_dir, ignore_errors=True)
             return False, "", "", {"error": "Cannot extract frame from source file."}
 
         # 2. Run AI upscaler on single frame
         t0 = time.time()
-        thread_spec = get_optimal_thread_spec("auto", gpu_vram_gb=self.hardware.gpu_vram_gb, model=selected_model)
-        effective_tile_size = _auto_tile_size(self.hardware.gpu_vram_gb, model=selected_model)
+        thread_spec = get_optimal_thread_spec(threads, gpu_vram_gb=self.hardware.gpu_vram_gb, model=selected_model)
+        effective_tile_size = tile_size if tile_size > 0 else _auto_tile_size(self.hardware.gpu_vram_gb, model=selected_model)
 
         if selected_model.engine == ModelEngine.REALESRGAN:
             bin_path = self.hardware.realesrgan_bin
@@ -1407,7 +1419,9 @@ class VideoUpscalerPipeline:
                 shutil.rmtree(temp_dir, ignore_errors=True)
                 return False, "", "", {"error": f"RealCUGAN engine not found: {bin_path}"}
             models_dir = os.path.join(os.path.dirname(bin_path), selected_model.internal_name)
-            chosen_scale, eff_denoise, target_model_name = resolve_realcugan_options(models_dir, chosen_scale, -1)
+            chosen_scale, eff_denoise, target_model_name = resolve_realcugan_options(
+                models_dir, chosen_scale, denoise_level if denoise_level is not None else -1,
+            )
             if target_model_name != selected_model.internal_name:
                 alt_dir = os.path.join(os.path.dirname(bin_path), target_model_name)
                 if os.path.isdir(alt_dir):
@@ -1428,11 +1442,18 @@ class VideoUpscalerPipeline:
             shutil.rmtree(temp_dir, ignore_errors=True)
             return False, "", "", {"error": f"Unknown AI engine: {selected_model.engine}"}
 
-        proc = subprocess.run(ai_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        infer_time = time.time() - t0
-        if proc.returncode != 0 or not os.path.isfile(up_frame) or os.path.getsize(up_frame) == 0:
+        if enable_tta:
+            ai_cmd.append("-x")
+
+        try:
+            ai_rc = self._run_tracked(ai_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except (OSError, RuntimeError) as exc:
             shutil.rmtree(temp_dir, ignore_errors=True)
-            return False, "", "", {"error": f"Image upscaling failed (code {proc.returncode})"}
+            return False, "", "", {"error": str(exc)}
+        infer_time = time.time() - t0
+        if ai_rc != 0 or not os.path.isfile(up_frame) or os.path.getsize(up_frame) == 0:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return False, "", "", {"error": f"Image upscaling failed (code {ai_rc})"}
 
         final_frame = os.path.join(temp_dir, "preview_target.png")
         resize_cmd = [
@@ -1440,9 +1461,13 @@ class VideoUpscalerPipeline:
             "-vf", f"scale={target_w}:{target_h}:flags=lanczos,setsar=1",
             "-frames:v", "1", final_frame,
         ]
-        resize_rc = subprocess.run(
-            resize_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-        ).returncode
+        try:
+            resize_rc = self._run_tracked(
+                resize_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        except (OSError, RuntimeError) as exc:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return False, "", "", {"error": str(exc)}
         if resize_rc != 0 or not os.path.isfile(final_frame) or os.path.getsize(final_frame) == 0:
             shutil.rmtree(temp_dir, ignore_errors=True)
             return False, "", "", {"error": "Cannot resize preview to the requested output dimensions."}

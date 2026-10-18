@@ -63,6 +63,12 @@ On first launch, `launch.bat` creates a local `.venv`, installs dependencies fro
 
 After setup, you can also run `py main.py` on Windows. If the selected Python lacks PyQt6 or Pillow, the GUI entry point automatically uses the project's `.venv`. Without a configured environment, it displays setup instructions.
 
+The processing window uses native window controls and four direct settings tabs: **Video**, **Audio**, **Engine**, and **Naming**. Source/output paths, queue actions and live logs stay visible. CQ/CRF can be entered numerically; both CPU encoders, all NVENC presets, four workers, custom thread counts/tile sizes, MP4/MKV and filename suffixes are exposed. Manual processing changes select **Custom** instead of leaving a misleading profile label.
+
+Select a queue row before **Compare Frame**, **Preview Clip**, or **Test 1 Episode** to target that video. Frame comparison uses its per-video model override and the selected TTA/denoise/thread/tile settings; use a clip to inspect final encoding and audio. Preflight and Start recalculate destinations against current settings. Enable **Reprocess existing outputs** when intentionally replacing a valid output after a quality/model change. During processing, parameter tabs remain readable while edits and queue mutations are locked.
+
+Shortcuts: **Ctrl+O** add files, **F5** scan, **F6** output plan, **Ctrl+L** logs, **Ctrl+Enter** start, **Ctrl+.** stop. Scrolling an unfocused parameter does not change its value.
+
 For manual setup or direct CLI use, activate the project environment first:
 ```powershell
 py -m venv .venv

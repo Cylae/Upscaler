@@ -1,7 +1,4 @@
-"""Dark design system — deep gradient theme with glows, pills, and animated accents.
-
-Optimized for the sidebar + queue full-width layout.
-"""
+"""Compact utility styling for processing, plus the existing inspection-dialog theme."""
 
 from __future__ import annotations
 
@@ -36,6 +33,31 @@ COLOR_APPLE_BLUE = "#0a84ff"
 COLOR_APPLE_GREEN = "#30d158"
 COLOR_APPLE_INDIGO = "#5e5ce6"
 COLOR_APPLE_RED = "#ff453a"
+
+# The processing window favors compact, rectangular controls and a native titlebar.
+# Inspection dialogs retain the existing theme for compatibility.
+UTILITY_STYLESHEET = """
+QWidget { background: #242424; color: #ededed; font-family: "Segoe UI"; font-size: 12px; }
+QLabel { background: transparent; }
+QLineEdit, QComboBox, QSpinBox, QTextEdit, QTableWidget {
+    background: #191919; border: 1px solid #666; border-radius: 0; padding: 3px;
+    selection-background-color: #355f89; selection-color: white;
+}
+QPushButton { background: #363636; border: 1px solid #777; border-radius: 0; padding: 5px 8px; }
+QPushButton:hover { background: #454545; }
+QPushButton:checked { background: #355f89; border-color: #8ab8e0; }
+QPushButton:disabled, QComboBox:disabled { color: #888; border-color: #444; }
+QPushButton:focus, QLineEdit:focus, QComboBox:focus, QSpinBox:focus { border-color: #a6cbed; }
+QTabWidget::pane { border: 1px solid #666; }
+QTabBar::tab { background: #303030; border: 1px solid #666; padding: 6px 10px; border-radius: 0; }
+QTabBar::tab:selected { background: #464646; color: white; }
+QHeaderView::section { background: #363636; padding: 5px; border: 1px solid #555; }
+QTableWidget { alternate-background-color: #292929; gridline-color: #444; }
+QProgressBar { border: 1px solid #666; border-radius: 0; background: #191919; }
+QProgressBar::chunk { background: #689a6a; border-radius: 0; }
+QScrollArea { border: none; }
+QToolTip { background: #333; color: white; border: 1px solid #999; }
+"""
 
 DARK_STYLESHEET = """
 /* ==========================================================================
