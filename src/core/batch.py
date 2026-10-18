@@ -108,25 +108,29 @@ class BatchManager:
 
         for idx, fpath in enumerate(found_files, start=1):
             rel_path = os.path.relpath(fpath, base_dir)
-            target_name = format_output_name(fpath, base_dir, cfg)
             rel_out = get_scene_relative_output_path(fpath, base_dir, cfg, preserve_folders=preserve_folders)
+            target_name = os.path.basename(rel_out)
             target_full = os.path.join(output_dir, rel_out)
 
-            size_mb = round(os.path.getsize(fpath) / (1024**2), 1) if os.path.exists(fpath) else 0.0
+            try:
+                size_mb = round(os.stat(fpath).st_size / (1024**2), 1)
+            except OSError:
+                size_mb = 0.0
 
             status = EpisodeStatus.PENDING
             status_detail = "Ready"
             out_size_mb = 0.0
             expect_audio = False
             expected_dur = None
-            if os.path.isfile(target_full):
+            output_exists = os.path.isfile(target_full)
+            if output_exists:
                 try:
                     src_meta = probe_video(fpath, self.hardware.ffprobe_path)
                     expect_audio = src_meta.has_audio
                     expected_dur = src_meta.duration
                 except Exception:
                     expect_audio = False
-            if is_file_complete_and_valid(target_full, expect_audio=expect_audio, expected_duration=expected_dur):
+            if output_exists and is_file_complete_and_valid(target_full, expect_audio=expect_audio, expected_duration=expected_dur):
                 status = EpisodeStatus.SKIPPED
                 status_detail = "Already present (will be skipped)"
                 out_size_mb = round(os.path.getsize(target_full) / (1024**2), 1)
@@ -167,25 +171,29 @@ class BatchManager:
 
             base_dir = os.path.dirname(fpath)
             rel_path = os.path.basename(fpath)
-            target_name = format_output_name(fpath, base_dir, cfg)
             rel_out = get_scene_relative_output_path(fpath, base_dir, cfg, preserve_folders=preserve_folders)
+            target_name = os.path.basename(rel_out)
             target_full = os.path.join(output_dir, rel_out)
 
-            size_mb = round(os.path.getsize(fpath) / (1024**2), 1) if os.path.exists(fpath) else 0.0
+            try:
+                size_mb = round(os.stat(fpath).st_size / (1024**2), 1)
+            except OSError:
+                size_mb = 0.0
 
             status = EpisodeStatus.PENDING
             status_detail = "Ready"
             out_size_mb = 0.0
             expect_audio = False
             expected_dur = None
-            if os.path.isfile(target_full):
+            output_exists = os.path.isfile(target_full)
+            if output_exists:
                 try:
                     src_meta = probe_video(fpath, self.hardware.ffprobe_path)
                     expect_audio = src_meta.has_audio
                     expected_dur = src_meta.duration
                 except Exception:
                     expect_audio = False
-            if is_file_complete_and_valid(target_full, expect_audio=expect_audio, expected_duration=expected_dur):
+            if output_exists and is_file_complete_and_valid(target_full, expect_audio=expect_audio, expected_duration=expected_dur):
                 status = EpisodeStatus.SKIPPED
                 status_detail = "Already present (will be skipped)"
                 out_size_mb = round(os.path.getsize(target_full) / (1024**2), 1)
@@ -471,13 +479,17 @@ class BatchManager:
         self._stop_requested = False
 
         if target_indices:
-            items_to_run = [item for item in self.queue if item.index in target_indices]
+            selected_indices = set(target_indices)
+            items_to_run = [item for item in self.queue if item.index in selected_indices]
         else:
             items_to_run = list(self.queue)
 
         total_items = len(items_to_run)
         completed_items = [0]
-        t_batch_start = time.time()
+        # Progress notifications can arrive for every frame. Keep work per update
+        # bounded by the active workers rather than the entire queued library.
+        active_progress: Dict[int, float] = {}
+        t_batch_start = time.monotonic()
 
         def process_single_item(item: QueueItem):
             if self._stop_requested:
@@ -507,6 +519,8 @@ class BatchManager:
             item.progress = 0.05
             item.status_detail = "Starting..."
             item.file_eta = "Calculating..."
+            with self._lock:
+                active_progress[id(item)] = item.progress
             if item_callback:
                 item_callback(item)
 
@@ -569,14 +583,11 @@ class BatchManager:
                 if batch_callback:
                     with self._lock:
                         cur_completed = completed_items[0]
-                        active_progress = sum(
-                            it.progress for it in items_to_run
-                            if it.status == EpisodeStatus.PROCESSING
-                        )
-                        effective_done = cur_completed + active_progress
+                        active_progress[id(item)] = ratio
+                        effective_done = cur_completed + sum(active_progress.values())
 
                     pct = (effective_done / total_items) * 100.0 if total_items > 0 else 0.0
-                    batch_elapsed = max(0.1, time.time() - t_batch_start)
+                    batch_elapsed = max(0.1, time.monotonic() - t_batch_start)
 
                     batch_eta_str = ""
                     if effective_done >= 0.05 and total_items > 0:
@@ -623,6 +634,7 @@ class BatchManager:
                 item.progress = 1.0
                 item.file_eta = ""
                 with self._lock:
+                    active_progress.pop(id(item), None)
                     completed_items[0] += 1
             else:
                 item.file_eta = ""
@@ -634,6 +646,7 @@ class BatchManager:
                     item.status_detail = f"Error: {msg}"
                     item.error_message = msg
                 with self._lock:
+                    active_progress.pop(id(item), None)
                     completed_items[0] += 1
 
             if item_callback:
@@ -643,7 +656,7 @@ class BatchManager:
                 with self._lock:
                     cur_completed = completed_items[0]
                 pct = (cur_completed / total_items) * 100.0 if total_items > 0 else 0.0
-                batch_elapsed = max(0.1, time.time() - t_batch_start)
+                batch_elapsed = max(0.1, time.monotonic() - t_batch_start)
                 batch_eta_str = ""
                 if cur_completed > 0 and total_items > 0:
                     rate = cur_completed / batch_elapsed
@@ -664,11 +677,35 @@ class BatchManager:
                     process_single_item(item)
             else:
                 with concurrent.futures.ThreadPoolExecutor(max_workers=effective_workers) as executor:
-                    futures = [executor.submit(process_single_item, item) for item in items_to_run]
-                    for future in concurrent.futures.as_completed(futures):
-                        future.result()
+                    remaining_items = iter(items_to_run)
+                    futures = set()
+
+                    def submit_next():
+                        while not self._stop_requested:
+                            item = next(remaining_items, None)
+                            if item is None:
+                                return
+                            # Already validated files need callbacks, not worker
+                            # futures. Long resumed batches should stay cheap.
+                            if item.status == EpisodeStatus.SKIPPED and not overwrite:
+                                process_single_item(item)
+                                continue
+                            futures.add(executor.submit(process_single_item, item))
+                            return
+
+                    for _ in range(effective_workers):
+                        submit_next()
+                    while futures:
+                        done, futures = concurrent.futures.wait(
+                            futures, return_when=concurrent.futures.FIRST_COMPLETED
+                        )
+                        for future in done:
+                            future.result()
                         if self._stop_requested:
-                            executor.shutdown(wait=False, cancel_futures=True)
+                            for future in futures:
+                                future.cancel()
                             break
+                        for _ in done:
+                            submit_next()
         finally:
             self._is_running = False

@@ -1,0 +1,16 @@
+{
+  "method": "Copy versioned and new non-ignored files; create empty venv; install requirements-dev.txt; run full suite and isolated GUI",
+  "external_tools": "FFmpeg/FFprobe remain on system PATH as documented; ignored Vulkan binaries are not copied",
+  "installed": {
+    "PyQt6": "6.11.0",
+    "PyQt6-Qt6": "6.11.2",
+    "Pillow": "13.0.0",
+    "pytest": "9.1.1"
+  },
+  "tests_exit_code": 0,
+  "tests_output": "....................................................................... [ 26%]\n........................................................................ [ 53%]\n........................................................................ [ 79%]\n......................................................                   [100%]\n269 passed, 1 subtests passed in 21.98s\n",
+  "gui_exit_code": 0,
+  "gui_output": "FRESH_GUI_OK\n",
+  "dependency_audit_exit_code": 0,
+  "dependency_audit_output": "No known vulnerabilities found\n"
+}

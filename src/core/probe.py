@@ -10,9 +10,13 @@ import json
 import math
 import os
 import shutil
+import stat
 import subprocess
 import threading
-from dataclasses import dataclass, replace
+from collections import OrderedDict
+from concurrent.futures import Future
+from copy import deepcopy
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 from src.core.models import calculate_display_dimensions, normalize_rotation, normalize_sample_aspect_ratio
@@ -56,16 +60,22 @@ class VideoMetadata:
         )
 
 
-_PROBE_CACHE: Dict[Tuple[str, float, int], VideoMetadata] = {}
-_AUDIO_PROBE_CACHE: Dict[Tuple[str, float, int], List[Dict]] = {}
+# Keep complete probe documents together: one inspection covers video, all audio
+# tracks, subtitles, display geometry, and the tags used by the privacy audit.
+_PROBE_CACHE_LIMIT = 256
+_PROBE_CACHE: OrderedDict[tuple, Dict] = OrderedDict()
+_IN_FLIGHT_PROBES: Dict[tuple, Future] = {}
 _CACHE_LOCK = threading.Lock()
+_CACHE_GENERATION = 0
 
 
 def clear_probe_cache() -> None:
-    """Clears all cached video and audio metadata probe results."""
+    """Clears cached snapshots without letting an older active probe refill them."""
+    global _CACHE_GENERATION
     with _CACHE_LOCK:
         _PROBE_CACHE.clear()
-        _AUDIO_PROBE_CACHE.clear()
+        _IN_FLIGHT_PROBES.clear()
+        _CACHE_GENERATION += 1
 
 
 def resolve_ffprobe_bin(ffprobe_bin: Optional[str] = None) -> str:
@@ -86,27 +96,79 @@ def resolve_ffprobe_bin(ffprobe_bin: Optional[str] = None) -> str:
     return "ffprobe"
 
 
-def probe_video(filepath: str, ffprobe_bin: Optional[str] = None) -> VideoMetadata:
-    """Uses ffprobe to extract complete, structured video and stream metadata.
+def _file_identity(filepath: str) -> Optional[tuple]:
+    """Use one stat call and nanosecond timestamps, including replacement identity."""
+    try:
+        info = os.stat(filepath)
+    except OSError:
+        return None
+    if not stat.S_ISREG(info.st_mode):
+        return None
+    return (
+        os.path.normcase(os.path.abspath(filepath)),
+        info.st_dev,
+        info.st_ino,
+        info.st_size,
+        info.st_mtime_ns,
+        info.st_ctime_ns,
+    )
 
-    Results are cached by (absolute_path, mtime, file_size) to eliminate redundant,
-    expensive subprocess invocations during batch scans, preflight checks, and encoding.
-    """
-    abs_path = os.path.abspath(filepath)
-    cache_key: Optional[Tuple[str, float, int]] = None
-    if os.path.isfile(abs_path):
-        try:
-            mtime = os.path.getmtime(abs_path)
-            size = os.path.getsize(abs_path)
-            cache_key = (abs_path, mtime, size)
-            with _CACHE_LOCK:
-                if cache_key in _PROBE_CACHE:
-                    cached = _PROBE_CACHE[cache_key]
-                    return replace(cached, filepath=filepath)
-        except OSError:
-            cache_key = None
 
+def _probe_media(filepath: str, ffprobe_bin: Optional[str], timeout: int) -> Dict:
+    """Read a bounded, shared snapshot; never publish a file changed mid-probe."""
     bin_name = resolve_ffprobe_bin(ffprobe_bin)
+    resolved_bin = shutil.which(bin_name) or bin_name
+    bin_identity = _file_identity(resolved_bin) or os.path.normcase(os.path.abspath(resolved_bin))
+    # A writer may finish during the first inspection. Retry it once after the
+    # change instead of caching or validating a snapshot of the earlier file.
+    for attempt in range(2):
+        identity = _file_identity(filepath)
+        cache_key = (identity, bin_identity) if identity is not None else None
+        owner = False
+        with _CACHE_LOCK:
+            generation = _CACHE_GENERATION
+            if cache_key is not None:
+                cached = _PROBE_CACHE.get(cache_key)
+                if cached is not None:
+                    _PROBE_CACHE.move_to_end(cache_key)
+                    return cached
+                pending = _IN_FLIGHT_PROBES.get(cache_key)
+                if pending is None:
+                    pending = Future()
+                    _IN_FLIGHT_PROBES[cache_key] = pending
+                    owner = True
+        if cache_key is None:
+            return _read_probe_document(filepath, bin_name, timeout)
+        if not owner:
+            data = pending.result()
+            if data is not None:
+                return data
+            continue
+        try:
+            data = _read_probe_document(filepath, bin_name, timeout)
+            if _file_identity(filepath) != identity:
+                data = None
+            with _CACHE_LOCK:
+                if data is not None and generation == _CACHE_GENERATION:
+                    _PROBE_CACHE[cache_key] = data
+                    _PROBE_CACHE.move_to_end(cache_key)
+                    while len(_PROBE_CACHE) > _PROBE_CACHE_LIMIT:
+                        _PROBE_CACHE.popitem(last=False)
+                if _IN_FLIGHT_PROBES.get(cache_key) is pending:
+                    del _IN_FLIGHT_PROBES[cache_key]
+            pending.set_result(data)
+            if data is not None:
+                return data
+        except BaseException as exc:
+            with _CACHE_LOCK:
+                if _IN_FLIGHT_PROBES.get(cache_key) is pending:
+                    del _IN_FLIGHT_PROBES[cache_key]
+            pending.set_exception(exc)
+            raise
+    raise RuntimeError(f"Media file changed while ffprobe was inspecting it: {filepath}")
+
+
+def _read_probe_document(filepath: str, bin_name: str, timeout: int) -> Dict:
     cmd = [
         bin_name,
         "-v", "error",
@@ -115,8 +177,16 @@ def probe_video(filepath: str, ffprobe_bin: Optional[str] = None) -> VideoMetada
         "-print_format", "json",
         filepath
     ]
-    raw = subprocess.check_output(cmd, text=True, errors="ignore", timeout=30)
+    raw = subprocess.check_output(cmd, text=True, errors="ignore", timeout=timeout)
     data = json.loads(raw)
+    if not isinstance(data, dict):
+        raise ValueError(f"Invalid ffprobe response for {filepath}")
+    return data
+
+
+def probe_video(filepath: str, ffprobe_bin: Optional[str] = None) -> VideoMetadata:
+    """Extract complete video metadata, sharing fresh bounded snapshots with audits."""
+    data = _probe_media(filepath, ffprobe_bin, timeout=30)
 
     v_stream = next((
         s for s in data.get("streams", [])
@@ -213,45 +283,14 @@ def probe_video(filepath: str, ffprobe_bin: Optional[str] = None) -> VideoMetada
         rotation=rotation,
     )
 
-    if cache_key:
-        with _CACHE_LOCK:
-            _PROBE_CACHE[cache_key] = meta
-
     return meta
 
 
 def probe_audio_streams(filepath: str, ffprobe_bin: Optional[str] = None) -> List[Dict]:
-    """Returns list of audio stream dictionaries with caching."""
-    abs_path = os.path.abspath(filepath)
-    cache_key: Optional[Tuple[str, float, int]] = None
-    if os.path.isfile(abs_path):
-        try:
-            mtime = os.path.getmtime(abs_path)
-            size = os.path.getsize(abs_path)
-            cache_key = (abs_path, mtime, size)
-            with _CACHE_LOCK:
-                if cache_key in _AUDIO_PROBE_CACHE:
-                    return list(_AUDIO_PROBE_CACHE[cache_key])
-        except OSError:
-            cache_key = None
-
-    bin_name = resolve_ffprobe_bin(ffprobe_bin)
-    cmd = [
-        bin_name,
-        "-v", "error",
-        "-show_streams",
-        "-select_streams", "a",
-        "-print_format", "json",
-        filepath
-    ]
+    """Return every audio track without exposing mutable cached stream dictionaries."""
     try:
-        raw = subprocess.check_output(cmd, text=True, errors="ignore", timeout=20)
-        data = json.loads(raw)
-        streams = data.get("streams", [])
-        if cache_key:
-            with _CACHE_LOCK:
-                _AUDIO_PROBE_CACHE[cache_key] = streams
-        return streams
+        data = _probe_media(filepath, ffprobe_bin, timeout=20)
+        return deepcopy([stream for stream in data.get("streams", []) if stream.get("codec_type") == "audio"])
     except Exception:
         return []
 
@@ -311,15 +350,13 @@ def clean_metadata_args(include_video: bool = True) -> list:
 def verify_clean_media_metadata(filepath: str, ffprobe_bin: Optional[str] = None) -> tuple[bool, list[str], str]:
     """Inspects output media file tags via ffprobe for forbidden markers."""
     from src.core.scene_renamer import find_forbidden_output_markers
-    bin_path = resolve_ffprobe_bin(ffprobe_bin)
     try:
-        raw = subprocess.check_output(
-            [bin_path, "-v", "error", "-show_entries", "format_tags:stream_tags", "-of", "json", filepath],
-            text=True,
-            errors="ignore",
-            timeout=15,
-        )
-        markers = find_forbidden_output_markers(raw)
+        data = _probe_media(filepath, ffprobe_bin, timeout=15)
+        tags = {
+            "format": {"tags": data.get("format", {}).get("tags", {})},
+            "streams": [{"tags": stream.get("tags", {})} for stream in data.get("streams", [])],
+        }
+        markers = find_forbidden_output_markers(json.dumps(tags, ensure_ascii=False))
         return len(markers) == 0, markers, ""
     except Exception as exc:
         return False, [], str(exc)

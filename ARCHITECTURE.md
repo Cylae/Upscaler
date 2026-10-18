@@ -85,8 +85,8 @@ sequenceDiagram
    - Analyzes rational framerates (e.g., `24000/1001` for 23.976 fps), pixel formats, color range (`tv` vs `pc`), color primaries, and multiple audio stream tracks.
 
 3. **Frame Extraction**:
-   - Uses optimized JPEG extraction (`-qscale:v 1`) for a 2x–3x speedup over disk I/O bottlenecks while maintaining 100% perceptual fidelity for 2D animation.
-   - Lossless PNG frame I/O is optionally available for archival tasks.
+   - JPEG extraction (`-qscale:v 1`) reduces temporary storage but is lossy.
+   - PNG frame I/O preserves decoded pixels. Compression level 1 reduces temporary-image encoding work without changing pixels; disk usage depends on the source and can be larger than the previous PNG defaults.
 
 4. **Neural Inference & Dynamic Tiling (`src/core/models.py`)**:
    - Selects optimal scale factors (2x, 3x, 4x) and neural architectures (`realesrgan-x4plus-anime`, `realesr-animevideov3`, `realcugan-pro`, etc.).
@@ -129,6 +129,14 @@ Managing multiple concurrent workers invoking external CLI binaries (FFmpeg, Rea
 - **`UpscaleWorker` (`QThread`)**: Executes batch processing independently of the Qt GUI event loop. Emits PyQt signals (`batch_updated`, `item_updated`, `log_signal`, `finished_signal`) to safely update widgets on the main GUI thread.
 - **`ScanWorker` (`QThread`)**: Asynchronously indexes thousands of source files without causing GUI freezes or hitching.
 - **`FramePreviewWorker` (`QThread`)**: Extracts and renders single-frame Before/After previews in parallel while the user navigates the table.
+
+### Bounded orchestration and metadata reuse
+
+- The batch scheduler submits at most the configured worker count (1–4) at once. Progress aggregation sums active workers rather than walking the whole queue. Inference emits intermediate progress at most once per 250 ms and always emits completion.
+- FFprobe video, audio and tag readers share complete snapshots in a 256-entry LRU cache. Keys include file identity, size, nanosecond timestamps and executable identity. Concurrent identical inspections share one process. Files changed during inspection are retried once, then rejected if still changing. Returned audio dictionaries are copied so callers cannot mutate cached evidence.
+- The UI indexes queue IDs and table rows and updates status counts incrementally. Table repopulation rebuilds those indexes; reordered rows are checked before use. Logs have one shared owner; document limits bound rendered text while the existing retained-log policy remains in effect.
+- Child creation and registration share the cancellation lock, preventing a newly spawned process from escaping a concurrent stop. A cancelled pipeline must be explicitly reset with `reset_cancel()` before programmatic reuse; normal batch jobs create new pipelines.
+- Output frame inventory uses directory-entry metadata and checks contiguous frame numbering, nonempty files, engine errors and the existing black-frame samples before encoding. Atomic output promotion remains unchanged.
 
 ---
 
@@ -174,7 +182,7 @@ The desktop interface (`src/ui/main_window.py`) is styled using a custom dark th
 
 ## 6. Testing Strategy & Verification
 
-The repository enforces a 100% automated test coverage policy with 94 unit and integration tests across 14 test modules:
+The automated suite covers core, CLI, integration and Qt behavior. Passing tests do not prove complete coverage or correctness for every possible media file. Current measurements and verification evidence are recorded in [the efficiency report](REPORTS/EFFICIENCY_2026-10-18.md).
 
 | Test Module | Coverage Scope |
 | :--- | :--- |

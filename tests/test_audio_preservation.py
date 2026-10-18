@@ -117,8 +117,11 @@ def test_audio_integrity_check_failure_aborts_output():
         with patch("os.makedirs"), patch("os.path.isfile", return_value=True), patch("os.path.isdir", return_value=True), patch("os.path.getsize", return_value=1_000_000):
             with patch("subprocess.Popen", return_value=mock_proc):
                 with patch("src.core.video_pipeline.probe_audio_stream", return_value=True):
-                    # Patch os.listdir at the module level so worker threads see it too
-                    with patch("src.core.video_pipeline.os.listdir", return_value=["frame_00000001.jpg"]):
+                    # Both input counting and output inspection use synthetic frames.
+                    with (
+                        patch("src.core.video_pipeline.os.listdir", return_value=["frame_00000001.jpg"]),
+                        patch("src.core.video_pipeline._list_nonempty_frames", return_value=["frame_00000001.jpg"]),
+                    ):
                         success, msg = pipeline.process_video(job)
                         # Must fail because soundtrack could not be preserved
                         assert success is False
@@ -173,7 +176,10 @@ def test_audio_integrity_repair_pass_restores_audio():
         with patch("os.makedirs"), patch("os.path.isfile", return_value=True), patch("os.path.isdir", return_value=True), patch("os.path.getsize", return_value=1_000_000):
             with patch("subprocess.Popen", return_value=mock_proc):
                 with patch("src.core.video_pipeline.probe_audio_stream", return_value=True):
-                    with patch("src.core.video_pipeline.os.listdir", return_value=["frame_00000001.jpg"]):
+                    with (
+                        patch("src.core.video_pipeline.os.listdir", return_value=["frame_00000001.jpg"]),
+                        patch("src.core.video_pipeline._list_nonempty_frames", return_value=["frame_00000001.jpg"]),
+                    ):
                         with patch("os.replace"), patch("shutil.move"):
                             success, final_path = pipeline.process_video(job)
                             assert success is True

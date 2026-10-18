@@ -65,8 +65,10 @@ class ProcessTracker:
             creationflags = popen_kwargs.get("creationflags", 0)
             creationflags |= subprocess.CREATE_NEW_PROCESS_GROUP
             popen_kwargs["creationflags"] = creationflags
-        proc = subprocess.Popen(cmd, **popen_kwargs)
         with self._process_lock:
+            if self._is_cancelled:
+                raise RuntimeError("Operation cancelled by user.")
+            proc = subprocess.Popen(cmd, **popen_kwargs)
             self._active_processes.add(proc)
         return proc
 

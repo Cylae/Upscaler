@@ -33,9 +33,9 @@ if not exist "%VENV_PY%" (
     exit /b 1
 )
 
-"%VENV_PY%" -c "import PyQt6" >nul 2>nul
+"%VENV_PY%" -c "from PyQt6.QtWidgets import QApplication; from PIL import Image" >nul 2>nul
 if errorlevel 1 (
-    echo Installing dependencies (one-time setup)...
+    echo Installing dependencies for first-time setup...
     "%VENV_PY%" -m pip install --disable-pip-version-check -r "%~dp0requirements.txt"
     if errorlevel 1 (
         echo ERROR: Dependency installation failed.

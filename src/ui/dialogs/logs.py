@@ -124,6 +124,7 @@ class LogViewerDialog(QDialog):
         self.txt_log = QTextEdit()
         self.txt_log.setObjectName("txtConsole")
         self.txt_log.setReadOnly(True)
+        self.txt_log.document().setMaximumBlockCount(5000)
         self.txt_log.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
         layout.addWidget(self.txt_log, 1)
 
@@ -134,8 +135,10 @@ class LogViewerDialog(QDialog):
 
         self._reload_all()
 
-    def append_line(self, msg: str):
-        self._log_buffer.append(msg)
+    def append_line(self, msg: str, *, store: bool = True):
+        # The main window owns the shared buffer and stores each incoming line once.
+        if store:
+            self._log_buffer.append(msg)
         color = self._color_for(msg)
         safe_msg = html.escape(msg)
         html_line = f"<span style='color:{color}; font-family: monospace;'>{safe_msg}</span>"
@@ -148,6 +151,8 @@ class LogViewerDialog(QDialog):
         self._update_count()
 
     def _color_for(self, msg: str) -> str:
+        if len(msg) >= 12 and msg[0] == "[" and msg[9:12] == "]  ":
+            msg = msg[12:]
         for prefix, color in self._COLORS.items():
             if msg.startswith(prefix):
                 return color
@@ -161,7 +166,7 @@ class LogViewerDialog(QDialog):
                 color = self._color_for(line)
                 safe_line = html.escape(line)
                 lines.append(f"<span style='color:{color}; font-family: monospace;'>{safe_line}</span>")
-        self.txt_log.setHtml("<br>".join(lines))
+        self.txt_log.setHtml("".join(f"<p style='margin:0;'>{line}</p>" for line in lines))
         if self._auto_scroll:
             sb = self.txt_log.verticalScrollBar()
             sb.setValue(sb.maximum())

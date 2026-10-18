@@ -24,7 +24,7 @@ Built for **exceptional visual fidelity** without ringing or seam artifacts, acc
 - **High-Performance Multithreading & Multi-Worker Concurrency**:
   - **Engine Multithreading**: Configurable `-j load:proc:save` thread spec (auto-tuned to available CPU cores and GPU VRAM).
   - **Multi-Worker Scheduling**: Run concurrent workers to overlap CPU frame extraction and hardware encoding of upcoming episodes with GPU neural inference.
-  - **Optimized Frame I/O**: High-speed frame extraction and loading via JPEG (`-qscale:v 1`) for high I/O throughput with lossless PNG option available for archival tasks.
+  - **Optimized Frame I/O**: JPEG (`-qscale:v 1`) for smaller temporary files, or lossless PNG to preserve decoded pixels. PNG extraction uses faster lossless compression; temporary files can be larger while image quality stays identical.
 - **Visual Previews & Preflight Planning**:
   - **Single Frame Visual Comparison**: Side-by-side zoomable Before/After visual inspector on any selected episode.
   - **Short Clip Previews**: Render short clips (e.g. 5s–30s) starting 10% into the episode to verify settings before running an entire series.
@@ -57,9 +57,19 @@ launch.bat
 ```
 or run from PowerShell / Terminal:
 ```powershell
+.\launch.bat
+```
+On first launch, `launch.bat` creates a local `.venv`, installs dependencies from `requirements.txt`, and launches the dark-mode GUI. Later launches reuse this environment.
+
+After setup, you can also run `py main.py` on Windows. If the selected Python lacks PyQt6 or Pillow, the GUI entry point automatically uses the project's `.venv`. Without a configured environment, it displays setup instructions.
+
+For manual setup or direct CLI use, activate the project environment first:
+```powershell
+py -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\Activate.ps1
 python main.py
 ```
-On first launch, `launch.bat` verifies the Python environment, installs dependencies from `requirements.txt`, and launches the dark-mode GUI.
 
 ### 2. Command-Line Interface (CLI)
 
@@ -186,10 +196,19 @@ Upscaler/
 
 Run the full automated test suite:
 ```powershell
-python -m pytest -v
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -m pytest -v
 ```
 
 The tests validate audio preservation, display geometry, contract integrity, CLI argument parsing, 8K profile and UI routing, dry-run mappings, process cancellation safety, UI responsiveness, and privacy filters.
+
+Reproduce performance comparisons against the previous implementation using generated media and isolated desktop settings:
+```powershell
+.\.venv\Scripts\python.exe benchmarks\benchmark_efficiency.py --baseline-ref 2c03d35 --rounds 3 --render
+```
+FFmpeg/FFprobe are required for media measurements; `--render` also requires the local Real-ESRGAN binary and models. The benchmark checks decoded video/audio equivalence and removes its generated media when finished. Component timings do not predict the same speedup for a full episode.
+
+The optimizations preserve selected models, native scales, TTA, denoise, frame formats, codec quality settings and audio mode. JPEG and final video encoding retain their existing lossy characteristics; select PNG for lossless intermediate frames. Faster PNG compression can increase temporary disk usage (42% on the measured detailed sample); the preflight estimate covers final output only. See [measurements, verification and limitations](REPORTS/EFFICIENCY_2026-10-18.md).
 
 ---
 

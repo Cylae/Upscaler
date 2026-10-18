@@ -1,0 +1,155 @@
+{
+  "baseline_ref": "2c03d35",
+  "rounds": 3,
+  "python": "3.14.7",
+  "cpu_cores": 32,
+  "batch_10000_items_500_progress_events": {
+    "before": {
+      "median_seconds": 0.27179290000003675,
+      "samples_seconds": [
+        0.2756520000000364,
+        0.27179290000003675,
+        0.27068850000000566
+      ]
+    },
+    "after": {
+      "median_seconds": 0.02424980000000687,
+      "samples_seconds": [
+        0.02424980000000687,
+        0.024069600000075297,
+        0.02435579999996662
+      ]
+    },
+    "speedup": 11.20804707667526
+  },
+  "frame_inventory_10000_files": {
+    "before": {
+      "median_seconds": 0.1662978000001658,
+      "samples_seconds": [
+        0.1639520999999604,
+        0.1663003999999546,
+        0.1662978000001658
+      ]
+    },
+    "after": {
+      "median_seconds": 0.01980109999999513,
+      "samples_seconds": [
+        0.02013119999992341,
+        0.01980109999999513,
+        0.019797599999947124
+      ]
+    },
+    "speedup": 8.398412209433147
+  },
+  "ui": {
+    "filter_1000_rows_10_passes": {
+      "before": {
+        "median_seconds": 0.13017330000002403,
+        "samples_seconds": [
+          0.130884000000151,
+          0.12971149999998488,
+          0.13017330000002403
+        ]
+      },
+      "after": {
+        "median_seconds": 0.019066399999928763,
+        "samples_seconds": [
+          0.019066399999928763,
+          0.01904059999992569,
+          0.019098199999916687
+        ]
+      },
+      "speedup": 6.827366466690639
+    },
+    "progress_1000_rows_200_events": {
+      "before": {
+        "median_seconds": 0.24681909999981144,
+        "samples_seconds": [
+          0.24681909999981144,
+          0.24836609999988468,
+          0.24651010000002316
+        ]
+      },
+      "after": {
+        "median_seconds": 0.0029881999998906394,
+        "samples_seconds": [
+          0.0033088000000134343,
+          0.002982399999837071,
+          0.0029881999998906394
+        ]
+      },
+      "speedup": 82.5979184823119
+    },
+    "live_logs_500_events": {
+      "before": {
+        "median_seconds": 0.06727720000003501,
+        "samples_seconds": [
+          0.06842839999990247,
+          0.06727720000003501,
+          0.06710150000003523
+        ],
+        "stored_records": 1000
+      },
+      "after": {
+        "median_seconds": 0.05883829999993395,
+        "samples_seconds": [
+          0.05936270000006516,
+          0.05883829999993395,
+          0.058675899999798276
+        ],
+        "stored_records": 500
+      },
+      "speedup": 1.1434252859125864
+    }
+  },
+  "media": {
+    "probe_video_audio_tags": {
+      "before": {
+        "median_seconds": 0.13043240000001788,
+        "samples_seconds": [
+          0.13177729999983967,
+          0.13043240000001788,
+          0.1294206000000031
+        ]
+      },
+      "after": {
+        "median_seconds": 0.059836400000222056,
+        "samples_seconds": [
+          0.0609421999999995,
+          0.059836400000222056,
+          0.05973740000013095
+        ]
+      },
+      "speedup": 2.1798169675905275
+    },
+    "png_detailed_1080p": {
+      "before": {
+        "median_seconds": 0.34400909999999385,
+        "samples_seconds": [
+          0.34400909999999385,
+          0.3452658999999585,
+          0.34194289999982175
+        ],
+        "intermediate_bytes": 92791901
+      },
+      "after": {
+        "median_seconds": 0.27705919999993966,
+        "samples_seconds": [
+          0.2655394000000797,
+          0.27705919999993966,
+          0.29348959999992985
+        ],
+        "intermediate_bytes": 132195673
+      },
+      "speedup": 1.2416447459606783,
+      "identical_decoded_frames": 24
+    },
+    "render": {
+      "before_seconds": 1.1591863000001013,
+      "after_seconds": 1.1029894999999215,
+      "identical_video_frames": 4,
+      "identical_audio_blocks": 47,
+      "note": "One tiny synthetic render; not a general GPU-throughput benchmark."
+    }
+  }
+}

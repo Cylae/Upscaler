@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from collections import Counter
 from typing import Dict, List, Optional, Tuple
 
 from PyQt6.QtCore import QEvent, QPoint, QSettings, Qt, QTimer
@@ -100,6 +101,10 @@ class UpscalerMainWindow(QMainWindow):
         self._log_viewer: Optional[LogViewerDialog] = None
         self._hint_worker: Optional[ModelHintWorker] = None
         self._frame_worker: Optional[FramePreviewWorker] = None
+        self._queue_items_by_id: Dict[str, QueueItem] = {}
+        self._table_rows_by_id: Dict[str, int] = {}
+        self._displayed_statuses: Dict[str, EpisodeStatus] = {}
+        self._status_counts: Counter = Counter()
         self.settings = QSettings("CYLAE", "VideoEnhancer4K")
 
         self._init_ui()
@@ -700,6 +705,7 @@ class UpscalerMainWindow(QMainWindow):
         self.txt_console = QTextEdit()
         self.txt_console.setObjectName("txtConsole")
         self.txt_console.setReadOnly(True)
+        self.txt_console.document().setMaximumBlockCount(250)
         self.txt_console.setFixedHeight(90)
         self.txt_console.setPlaceholderText("Engine commands will appear here...")
         expert_layout.addWidget(self.txt_console)
@@ -1147,24 +1153,17 @@ class UpscalerMainWindow(QMainWindow):
 
         count = len(self._log_buffer)
         self.btn_open_logs.setText(f"📋 Logs ({count})")
-        if count > 0:
+        if count == 1:
             self.btn_open_logs.setStyleSheet(
                 "padding: 4px 12px; font-size: 11px; font-weight: 600;"
                 "background-color: rgba(10, 132, 255, 0.15); border: 1px solid #0a84ff; border-radius: 12px; color: #0a84ff;"
             )
 
         if self._log_viewer and self._log_viewer.isVisible():
-            self._log_viewer.append_line(timestamped)
+            self._log_viewer.append_line(timestamped, store=False)
 
         if hasattr(self, 'txt_console'):
             self.txt_console.append(msg)
-            doc = self.txt_console.document()
-            if doc.blockCount() > 250:
-                cursor = self.txt_console.textCursor()
-                cursor.movePosition(cursor.MoveOperation.Start)
-                cursor.select(cursor.SelectionType.BlockUnderCursor)
-                cursor.removeSelectedText()
-                cursor.deleteChar()
 
     def clear_all_logs(self):
         self._log_buffer.clear()
@@ -1180,8 +1179,11 @@ class UpscalerMainWindow(QMainWindow):
             self._log_viewer._update_count()
 
     def _open_log_viewer(self):
-        if self._log_viewer is None or not self._log_viewer.isVisible():
+        if self._log_viewer is None:
             self._log_viewer = LogViewerDialog(self._log_buffer, parent=self)
+            self._log_viewer.show()
+        elif not self._log_viewer.isVisible():
+            self._log_viewer._reload_all()
             self._log_viewer.show()
         else:
             self._log_viewer.raise_()
@@ -1725,11 +1727,18 @@ class UpscalerMainWindow(QMainWindow):
             self.lbl_overall_status.setText("No failed or cancelled episodes to retry.")
 
     def _find_row_by_item_id(self, item_id: str) -> int:
+        row = self._table_rows_by_id.get(item_id, -1)
+        if 0 <= row < self.table.rowCount():
+            it = self.table.item(row, 0)
+            if it and it.data(Qt.ItemDataRole.UserRole) == item_id:
+                return row
+        # Keep identity correct if rows have been reordered by the view.
+        self._table_rows_by_id.clear()
         for r in range(self.table.rowCount()):
             it = self.table.item(r, 0)
-            if it and it.data(Qt.ItemDataRole.UserRole) == item_id:
-                return r
-        return -1
+            if it:
+                self._table_rows_by_id[it.data(Qt.ItemDataRole.UserRole)] = r
+        return self._table_rows_by_id.get(item_id, -1)
 
     def _get_queue_item_from_row(self, row: int) -> Optional[QueueItem]:
         if 0 <= row < self.table.rowCount():
@@ -1737,15 +1746,23 @@ class UpscalerMainWindow(QMainWindow):
             if it:
                 item_id = it.data(Qt.ItemDataRole.UserRole)
                 if item_id:
-                    for q in self.batch_manager.queue:
-                        if q.id == item_id:
-                            return q
+                    return self._queue_items_by_id.get(item_id)
         return None
 
     def _populate_table(self, queue: List[QueueItem]):
+        self._queue_items_by_id = {item.id: item for item in queue}
+        self._table_rows_by_id = {item.id: row for row, item in enumerate(queue)}
+        self._displayed_statuses = {item.id: item.status for item in queue}
+        self._status_counts = Counter(self._displayed_statuses.values())
+        updates_enabled = self.table.updatesEnabled()
+        self.table.setUpdatesEnabled(False)
+        try:
+            self._populate_table_rows(queue)
+        finally:
+            self.table.setUpdatesEnabled(updates_enabled)
+
+    def _populate_table_rows(self, queue: List[QueueItem]):
         self.table.setRowCount(len(queue))
-        skipped_count = 0
-        completed_count = 0
 
         for r, item in enumerate(queue):
             it_idx = QTableWidgetItem(str(item.index))
@@ -1780,34 +1797,29 @@ class UpscalerMainWindow(QMainWindow):
             self._style_status_item(it_status, item.status)
             self.table.setItem(r, 5, it_status)
 
-            if item.status == EpisodeStatus.SKIPPED:
-                skipped_count += 1
-            elif item.status == EpisodeStatus.COMPLETED:
-                completed_count += 1
-
             it_detail = QTableWidgetItem(item.status_detail or "Ready")
             it_detail.setForeground(QColor("#94a3b8"))
             self.table.setItem(r, 6, it_detail)
 
         total = len(queue)
-        failed_count = sum(1 for it in queue if it.status == EpisodeStatus.FAILED)
-        ready = total - skipped_count - completed_count - failed_count
-
         self.btn_stat_all.setText(f"All: {total}")
-        self.btn_stat_ready.setText(f"Ready: {ready}")
-        self.btn_stat_completed.setText(f"Done: {completed_count}")
-        self.btn_stat_skipped.setText(f"Skipped: {skipped_count}")
-        if hasattr(self, 'btn_stat_failed'):
-            self.btn_stat_failed.setText(f"Errors: {failed_count}")
-            if failed_count > 0:
-                self.btn_stat_failed.setProperty("class", "statPillError")
-            else:
-                self.btn_stat_failed.setProperty("class", "statPill")
-            self.btn_stat_failed.style().unpolish(self.btn_stat_failed)
-            self.btn_stat_failed.style().polish(self.btn_stat_failed)
-
+        self._update_queue_stats()
+        ready = self._status_counts[EpisodeStatus.PENDING]
         self.lbl_overall_status.setText(f"Indexed {total} episodes ({ready} ready to process).")
         self.apply_table_filters()
+
+    def _update_queue_stats(self):
+        self.btn_stat_ready.setText(f"Ready: {self._status_counts[EpisodeStatus.PENDING]}")
+        self.btn_stat_completed.setText(f"Completed: {self._status_counts[EpisodeStatus.COMPLETED]}")
+        self.btn_stat_skipped.setText(f"Skipped: {self._status_counts[EpisodeStatus.SKIPPED]}")
+        if hasattr(self, 'btn_stat_failed'):
+            failed_count = self._status_counts[EpisodeStatus.FAILED]
+            self.btn_stat_failed.setText(f"Errors: {failed_count}")
+            style_class = "statPillError" if failed_count else "statPill"
+            if self.btn_stat_failed.property("class") != style_class:
+                self.btn_stat_failed.setProperty("class", style_class)
+                self.btn_stat_failed.style().unpolish(self.btn_stat_failed)
+                self.btn_stat_failed.style().polish(self.btn_stat_failed)
 
     def _status_badge_text(self, status: EpisodeStatus) -> str:
         if status == EpisodeStatus.PENDING:
@@ -1846,31 +1858,22 @@ class UpscalerMainWindow(QMainWindow):
         mode = self._current_filter_mode
 
         for r in range(self.table.rowCount()):
-            text_match = True
-            if search_text:
-                text_match = False
-                for col in (1, 3, 4):
-                    item = self.table.item(r, col)
-                    if item and search_text in item.text().lower():
-                        text_match = True
-                        break
+            self._apply_row_filter(r, search_text, mode)
 
-            status_match = True
-            q_item = self._get_queue_item_from_row(r)
-            if q_item:
-                q_status = q_item.status
-                if mode == "ready":
-                    status_match = (q_status == EpisodeStatus.PENDING)
-                elif mode == "completed":
-                    status_match = (q_status == EpisodeStatus.COMPLETED)
-                elif mode == "skipped":
-                    status_match = (q_status == EpisodeStatus.SKIPPED)
-                elif mode == "failed":
-                    status_match = (q_status == EpisodeStatus.FAILED)
-            elif mode != "all":
-                status_match = False
-
-            self.table.setRowHidden(r, not (text_match and status_match))
+    def _apply_row_filter(self, row: int, search_text: str, mode: str):
+        text_match = not search_text or any(
+            (cell := self.table.item(row, col)) is not None and search_text in cell.text().lower()
+            for col in (1, 3, 4)
+        )
+        expected_status = {
+            "ready": EpisodeStatus.PENDING,
+            "completed": EpisodeStatus.COMPLETED,
+            "skipped": EpisodeStatus.SKIPPED,
+            "failed": EpisodeStatus.FAILED,
+        }.get(mode)
+        q_item = self._get_queue_item_from_row(row)
+        status_match = expected_status is None or (q_item is not None and q_item.status == expected_status)
+        self.table.setRowHidden(row, not (text_match and status_match))
 
     def on_start_clicked(self):
         self.start_processing()
@@ -2026,7 +2029,17 @@ class UpscalerMainWindow(QMainWindow):
     def on_item_updated(self, item: QueueItem):
         row = self._find_row_by_item_id(item.id)
         if row == -1:
-            row = item.index - 1
+            # Ignore a queued signal belonging to an item that has since been removed.
+            return
+        self._queue_items_by_id[item.id] = item
+        previous_status = self._displayed_statuses.get(item.id)
+        status_changed = previous_status != item.status
+        if status_changed:
+            if previous_status is not None:
+                self._status_counts[previous_status] -= 1
+            self._status_counts[item.status] += 1
+            self._displayed_statuses[item.id] = item.status
+            self._update_queue_stats()
         if 0 <= row < self.table.rowCount():
             it_model = self.table.item(row, 4)
             if it_model:
@@ -2034,7 +2047,7 @@ class UpscalerMainWindow(QMainWindow):
                 it_model.setToolTip(self._get_model_tooltip_for_item(item))
 
             it_status = self.table.item(row, 5)
-            if it_status:
+            if it_status and status_changed:
                 it_status.setText(self._status_badge_text(item.status))
                 self._style_status_item(it_status, item.status)
 
@@ -2044,23 +2057,8 @@ class UpscalerMainWindow(QMainWindow):
 
             if item.status == EpisodeStatus.PROCESSING and it_status:
                 self.table.scrollToItem(it_status)
-
-        completed_count = sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.COMPLETED)
-        skipped_count = sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.SKIPPED)
-        failed_count = sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.FAILED)
-        ready_count = sum(1 for it in self.batch_manager.queue if it.status == EpisodeStatus.PENDING)
-
-        self.btn_stat_ready.setText(f"Ready: {ready_count}")
-        self.btn_stat_completed.setText(f"Completed: {completed_count}")
-        self.btn_stat_skipped.setText(f"Skipped: {skipped_count}")
-        if hasattr(self, 'btn_stat_failed'):
-            self.btn_stat_failed.setText(f"Errors: {failed_count}")
-            if failed_count > 0:
-                self.btn_stat_failed.setProperty("class", "statPillError")
-            else:
-                self.btn_stat_failed.setProperty("class", "statPill")
-            self.btn_stat_failed.style().unpolish(self.btn_stat_failed)
-            self.btn_stat_failed.style().polish(self.btn_stat_failed)
+            if status_changed or self.txt_filter.text().strip():
+                self._apply_row_filter(row, self.txt_filter.text().lower().strip(), self._current_filter_mode)
 
     def on_batch_updated(self, current: int, total: int, pct: float, status_str: str, eta_str: str = ""):
         self.progress_bar.setValue(int(pct))

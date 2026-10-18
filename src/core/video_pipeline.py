@@ -99,6 +99,25 @@ def _select_model_scale(model: AIModelSpec, required_scale: float) -> int:
     return min((scale for scale in scales if scale >= required_scale - 0.05), default=max(scales))
 
 
+def _list_nonempty_frames(directory: str, frame_ext: str) -> List[str]:
+    """Reuse directory-entry metadata instead of statting every output path."""
+    suffix = f".{frame_ext}"
+    with os.scandir(directory) as entries:
+        return sorted(
+            entry.name for entry in entries
+            if entry.name.startswith("frame_") and entry.name.endswith(suffix)
+            and entry.is_file() and entry.stat().st_size > 0
+        )
+
+
+def _complete_frame_sequence(names: List[str], frame_ext: str, expected: int) -> bool:
+    """A missing frame must not be masked by a stray or misnumbered image."""
+    return len(names) == expected and all(
+        name == f"frame_{index:08d}.{frame_ext}"
+        for index, name in enumerate(names, 1)
+    )
+
+
 
 @dataclass
 class UpscaleJobConfig:
@@ -182,8 +201,11 @@ class VideoUpscalerPipeline:
             creationflags = popen_kwargs.get("creationflags", 0)
             creationflags |= subprocess.CREATE_NEW_PROCESS_GROUP
             popen_kwargs["creationflags"] = creationflags
-        proc = subprocess.Popen(cmd, **popen_kwargs)
         with self._process_lock:
+            # Cancellation must see either no child or an already registered one.
+            if self._is_cancelled:
+                raise RuntimeError("Operation cancelled by user.")
+            proc = subprocess.Popen(cmd, **popen_kwargs)
             self._active_processes.add(proc)
         return proc
 
@@ -389,6 +411,10 @@ class VideoUpscalerPipeline:
 
         if frame_ext == "jpg":
             cmd.extend(["-qscale:v", "1", "-qmin", "1"])
+        else:
+            # PNG stays lossless. Spend less CPU compressing temporary images;
+            # the model receives exactly the same decoded pixels.
+            cmd.extend(["-compression_level", "1"])
 
         cmd.append(os.path.join(frames_in_dir, f"frame_%08d.{frame_ext}"))
         return cmd
@@ -415,10 +441,8 @@ class VideoUpscalerPipeline:
           - Uses -r instead of the deprecated -framerate flag for frame rate injection.
           - Adds -movflags +faststart so the moov atom is written at the start of
             the file — enables progressive playback and faster seeks in media players.
-          - Adds -rc-lookahead 32 and -surfaces 64 for NVENC encoders to improve
-            B-frame prediction quality without any notable speed cost.
-          - CPU fallback presets changed from 'medium' to 'fast': roughly 2x faster
-            with negligible (< 1 dB PSNR) quality difference at the same CRF.
+          - Retains NVENC lookahead, surfaces, AQ and the requested CQ/preset.
+          - Retains the existing CPU fallback preset and requested CRF.
           - filter_threads / filter_complex_threads set to 0 for maximum CPU usage
             during the Lanczos scale filter.
         """
@@ -499,7 +523,6 @@ class VideoUpscalerPipeline:
                 "-pix_fmt", "yuv420p",
             ])
         elif chosen_encoder == "libx265":
-            # 'fast' is ~2x quicker than 'medium' with < 1 dB PSNR difference at same CRF
             cmd.extend([
                 "-c:v", "libx265",
                 "-crf", cq_val,
@@ -559,8 +582,11 @@ class VideoUpscalerPipeline:
         - FFmpeg encode command uses rc-lookahead, surfaces, movflags+faststart,
           and CPU fallback preset 'fast' instead of 'medium'.
         """
-        self.reset_cancel()
-        t_file_start = time.time()
+        # Batch workers allocate a fresh pipeline for each job. Do not erase a
+        # stop request delivered just before this call; reuse requires reset_cancel().
+        if self._is_cancelled:
+            return False, "Cancelled by user."
+        t_file_start = time.monotonic()
 
         try:
             validate_job_config(job)
@@ -841,8 +867,10 @@ class VideoUpscalerPipeline:
                     _frames_result["error"] = f"FFmpeg frame extraction failed (exit code {rc})"
                     return
 
-                ff = [f for f in os.listdir(frames_in_dir) if f.startswith("frame_") and f.endswith(f".{frame_ext}")]
-                _frames_result["extracted"] = len(ff)
+                _frames_result["extracted"] = sum(
+                    1 for name in os.listdir(frames_in_dir)
+                    if name.startswith("frame_") and name.endswith(f".{frame_ext}")
+                )
 
             report(0.08, "Extracting audio and frames in parallel...")
 
@@ -862,7 +890,7 @@ class VideoUpscalerPipeline:
                             ap.kill()
                         except Exception:
                             pass
-                    return False, "Cancelled by user."
+                    break
                 time.sleep(0.1)
 
             audio_thread.join()
@@ -897,7 +925,7 @@ class VideoUpscalerPipeline:
 
             mode_label = f" — Preview {int(_preview_dur_s)}s" if _preview_mode and _preview_dur_s else ""
             report(0.20, f"Upscaling with {selected_model.name} (Threads: {thread_spec}, Tile: {effective_tile_size or 'auto'}){mode_label}...")
-            t_start_ai = time.time()
+            t_start_ai = time.monotonic()
 
             # ------------------------------------------------------------------
             # 7. Run Upscaler with Automatic GPU Memory Protection & Fallback
@@ -990,8 +1018,7 @@ class VideoUpscalerPipeline:
 
                 # Monitor progress per completed frame
                 completed_frames = 0
-                last_report_time = 0.0
-                last_report_frames = 0
+                last_report_time = time.monotonic()
                 est_encode_s = max(2.0, total_extracted / 120.0)
                 vulkan_errors: List[str] = []
 
@@ -1022,12 +1049,11 @@ class VideoUpscalerPipeline:
                         # Real-ESRGAN and RealCUGAN output: "... -> ... done"
                         if "->" in line_clean and line_clean.lower().endswith("done"):
                             completed_frames += 1
-                            now = time.time()
+                            now = time.monotonic()
 
-                            # Update every 4 frames or 0.25s, or at completion
-                            if (completed_frames - last_report_frames >= 4) or (now - last_report_time >= 0.25) or (completed_frames >= total_extracted):
+                            # Bound UI work on fast models; always publish completion.
+                            if now - last_report_time >= 0.25 or completed_frames >= total_extracted:
                                 last_report_time = now
-                                last_report_frames = completed_frames
 
                                 pct = min(100.0, (completed_frames / total_extracted) * 100.0)
                                 elapsed_ai = max(0.01, now - t_start_ai)
@@ -1060,15 +1086,12 @@ class VideoUpscalerPipeline:
                 if self._is_cancelled:
                     return False, "Cancelled by user."
 
-                output_frames = sorted([
-                    name for name in os.listdir(frames_out_dir)
-                    if name.startswith("frame_") and name.endswith(f".{frame_ext}")
-                    and os.path.getsize(os.path.join(frames_out_dir, name)) > 0
-                ])
+                output_frames = _list_nonempty_frames(frames_out_dir, frame_ext)
+                sequence_complete = _complete_frame_sequence(output_frames, frame_ext, total_extracted)
 
                 # Check if output frames are corrupted blank/black (e.g. silent Vulkan OOM failure)
                 is_corrupted_black = False
-                if len(output_frames) == total_extracted and total_extracted > 0:
+                if sequence_complete and total_extracted > 0:
                     sample_indices = [
                         min(len(output_frames) - 1, max(0, total_extracted // 4)),
                         min(len(output_frames) - 1, max(0, total_extracted // 2)),
@@ -1103,7 +1126,7 @@ class VideoUpscalerPipeline:
                 has_failure = (
                     ai_process.returncode != 0
                     or bool(vulkan_errors)
-                    or len(output_frames) != total_extracted
+                    or not sequence_complete
                     or is_corrupted_black
                 )
 
@@ -1111,7 +1134,7 @@ class VideoUpscalerPipeline:
                     err_detail = (
                         vulkan_errors[0] if vulkan_errors
                         else ("Corrupted blank/black output frames detected" if is_corrupted_black
-                              else f"Incomplete output frames ({len(output_frames)}/{total_extracted}) with exit code {ai_process.returncode}")
+                              else f"Incomplete or misnumbered output frames ({len(output_frames)}/{total_extracted}) with exit code {ai_process.returncode}")
                     )
                     if ai_attempt < max_ai_attempts:
                         # Clear incomplete/corrupted frames and retry with safe profile
@@ -1258,7 +1281,7 @@ class VideoUpscalerPipeline:
             # cross-filesystem/cross-drive moves cleanly without data loss.
             safe_atomic_move(part_output_file, final_output_path)
 
-            total_duration_s = max(0.1, time.time() - t_file_start)
+            total_duration_s = max(0.1, time.monotonic() - t_file_start)
             final_size_mb = round(os.path.getsize(final_output_path) / (1024**2), 1)
             duration_str = format_eta(total_duration_s)
 
