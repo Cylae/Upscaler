@@ -1,4 +1,4 @@
-# Test outputs and test renders (never upload to GitHub)
+# Test outputs and conversion renders (never upload to GitHub)
 test_output/
 test_outputs/
 test-results/
@@ -10,18 +10,17 @@ render/
 renders/
 output/
 outputs/
+upscale_tests/
+upscaled/
+previews/
+preview/
+* (2160p)/
+* (1440p)/
+* (1080p)/
+* (720p)/
+* (480p)/
+* [Preview*
 .coveragerc
-test_output/
-test_outputs/
-test-results/
-test_results/
-test-reports/
-test_reports/
-render_tests/
-render/
-renders/
-output/
-outputs/
 pytest-report*.html
 junit*.xml
 coverage*.xml
@@ -37,26 +36,43 @@ samples/
 tools/
 bin/
 
-# Temporary processing directories and frames
+# Temporary processing directories, frames, and scratch scripts
 .temp_upscaler/
 .processing/
 temp/
 tmp/
 *.part
+start_*_upscale.bat
+run_*_upscale.bat
 
-# Video & Media output files
+# Video & Media output files and conversion artifacts
 *.mp4
 *.mkv
 *.avi
 *.mov
 *.ts
 *.webm
+*.m4v
 *.m4a
+*.aac
+*.flac
+*.wav
+*.opus
+*.ac3
+*.eac3
+*.dts
 *.png
 *.jpg
 *.jpeg
 *.webp
+*.bmp
 !src/ui/assets/*
+
+# Manifests and batch queues
+*.manifest.json
+manifest*.json
+batch_manifest*.json
+queue_state*.json
 
 # Python artifacts
 __pycache__/

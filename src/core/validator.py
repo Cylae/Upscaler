@@ -98,7 +98,7 @@ def validate_job_config(job) -> None:
         raise ValueError(f"Input video does not exist: {job.input_file}")
     if not job.output_dir:
         raise ValueError("Output directory is required.")
-    if job.target_preset.lower() not in {"4k", "1440p", "1080p", "720p"}:
+    if job.target_preset.lower() not in {"8k", "4k", "1440p", "1080p", "720p"}:
         raise ValueError(f"Unsupported target resolution: {job.target_preset}")
     if job.video_codec.lower() not in {"hevc_nvenc", "h264_nvenc", "libx265", "libx264"}:
         raise ValueError(f"Unsupported video codec: {job.video_codec}")

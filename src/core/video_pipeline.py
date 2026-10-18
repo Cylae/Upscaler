@@ -535,16 +535,25 @@ class VideoUpscalerPipeline:
 
         # 4. Resolve Model
         resolved_model_id = job.model_id
+        req_scale = max(target_w / max(1, meta.width), target_h / max(1, meta.height))
         if resolved_model_id in AVAILABLE_MODELS and resolved_model_id != "auto":
             selected_model = AVAILABLE_MODELS[resolved_model_id]
-            chosen_scale = selected_model.default_scale
+            viable_scales = [s for s in selected_model.supported_scales if s >= req_scale - 0.05]
+            if viable_scales:
+                chosen_scale = min(viable_scales)
+            else:
+                chosen_scale = max(selected_model.supported_scales) if selected_model.supported_scales else selected_model.default_scale
         else:
             found = False
             if resolved_model_id and resolved_model_id != "auto":
                 for m_id, spec in AVAILABLE_MODELS.items():
                     if m_id != "auto" and (resolved_model_id in (spec.name, spec.internal_name, spec.name.split(" (")[0])):
                         selected_model = spec
-                        chosen_scale = spec.default_scale
+                        viable_scales = [s for s in spec.supported_scales if s >= req_scale - 0.05]
+                        if viable_scales:
+                            chosen_scale = min(viable_scales)
+                        else:
+                            chosen_scale = max(spec.supported_scales) if spec.supported_scales else spec.default_scale
                         found = True
                         break
             if not found:

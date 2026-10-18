@@ -270,7 +270,9 @@ def calculate_target_dimensions(
         target_h = orig_h * 4
         tag = f"{target_h}p"
     else:
-        if preset_clean in ("4k", "2160p", "uhd"):
+        if preset_clean in ("8k", "4320p"):
+            base_h, max_w, tag = 4320, 7680, "4320p"
+        elif preset_clean in ("4k", "2160p", "uhd"):
             base_h, max_w, tag = 2160, 3840, "2160p"
         elif preset_clean in ("1440p", "qhd", "2k"):
             base_h, max_w, tag = 1440, 2560, "1440p"
@@ -360,8 +362,8 @@ def auto_tile_size(
         else:
             return 64
     else:
-        if val >= 8.0:
-            return 0    # No tiling needed — entire frame fits directly in VRAM on 8GB+ GPUs
+        if val >= 10.0:
+            return 0    # No tiling needed — entire frame fits in VRAM
         elif val >= 6.0:
             return 400  # Large tiles, minimal overhead
         elif val >= 4.0:
@@ -418,8 +420,10 @@ def get_optimal_thread_spec(
             proc = 4
 
     # Determine load/save threads based on CPU core count
-    if cpu_count >= 16:
-        load_save = 4
+    if cpu_count >= 32:
+        load_save = 12
+    elif cpu_count >= 16:
+        load_save = 8
     elif cpu_count >= 8:
         load_save = 3
     elif cpu_count >= 4:
