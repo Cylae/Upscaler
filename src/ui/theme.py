@@ -53,6 +53,10 @@ QMainWindow, QWidget {
     selection-color: #ffffff;
 }
 
+QLabel {
+    background-color: transparent;
+}
+
 /* ---------- Splitter divider ---------- */
 QSplitter::handle:horizontal {
     background-color: #1c1c2a;

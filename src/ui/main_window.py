@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFileDialog,
+    QFrame,
     QFormLayout,
     QGridLayout,
     QHBoxLayout,
@@ -82,8 +83,15 @@ class UpscalerMainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("AnimaScale - Video processing")
-        self.resize(1400, 860)
-        self.setMinimumSize(960, 660)
+        screen = QApplication.primaryScreen()
+        if screen:
+            avail = screen.availableGeometry()
+            target_w = min(1360, max(960, int(avail.width() * 0.92)))
+            target_h = min(840, max(640, int(avail.height() * 0.90)))
+            self.resize(target_w, target_h)
+        else:
+            self.resize(1200, 760)
+        self.setMinimumSize(960, 640)
         self.setAcceptDrops(True)
 
         assets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
@@ -118,13 +126,7 @@ class UpscalerMainWindow(QMainWindow):
         self._initializing_ui = False
         self._setup_all_comboboxes()
 
-        app_inst = QApplication.instance()
-        if app_inst:
-            if app_inst.style().objectName() != "fusion":
-                app_inst.setStyle("Fusion")
-            if app_inst.styleSheet() != DARK_STYLESHEET:
-                app_inst.setStyleSheet(DARK_STYLESHEET)
-        self.setStyleSheet(DARK_STYLESHEET)
+
 
         last_src = self.settings.value("last_source", "")
         last_out = self.settings.value("last_output", "")
@@ -135,12 +137,7 @@ class UpscalerMainWindow(QMainWindow):
             else:
                 self.txt_output.setText(str(last_src) + " (2160p)")
             QTimer.singleShot(150, self.on_scan_clicked)
-        else:
-            default_dir = r"Z:\DL\Happy Tree Friends"
-            if os.path.isdir(default_dir):
-                self.txt_source.setText(default_dir)
-                self.txt_output.setText(r"Z:\DL\Happy Tree Friends (2160p)")
-                QTimer.singleShot(150, self.on_scan_clicked)
+
 
         try:
             cleanup_stale_temp_directories()
@@ -243,6 +240,7 @@ class UpscalerMainWindow(QMainWindow):
         def page(title):
             scroll = QScrollArea()
             scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.Shape.NoFrame)
             scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
             contents = QWidget()
             form = QFormLayout(contents)
@@ -419,7 +417,7 @@ class UpscalerMainWindow(QMainWindow):
         self.table = QTableWidget(0, 7)
         self.table.setHorizontalHeaderLabels(["#", "Original File", "Size", "Output File", "Model", "Status", "Detail / Progress"])
         header = self.table.horizontalHeader()
-        for column, width in ((0, 40), (2, 70), (4, 120), (5, 105)):
+        for column, width in ((0, 45), (2, 70), (4, 120), (5, 105)):
             header.setSectionResizeMode(column, QHeaderView.ResizeMode.Fixed)
             self.table.setColumnWidth(column, width)
         for column in (1, 3):
@@ -1763,7 +1761,7 @@ class UpscalerMainWindow(QMainWindow):
             available = self.table.viewport().width()
             detail = max(180, min(360, available // 4))
             self.table.setColumnWidth(6, detail)
-            filename = max(220, (available - (40 + 70 + 120 + 105 + detail)) // 2)
+            filename = max(220, (available - (45 + 70 + 120 + 105 + detail)) // 2)
             for column in (1, 3):
                 self.table.setColumnWidth(column, filename)
 
@@ -1806,5 +1804,6 @@ def run_gui():
     if os.path.isfile(icon_path):
         app.setWindowIcon(QIcon(icon_path))
     window = UpscalerMainWindow()
+    apply_dark_titlebar(window)
     window.show()
     return app.exec()

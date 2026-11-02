@@ -5,8 +5,8 @@ from dataclasses import dataclass
 FORBIDDEN_PATTERNS = [
     r"(?<![a-zA-Z0-9])a\.i\.(?![a-zA-Z0-9])",
     r"(?<![a-zA-Z0-9])i\.a\.(?![a-zA-Z0-9])",
-    r"(?<![a-zA-Z0-9])ai(?![a-zA-Z0-9])",
-    r"(?<![a-zA-Z0-9])ia(?![a-zA-Z0-9])",
+    r"(?<![a-zA-Z0-9'’])ai(?![a-zA-Z0-9'’])",
+    r"(?<![a-zA-Z0-9'’])ia(?![a-zA-Z0-9'’])",
     r"\bartificial\s+intelligence\b",
     r"\bintelligence\s+artificielle\b",
     r"\breal[\-_.]?esrgan\b",

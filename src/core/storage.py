@@ -118,20 +118,24 @@ def cleanup_stale_temp_directories(
 
                     # 2. Check lock file for active foreign processes
                     lock_file = os.path.join(sub, ".job_lock")
+                    dead_owner = False
                     if os.path.isfile(lock_file):
                         try:
                             with open(lock_file, "r", encoding="utf-8") as f:
                                 lock_data = json.load(f)
                             owner_pid = lock_data.get("pid")
-                            if owner_pid and is_process_alive(int(owner_pid)):
-                                continue
+                            if owner_pid:
+                                if is_process_alive(int(owner_pid)):
+                                    continue
+                                else:
+                                    dead_owner = True
                         except Exception:
                             pass
 
-                    # 3. Check modification age
+                    # 3. Check modification age (clean immediately if owner process is dead)
                     try:
                         mtime = os.path.getmtime(sub)
-                        if time.time() - mtime >= max_age_seconds:
+                        if dead_owner or (time.time() - mtime >= max_age_seconds):
                             shutil.rmtree(sub, ignore_errors=True)
                             cleaned += 1
                     except Exception:

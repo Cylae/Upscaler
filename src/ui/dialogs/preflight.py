@@ -93,7 +93,12 @@ class PreflightDialog(QDialog):
             hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
             hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
             hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        table.setRowCount(len(dry_run_data))
+        table.setRowCount(len(dry_run_data))
+        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        vhdr = table.verticalHeader()
+        if vhdr is not None:
+            vhdr.setVisible(False)
 
         for r, item in enumerate(dry_run_data):
             table.setItem(r, 0, QTableWidgetItem(str(item.get("index", r + 1))))
@@ -111,6 +116,8 @@ class PreflightDialog(QDialog):
             if item.get("collision"):
                 st_text = "COLLISION!"
             it_st = QTableWidgetItem(st_text)
+            if item.get("collision"):
+                it_st.setForeground(QColor("#ff453a"))
             table.setItem(r, 4, it_st)
 
         layout.addWidget(table, 1)

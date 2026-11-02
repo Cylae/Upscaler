@@ -483,11 +483,11 @@ def get_optimal_thread_spec(
         else:
             proc = 4
 
-    # Determine load/save threads based on CPU core count
+    # Determine load/save threads based on CPU core count (tuned for hybrid P+E CPUs e.g. i7-12650H)
     if cpu_count >= 32:
-        load_save = 12
-    elif cpu_count >= 16:
         load_save = 8
+    elif cpu_count >= 16:
+        load_save = 4
     elif cpu_count >= 8:
         load_save = 3
     elif cpu_count >= 4:

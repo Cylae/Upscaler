@@ -55,7 +55,11 @@ def main():
         "--cli", "--source", "-s", "--output", "-o", "--preset", "-p",
         "--resolution", "-r", "--codec", "-c", "--model", "-m",
         "--dry-run", "--export-diagnostics", "--list-presets",
-        "--manifest", "--retry-failed"
+        "--manifest", "--retry-failed",
+        "--cq", "--nvenc-preset", "--tta", "--denoise", "--audio-mode",
+        "--tile-size", "--group", "--show-name", "--source-tag",
+        "--overwrite", "--limit", "-l", "--workers", "-w", "--threads", "-t",
+        "--frame-format", "--yes", "-y"
     }
     if any(arg in sys.argv for arg in cli_triggers):
         if "--cli" in sys.argv:

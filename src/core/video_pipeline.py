@@ -476,7 +476,9 @@ class VideoUpscalerPipeline:
             # the model receives exactly the same decoded pixels.
             cmd.extend(["-compression_level", "1"])
 
-        cmd.append(os.path.join(frames_in_dir, f"frame_%08d.{frame_ext}"))
+        safe_frames_in = frames_in_dir.replace("%", "%%")
+
+        cmd.append(os.path.join(safe_frames_in, f"frame_%08d.{frame_ext}"))
         return cmd
 
     def _build_encode_cmd(
@@ -507,12 +509,20 @@ class VideoUpscalerPipeline:
             during the Lanczos scale filter.
         """
         ffmpeg_bin = self.hardware.ffmpeg_path or shutil.which("ffmpeg") or "ffmpeg"
-        fps_arg = meta.r_frame_rate if (meta.r_frame_rate and "/" in meta.r_frame_rate and meta.r_frame_rate != "0/0") else str(meta.fps)
+        def _valid_rational_fps(val: str | None) -> bool:
+            if not val or "/" not in val:
+                return False
+            parts = val.split("/", 1)
+            try:
+                return float(parts[0]) > 0 and float(parts[1]) > 0
+            except (ValueError, ZeroDivisionError):
+                return False
+        fps_arg = meta.r_frame_rate if _valid_rational_fps(meta.r_frame_rate) else (str(meta.fps) if meta.fps > 0 else "24")
         cmd = [
             ffmpeg_bin, "-y",
             "-threads", "0",
             "-r", fps_arg,
-            "-i", os.path.join(frames_out_dir, f"frame_%08d.{frame_ext}"),
+            "-i", os.path.join(frames_out_dir.replace("%", "%%"), f"frame_%08d.{frame_ext}"),
         ]
 
         if audio_input_path:
@@ -558,30 +568,27 @@ class VideoUpscalerPipeline:
                 cmd.extend(["-color_trc", meta.color_transfer])
 
         # Encoder-specific parameters
-        if chosen_encoder == "hevc_nvenc":
+        if chosen_encoder in ("hevc_nvenc", "h264_nvenc"):
             cmd.extend([
-                "-c:v", "hevc_nvenc",
+                "-c:v", chosen_encoder,
                 "-preset", p_val,
                 "-cq", cq_val,
-                "-rc-lookahead", "32",
-                "-surfaces", "64",
-                "-spatial-aq", "1",
-                "-temporal-aq", "1",
-                "-b_ref_mode", "middle",
-                "-pix_fmt", "yuv420p",
             ])
-        elif chosen_encoder == "h264_nvenc":
-            cmd.extend([
-                "-c:v", "h264_nvenc",
-                "-preset", p_val,
-                "-cq", cq_val,
-                "-rc-lookahead", "32",
-                "-surfaces", "64",
-                "-spatial-aq", "1",
-                "-temporal-aq", "1",
-                "-b_ref_mode", "middle",
-                "-pix_fmt", "yuv420p",
-            ])
+            if p_val in ("p1", "p2", "p3"):
+                cmd.extend([
+                    "-surfaces", "16",
+                    "-b_ref_mode", "disabled",
+                    "-pix_fmt", "yuv420p",
+                ])
+            else:
+                cmd.extend([
+                    "-rc-lookahead", "32",
+                    "-surfaces", "64",
+                    "-spatial-aq", "1",
+                    "-temporal-aq", "1",
+                    "-b_ref_mode", "middle",
+                    "-pix_fmt", "yuv420p",
+                ])
         elif chosen_encoder == "libx265":
             cmd.extend([
                 "-c:v", "libx265",
@@ -702,6 +709,11 @@ class VideoUpscalerPipeline:
             preserve_folders=job.preserve_folders
         )
         final_output_path = os.path.join(job.output_dir, rel_out)
+        # Safety guarantee: Never overwrite original source file
+        if os.path.normcase(os.path.abspath(final_output_path)) == os.path.normcase(os.path.abspath(job.input_file)):
+            stem, ext = os.path.splitext(final_output_path)
+            res_label = "4320p" if str(getattr(job, "target_preset", "")).lower() == "8k" else "2160p"
+            final_output_path = f"{stem} ({res_label}){ext}"
 
         # In preview mode, suffix the filename so it never overwrites the full encode.
         if _preview_mode:
@@ -814,6 +826,7 @@ class VideoUpscalerPipeline:
             _audio_result: dict = {"extracted": False, "error": None}
             _frames_result: dict = {"extracted": 0, "error": None}
             _audio_proc: dict = {"proc": None}
+            _frames_proc: dict = {"proc": None}
 
             def _extract_audio_thread():
                 """Extracts audio stream from source; first tries copy, then AAC transcode.
@@ -893,6 +906,7 @@ class VideoUpscalerPipeline:
                         extract_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                         text=True, errors="ignore"
                     )
+                    _frames_proc["proc"] = proc
                     try:
                         _, _stderr_out = proc.communicate()
                     finally:
@@ -904,6 +918,8 @@ class VideoUpscalerPipeline:
 
                 # If CUDA hwdecode failed (e.g. unsupported codec), retry with CPU path
                 if rc != 0 and use_hw:
+                    if self._is_cancelled:
+                        return
                     log_cmd("[FFMPEG EXTRACT] CUDA hwdecode failed, retrying with CPU decoder...")
                     self._cuda_available = False  # Disable for subsequent jobs in this session
                     extract_cmd = self._build_extract_frames_cmd(
@@ -922,6 +938,7 @@ class VideoUpscalerPipeline:
                             pass
                     try:
                         proc = self._start_process(extract_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        _frames_proc["proc"] = proc
                         try:
                             proc.wait()
                         finally:
@@ -951,11 +968,17 @@ class VideoUpscalerPipeline:
             # Poll for cancellation while waiting for both threads to complete
             while audio_thread.is_alive() or frames_thread.is_alive():
                 if self._is_cancelled:
-                    # Kill audio subprocess if running
+                    # Kill audio & frame subprocesses if running
                     ap = _audio_proc.get("proc")
                     if ap:
                         try:
-                            ap.kill()
+                            safe_kill_process_tree(ap)
+                        except Exception:
+                            pass
+                    fp = _frames_proc.get("proc")
+                    if fp:
+                        try:
+                            safe_kill_process_tree(fp)
                         except Exception:
                             pass
                     break
@@ -1222,6 +1245,10 @@ class VideoUpscalerPipeline:
             # ------------------------------------------------------------------
             # 8. Encode to Target Resolution with Hardware NVENC (Multithreaded)
             # ------------------------------------------------------------------
+            try:
+                shutil.rmtree(frames_in_dir, ignore_errors=True)
+            except Exception:
+                pass
             encode_eta_str = format_eta(est_encode_s)
             report(
                 0.86,

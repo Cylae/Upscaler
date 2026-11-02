@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 > nul
-setlocal
-title Video Enhancer 4K
+setlocal enabledelayedexpansion
+title Video Enhancer 4K (AnimaScale)
 cd /d "%~dp0"
 
 echo ========================================================
@@ -12,9 +12,18 @@ set "VENV_PY=%~dp0.venv\Scripts\python.exe"
 
 if not exist "%VENV_PY%" (
     echo Creating local Python virtual environment...
-    where py >nul 2>nul
-    if not errorlevel 1 (
-        py -3 -m venv "%~dp0.venv"
+    set "PY_CMD="
+    for %%V in (3.12 3.11 3.10 3) do (
+        if not defined PY_CMD (
+            py -%%V -V >nul 2>nul
+            if not errorlevel 1 (
+                set "PY_CMD=py -%%V"
+            )
+        )
+    )
+    if defined PY_CMD (
+        echo Using: !PY_CMD!
+        !PY_CMD! -m venv "%~dp0.venv"
     ) else (
         where python >nul 2>nul
         if errorlevel 1 (
@@ -45,10 +54,19 @@ if errorlevel 1 (
 )
 
 "%VENV_PY%" "%~dp0main.py" %*
-if errorlevel 1 (
+set "EXIT_CODE=%ERRORLEVEL%"
+
+rem Pause if an error occurred or if informational CLI command was executed
+if "%EXIT_CODE%" neq "0" (
     echo.
     echo An error occurred. Run launch.bat --doctor for diagnostic.
     pause
+) else (
+    echo "%*" | findstr /i "\-\-doctor \-\-help \-h \-\-list\-presets" >nul
+    if not errorlevel 1 (
+        echo.
+        pause
+    )
 )
 
-endlocal
+exit /b %EXIT_CODE%

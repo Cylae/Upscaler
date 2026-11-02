@@ -57,6 +57,7 @@ Double-click:
 ```cmd
 launch.bat
 ```
+*(or `Lancer_Upscaler.bat` on French Windows systems)*
 or run from PowerShell / Terminal:
 ```powershell
 .\launch.bat

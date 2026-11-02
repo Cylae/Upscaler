@@ -97,7 +97,7 @@ ENHANCEMENT_PRESETS: dict[str, EnhancementPreset] = {
         denoise_level=-1,
         audio_mode="copy",
         workers=1,
-        frame_format="jpg"
+        frame_format="png"
     ),
     "lightweight_1080p": EnhancementPreset(
         id="lightweight_1080p",
