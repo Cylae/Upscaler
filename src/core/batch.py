@@ -663,11 +663,11 @@ class BatchManager:
                 if "model_name" in extra:
                     item.resolved_model = extra["model_name"]
                 elif status_text.startswith("Selected model: "):
-                    parts = status_text.split("Selected model: ", 1)[1]
-                    item.resolved_model = parts.split(" (Scale")[0].strip()
+                    model_part = status_text.split("Selected model: ", 1)[1]
+                    item.resolved_model = model_part.split(" (Scale")[0].strip()
                 elif "Upscaling with " in status_text:
-                    parts = status_text.split("Upscaling with ", 1)[1]
-                    item.resolved_model = parts.split(" (Threads")[0].strip()
+                    engine_part = status_text.split("Upscaling with ", 1)[1]
+                    item.resolved_model = engine_part.split(" (Threads")[0].strip()
 
                 if item_callback:
                     item_callback(item)
@@ -688,14 +688,14 @@ class BatchManager:
                         batch_eta_sec = rem_files / max(0.0001, rate)
                         batch_eta_str = format_eta(batch_eta_sec)
 
-                    parts = []
+                    eta_parts = []
                     if item.file_eta and item.file_eta not in ("--", "Calculating..."):
-                        parts.append(f"File ETA: {item.file_eta}")
+                        eta_parts.append(f"File ETA: {item.file_eta}")
                     elif item.file_eta == "Calculating...":
-                        parts.append("File ETA: calculating...")
+                        eta_parts.append("File ETA: calculating...")
                     if batch_eta_str and batch_eta_str != "--":
-                        parts.append(f"Batch ETA: {batch_eta_str}")
-                    combined_eta = "  |  ".join(parts)
+                        eta_parts.append(f"Batch ETA: {batch_eta_str}")
+                    combined_eta = "  |  ".join(eta_parts)
 
                     try:
                         batch_callback(cur_completed, total_items, pct, f"Episode {item.index}/{total_items}: {status_text}", combined_eta)

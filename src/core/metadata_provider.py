@@ -183,7 +183,10 @@ class TVMazeClient:
             network_data = show.get("network") or show.get("webChannel") or {}
             country_data = network_data.get("country") or {}
             try:
-                show_id = int(show.get("id"))
+                raw_id = show.get("id")
+                if raw_id is None:
+                    continue
+                show_id = int(raw_id)
             except (TypeError, ValueError):
                 continue
             candidates.append(

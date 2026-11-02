@@ -11,7 +11,7 @@ import os
 from dataclasses import dataclass
 from enum import Enum
 from fractions import Fraction
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 
 class ModelEngine(str, Enum):
@@ -172,8 +172,8 @@ def check_local_model_availability(base_dir: Optional[str] = None) -> Dict[str, 
 
 
 def recommend_model_for_video(
-    width: int,
-    height: int,
+    width: Union[int, float],
+    height: Union[int, float],
     target_preset: str = "4k",
 ) -> ModelRecommendation:
     """Recommends an animation model from source geometry and requested output."""
@@ -216,7 +216,7 @@ def recommend_model_for_video(
     )
 
 
-def choose_best_model_for_video(width: int, height: int, target_preset: str = "4k") -> Tuple[AIModelSpec, int]:
+def choose_best_model_for_video(width: Union[int, float], height: Union[int, float], target_preset: str = "4k") -> Tuple[AIModelSpec, int]:
     """Backward-compatible shorthand for recommend_model_for_video."""
     rec = recommend_model_for_video(width, height, target_preset)
     return rec.model, rec.scale
@@ -271,7 +271,7 @@ def normalize_sample_aspect_ratio(value: object = "1:1") -> str:
 def normalize_rotation(value: object = 0) -> float:
     """Reads a finite rotation in degrees; missing or malformed metadata means zero."""
     try:
-        rotation = float(value)
+        rotation = float(value) if isinstance(value, (int, float, str)) else 0.0
         if math.isfinite(rotation):
             return rotation
     except (ValueError, TypeError, OverflowError):
@@ -280,8 +280,8 @@ def normalize_rotation(value: object = 0) -> float:
 
 
 def calculate_display_dimensions(
-    orig_w: int,
-    orig_h: int,
+    orig_w: Union[int, float],
+    orig_h: Union[int, float],
     *,
     sample_aspect_ratio: str = "1:1",
     rotation: float = 0,
@@ -301,8 +301,8 @@ def calculate_display_dimensions(
 
 
 def calculate_target_dimensions(
-    orig_w: int,
-    orig_h: int,
+    orig_w: Union[int, float],
+    orig_h: Union[int, float],
     target_preset: str = "4k",
     *,
     sample_aspect_ratio: str = "1:1",

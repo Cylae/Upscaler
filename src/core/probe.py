@@ -139,6 +139,7 @@ def _probe_media(filepath: str, ffprobe_bin: Optional[str], timeout: int) -> Dic
                     owner = True
         if cache_key is None:
             return _read_probe_document(filepath, bin_name, timeout)
+        assert pending is not None
         if not owner:
             data = pending.result()
             if data is not None:
