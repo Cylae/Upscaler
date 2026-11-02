@@ -1,8 +1,6 @@
-import os
-import pytest
-from src.core.video_pipeline import get_optimal_thread_spec, UpscaleJobConfig
-from src.core.batch_manager import BatchManager, EpisodeStatus, QueueItem
+from src.core.batch_manager import BatchManager, QueueItem
 from src.core.detector import HardwareInfo
+from src.core.video_pipeline import UpscaleJobConfig, get_optimal_thread_spec
 
 
 def test_get_optimal_thread_spec():

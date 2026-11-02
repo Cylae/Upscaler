@@ -7,7 +7,6 @@ import re
 import subprocess
 import sys
 from collections import Counter
-from typing import Dict, List, Optional, Tuple
 
 from PyQt6.QtCore import QEvent, QSettings, Qt, QTimer
 from PyQt6.QtGui import QAction, QColor, QCursor, QIcon
@@ -48,7 +47,12 @@ from src.core.models import (
     recommend_model_for_video,
 )
 from src.core.pipeline import VideoUpscalerPipeline
-from src.core.presets import ENHANCEMENT_PRESETS, RESOLUTION_LABELS, RESOLUTION_TAGS, get_preset
+from src.core.presets import (
+    ENHANCEMENT_PRESETS,
+    RESOLUTION_LABELS,
+    RESOLUTION_TAGS,
+    get_preset,
+)
 from src.core.probe import probe_video
 from src.core.scene_namer import (
     SceneNamingConfig,
@@ -61,7 +65,6 @@ from src.ui.dialogs.logs import LogViewerDialog
 from src.ui.dialogs.preflight import PreflightDialog
 from src.ui.theme import (
     DARK_STYLESHEET,
-    UTILITY_STYLESHEET,
     apply_dark_titlebar,
     setup_combobox,
 )
@@ -90,19 +93,24 @@ class UpscalerMainWindow(QMainWindow):
 
         self.hardware = get_hardware_info()
         self.batch_manager = BatchManager(self.hardware)
-        self.worker: Optional[UpscaleWorker] = None
-        self._scan_worker: Optional[ScanWorker] = None
+        self.worker: UpscaleWorker | None = None
+        self._scan_worker: ScanWorker | None = None
         self._current_filter_mode = "all"
         self._log_buffer: list = []
         self._last_cli_cmd: str = ""
-        self._log_viewer: Optional[LogViewerDialog] = None
-        self._hint_worker: Optional[ModelHintWorker] = None
-        self._frame_worker: Optional[FramePreviewWorker] = None
+        self._log_viewer: LogViewerDialog | None = None
+        self._hint_worker: ModelHintWorker | None = None
+        self._frame_worker: FramePreviewWorker | None = None
         self._operation_active = False
-        self._queue_items_by_id: Dict[str, QueueItem] = {}
-        self._table_rows_by_id: Dict[str, int] = {}
-        self._displayed_statuses: Dict[str, EpisodeStatus] = {}
+        self._queue_items_by_id: dict[str, QueueItem] = {}
+        self._table_rows_by_id: dict[str, int] = {}
+        self._displayed_statuses: dict[str, EpisodeStatus] = {}
         self._status_counts: Counter = Counter()
+        self.btn_stat_all: QPushButton
+        self.btn_stat_ready: QPushButton
+        self.btn_stat_completed: QPushButton
+        self.btn_stat_skipped: QPushButton
+        self.btn_stat_failed: QPushButton
         self.settings = QSettings("CYLAE", "VideoEnhancer4K")
 
         self._initializing_ui = True
@@ -116,7 +124,7 @@ class UpscalerMainWindow(QMainWindow):
                 app_inst.setStyle("Fusion")
             if app_inst.styleSheet() != DARK_STYLESHEET:
                 app_inst.setStyleSheet(DARK_STYLESHEET)
-        self.setStyleSheet(UTILITY_STYLESHEET)
+        self.setStyleSheet(DARK_STYLESHEET)
 
         last_src = self.settings.value("last_source", "")
         last_out = self.settings.value("last_output", "")
@@ -150,15 +158,21 @@ class UpscalerMainWindow(QMainWindow):
 
         status = QHBoxLayout()
         self.lbl_gpu = QLabel(f"GPU: {self.hardware.gpu_name} ({self.hardware.gpu_vram_gb:g} GB)")
+        self.lbl_gpu.setObjectName("statusBadgeGpu")
         self.lbl_encoder = QLabel("NVENC available" if self.hardware.nvenc_available else "CPU encoding")
+        self.lbl_encoder.setObjectName("statusBadgeEncoder")
         self.lbl_audio = QLabel("Audio: Direct Copy")
-        status.addWidget(self.lbl_gpu, 1)
+        self.lbl_audio.setObjectName("statusBadgeAudio")
+        status.addWidget(self.lbl_gpu)
         status.addWidget(self.lbl_encoder)
         status.addWidget(self.lbl_audio)
+        status.addStretch(1)
         self.btn_doctor = QPushButton("Diagnostics")
+        self.btn_doctor.setObjectName("btnTopDiagnostics")
         self.btn_doctor.clicked.connect(self.show_doctor_dialog)
         status.addWidget(self.btn_doctor)
         self.btn_open_logs = QPushButton("Logs (0)")
+        self.btn_open_logs.setObjectName("btnTopLogs")
         self.btn_open_logs.setToolTip("Open, filter, copy or export the engine logs. Ctrl+L")
         self.btn_open_logs.setShortcut("Ctrl+L")
         self.btn_open_logs.clicked.connect(self._open_log_viewer)
@@ -367,8 +381,19 @@ class UpscalerMainWindow(QMainWindow):
             button = QPushButton(f"{label}: 0")
             button.setCheckable(True)
             button.setChecked(mode == "all")
+            button.setProperty("class", "statPillError" if suffix == "failed" else "statPill")
             button.clicked.connect(lambda checked=False, mode=mode: self.set_filter_mode(mode))
             setattr(self, "btn_stat_" + suffix, button)
+            if suffix == "all":
+                self.btn_stat_all = button
+            elif suffix == "ready":
+                self.btn_stat_ready = button
+            elif suffix == "completed":
+                self.btn_stat_completed = button
+            elif suffix == "skipped":
+                self.btn_stat_skipped = button
+            elif suffix == "failed":
+                self.btn_stat_failed = button
             filters.addWidget(button)
         queue_layout.addLayout(filters)
         search = QHBoxLayout()
@@ -381,10 +406,12 @@ class UpscalerMainWindow(QMainWindow):
         search.addWidget(self.lbl_search)
         search.addWidget(self.txt_filter, 1)
         self.btn_remove_selected = QPushButton("Remove selected")
+        self.btn_remove_selected.setObjectName("btnRemoveSelected")
         self.btn_remove_selected.setToolTip("Remove selected queue entries; no media file is deleted.")
         self.btn_remove_selected.clicked.connect(self.on_remove_selected_clicked)
         search.addWidget(self.btn_remove_selected)
         self.btn_clear_queue = QPushButton("Clear queue")
+        self.btn_clear_queue.setObjectName("btnClearQueue")
         self.btn_clear_queue.setToolTip("Remove queue entries; source and output files are kept.")
         self.btn_clear_queue.clicked.connect(self.on_clear_queue_clicked)
         search.addWidget(self.btn_clear_queue)
@@ -435,8 +462,10 @@ class UpscalerMainWindow(QMainWindow):
         root.addWidget(self.main_splitter, 1)
 
         self.lbl_overall_status = QLabel("Ready to process.")
+        self.lbl_overall_status.setObjectName("lblOverallStatus")
         self.lbl_overall_status.setWordWrap(True)
         self.lbl_eta = QLabel()
+        self.lbl_eta.setObjectName("lblEta")
         self.lbl_eta.setVisible(False)
         progress = QHBoxLayout()
         progress.addWidget(self.lbl_overall_status, 1)
@@ -545,7 +574,7 @@ class UpscalerMainWindow(QMainWindow):
         self.update_scene_preview()
         self._update_model_column_in_table()
 
-    def _update_auto_model_hint(self, queue: List[QueueItem]):
+    def _update_auto_model_hint(self, queue: list[QueueItem]):
         if (self.cb_model.currentData() or "auto") != "auto" or not queue:
             return
         if self._hint_worker and self._hint_worker.isRunning():
@@ -669,7 +698,7 @@ class UpscalerMainWindow(QMainWindow):
 
     def on_log_received(self, msg: str):
         import datetime
-        timestamp = datetime.datetime.now().strftime("%H:%M:%S")
+        timestamp = datetime.datetime.now().astimezone().strftime("%H:%M:%S")
         timestamped = f"[{timestamp}]  {msg}"
         self._last_cli_cmd = msg
         self._log_buffer.append(timestamped)
@@ -848,7 +877,7 @@ class UpscalerMainWindow(QMainWindow):
             os.makedirs(out_dir, exist_ok=True)
             os.startfile(out_dir)
 
-    def on_compare_frame_clicked(self, target_idx: Optional[int] = None):
+    def on_compare_frame_clicked(self, target_idx: int | None = None):
         if self._operation_active:
             self.lbl_overall_status.setText("Stop the current operation before starting a frame comparison.")
             return
@@ -952,7 +981,7 @@ class UpscalerMainWindow(QMainWindow):
         menu.addSeparator()
 
         selected_indexes = self.table.selectedIndexes()
-        selected_rows = sorted(list({idx.row() for idx in selected_indexes})) if selected_indexes else [row]
+        selected_rows = sorted({idx.row() for idx in selected_indexes}) if selected_indexes else [row]
         if row not in selected_rows:
             selected_rows = [row]
 
@@ -1023,7 +1052,8 @@ class UpscalerMainWindow(QMainWindow):
             return
 
         menu = QMenu(self)
-        title_act = menu.addAction(f"AI Model for Episode #{q_item.index}:")
+        title_act = QAction(f"AI Model for Episode #{q_item.index}:", self)
+        menu.addAction(title_act)
         title_act.setEnabled(False)
         menu.addSeparator()
 
@@ -1041,7 +1071,7 @@ class UpscalerMainWindow(QMainWindow):
 
         menu.exec(QCursor.pos())
 
-    def _set_model_for_rows(self, rows: List[int], model_id: str):
+    def _set_model_for_rows(self, rows: list[int], model_id: str):
         if self._operation_active:
             self.lbl_overall_status.setText("Stop processing before changing per-video models.")
             return
@@ -1057,7 +1087,7 @@ class UpscalerMainWindow(QMainWindow):
         self.lbl_overall_status.setText(f"Updated AI model to '{disp}' for {count} episode(s).")
 
     @staticmethod
-    def _infer_resolution_hint(filepath: str) -> Optional[Tuple[int, int]]:
+    def _infer_resolution_hint(filepath: str) -> tuple[int, int] | None:
         """Quickly infers standard resolution dimensions from filename tokens if present."""
         fname = os.path.basename(filepath).lower()
         if any(tag in fname for tag in ("8k", "4320p")):
@@ -1226,7 +1256,7 @@ class UpscalerMainWindow(QMainWindow):
         self._scan_worker.scan_error.connect(self._on_scan_error)
         self._scan_worker.start()
 
-    def _on_scan_complete(self, queue: List[QueueItem]):
+    def _on_scan_complete(self, queue: list[QueueItem]):
         if hasattr(self, 'btn_scan'):
             self.btn_scan.setEnabled(True)
         self._populate_table(queue)
@@ -1306,7 +1336,7 @@ class UpscalerMainWindow(QMainWindow):
                 self._table_rows_by_id[it.data(Qt.ItemDataRole.UserRole)] = r
         return self._table_rows_by_id.get(item_id, -1)
 
-    def _get_queue_item_from_row(self, row: int) -> Optional[QueueItem]:
+    def _get_queue_item_from_row(self, row: int) -> QueueItem | None:
         if 0 <= row < self.table.rowCount():
             it = self.table.item(row, 0)
             if it:
@@ -1315,7 +1345,7 @@ class UpscalerMainWindow(QMainWindow):
                     return self._queue_items_by_id.get(item_id)
         return None
 
-    def _populate_table(self, queue: List[QueueItem]):
+    def _populate_table(self, queue: list[QueueItem]):
         self._queue_items_by_id = {item.id: item for item in queue}
         self._table_rows_by_id = {item.id: row for row, item in enumerate(queue)}
         self._displayed_statuses = {item.id: item.status for item in queue}
@@ -1328,7 +1358,7 @@ class UpscalerMainWindow(QMainWindow):
             self.table.setUpdatesEnabled(updates_enabled)
         self._resize_queue_columns()
 
-    def _populate_table_rows(self, queue: List[QueueItem]):
+    def _populate_table_rows(self, queue: list[QueueItem]):
         self.table.setRowCount(len(queue))
 
         for r, item in enumerate(queue):
@@ -1476,7 +1506,7 @@ class UpscalerMainWindow(QMainWindow):
         dur = float(self.spin_preview_dur.value())
         self.start_processing(target_indices=[target_idx], preview_duration_s=dur)
 
-    def _selected_item_index(self) -> Optional[int]:
+    def _selected_item_index(self) -> int | None:
         selected = self.table.selectionModel().selectedRows()
         if selected:
             item = self._get_queue_item_from_row(selected[0].row())
@@ -1484,7 +1514,7 @@ class UpscalerMainWindow(QMainWindow):
                 return item.index
         return None
 
-    def start_processing(self, target_indices: Optional[List[int]] = None, preview_duration_s: Optional[float] = None):
+    def start_processing(self, target_indices: list[int] | None = None, preview_duration_s: float | None = None):
         if self._operation_active or (self.worker and self.worker.isRunning()):
             self.lbl_overall_status.setText("Processing is already running. Stop it before starting another batch.")
             return

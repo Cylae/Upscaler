@@ -5,7 +5,10 @@ Re-exports VideoUpscalerPipeline and UpscaleJobConfig from video_pipeline.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.core.hardware import HardwareInfo
 
 from src.core.video_pipeline import (
     UpscaleJobConfig,
@@ -17,7 +20,7 @@ def generate_frame_comparison(
     video_path: str,
     model_id: str = "auto",
     target_preset: str = "4k",
-    hardware: Optional[object] = None,
+    hardware: HardwareInfo | None = None,
 ):
     """Convenience helper to extract and upscale a single frame for Before/After comparison."""
     pipeline = VideoUpscalerPipeline(hardware)

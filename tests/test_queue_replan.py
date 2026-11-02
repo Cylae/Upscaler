@@ -14,11 +14,11 @@ from src.core.scene_renamer import SceneNamingConfig, get_scene_relative_output_
 
 
 def _metadata(path, **changes):
-    values = dict(
-        filepath=str(path), width=1920, height=1080, fps=24, duration=120,
-        nb_frames=2880, codec_name="h264", has_audio=True,
-        audio_codec="aac", has_subtitles=False,
-    )
+    values = {
+        "filepath": str(path), "width": 1920, "height": 1080, "fps": 24, "duration": 120,
+        "nb_frames": 2880, "codec_name": "h264", "has_audio": True,
+        "audio_codec": "aac", "has_subtitles": False,
+    }
     values.update(changes)
     return VideoMetadata(**values)
 

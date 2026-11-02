@@ -1,11 +1,12 @@
 import os
 import sys
-import pytest
 from unittest.mock import patch
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import Qt
 
-from src.core.batch_manager import BatchManager, QueueItem, EpisodeStatus
+import pytest
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QApplication
+
+from src.core.batch_manager import EpisodeStatus, QueueItem
 from src.core.detector import HardwareInfo
 from src.ui.app_qt import UpscalerMainWindow
 
@@ -24,7 +25,7 @@ def qapp():
 def test_ui_table_identity_and_filtering(qapp):
     """Verify table row lookup uses stable item ID and handles filtering properly."""
     window = UpscalerMainWindow()
-    
+
     # Create two test items
     item1 = QueueItem(
         index=1,
@@ -260,8 +261,8 @@ def test_frame_comparison_dialog_done_cleans_temp(qapp, tmp_path):
 
 def test_video_pipeline_respects_custom_ffmpeg_bin():
     """Verify VideoUpscalerPipeline commands use custom ffmpeg binary path from HardwareInfo."""
-    from src.core.video_pipeline import VideoUpscalerPipeline
     from src.core.probe import VideoMetadata
+    from src.core.video_pipeline import VideoUpscalerPipeline
 
     custom_hw = HardwareInfo(
         gpu_name="Test GPU",
@@ -302,7 +303,8 @@ def test_video_pipeline_respects_custom_ffmpeg_bin():
 def test_ui_combobox_delegates_and_frameless_controls(qapp):
     """Verify that all QComboBoxes have QStyledItemDelegate and frameless controls exist."""
     from PyQt6.QtWidgets import QComboBox, QStyledItemDelegate
-    from src.ui.theme import setup_combobox, apply_dark_titlebar
+
+    from src.ui.theme import apply_dark_titlebar, setup_combobox
 
     win = UpscalerMainWindow()
     combos = win.findChildren(QComboBox)

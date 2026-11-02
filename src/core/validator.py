@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Optional, Tuple
 
 from src.core.models import AVAILABLE_MODELS
 from src.core.probe import VideoMetadata, probe_video
@@ -25,9 +24,9 @@ def _resolve_probe_video():
 def is_file_complete_and_valid(
     filepath: str,
     expect_audio: bool = False,
-    expected_width: Optional[int] = None,
-    expected_height: Optional[int] = None,
-    expected_duration: Optional[float] = None,
+    expected_width: int | None = None,
+    expected_height: int | None = None,
+    expected_duration: float | None = None,
     duration_tolerance_s: float = 2.0,
     duration_tolerance_ratio: float = 0.02,
 ) -> bool:
@@ -49,9 +48,8 @@ def is_file_complete_and_valid(
             return False
         if expect_audio and not meta.has_audio:
             return False
-        if expected_width is not None and expected_height is not None:
-            if meta.width != expected_width or meta.height != expected_height:
-                return False
+        if expected_width is not None and expected_height is not None and (meta.width != expected_width or meta.height != expected_height):
+            return False
         if expected_duration is not None and expected_duration > 1.0:
             allowed_diff = max(duration_tolerance_s, expected_duration * duration_tolerance_ratio)
             if abs(meta.duration - expected_duration) > allowed_diff:
@@ -66,8 +64,8 @@ def validate_encoded_video(
     expected_width: int,
     expected_height: int,
     expect_audio: bool = False,
-    metadata: Optional[VideoMetadata] = None,
-) -> Tuple[bool, str]:
+    metadata: VideoMetadata | None = None,
+) -> tuple[bool, str]:
     """Validates that FFmpeg produced a playable video with valid dimensions and streams."""
     if not os.path.isfile(filepath) or os.path.getsize(filepath) == 0:
         return False, "Encoder did not create an output file."

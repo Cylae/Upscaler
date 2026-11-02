@@ -1,11 +1,13 @@
 import os
+
 import pytest
+
 from src.core.scene_renamer import (
     SceneNamingConfig,
     clean_scene_text,
     format_scene_name,
     get_scene_relative_output_path,
-    parse_episode_metadata
+    parse_episode_metadata,
 )
 
 
@@ -60,7 +62,7 @@ def test_parse_episode_metadata_others_smoochies():
 def test_format_scene_name_custom_config():
     base = r"Z:\DL\Happy Tree Friends"
     path = os.path.join(base, r"1999 - 2001 Season 1\s01e01 - Spin Fun Knowin' Ya!.mp4")
-    
+
     cfg = SceneNamingConfig(
         show_name="Happy.Tree.Friends",
         resolution_tag="2160p",

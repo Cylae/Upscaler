@@ -8,8 +8,8 @@ from src.ui.dialogs.logs import LogViewerDialog
 from src.ui.dialogs.preflight import PreflightDialog
 
 __all__ = [
-    "FrameComparisonDialog",
     "DoctorDialog",
+    "FrameComparisonDialog",
     "LogViewerDialog",
     "PreflightDialog",
 ]

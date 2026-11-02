@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Dict, List
-
 from PyQt6.QtGui import QColor
 from PyQt6.QtWidgets import (
     QDialog,
@@ -23,7 +21,7 @@ from src.ui.theme import DARK_STYLESHEET, apply_dark_titlebar
 class PreflightDialog(QDialog):
     """Displays comprehensive preflight summary before starting batch processing."""
 
-    def __init__(self, preflight_data: Dict, dry_run_data: List[Dict], parent=None):
+    def __init__(self, preflight_data: dict, dry_run_data: list[dict], parent=None):
         super().__init__(parent)
         self.setWindowTitle("Preflight Check & Output Plan")
         self.resize(780, 560)
@@ -88,11 +86,13 @@ class PreflightDialog(QDialog):
         table = QTableWidget()
         table.setColumnCount(5)
         table.setHorizontalHeaderLabels(["#", "Source File", "Target Scene Name", "Model", "Status"])
-        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
-        table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        hdr = table.horizontalHeader()
+        if hdr is not None:
+            hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+            hdr.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+            hdr.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+            hdr.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+            hdr.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         table.setRowCount(len(dry_run_data))
 
         for r, item in enumerate(dry_run_data):

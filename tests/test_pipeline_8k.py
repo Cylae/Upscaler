@@ -10,15 +10,19 @@ from src.core.hardware import HardwareInfo
 from src.core.models import AVAILABLE_MODELS
 from src.core.probe import VideoMetadata, probe_video
 from src.core.video_pipeline import (
-    UpscaleJobConfig, VideoUpscalerPipeline, _select_model_scale,
+    UpscaleJobConfig,
+    VideoUpscalerPipeline,
+    _select_model_scale,
 )
 
 
 def metadata(**updates):
-    values = dict(filepath="synthetic.mp4", width=1080, height=1920,
-                  fps=24, duration=1, nb_frames=24, codec_name="h264",
-                  has_audio=False, audio_codec="", has_subtitles=False,
-                  r_frame_rate="24/1")
+    values = {
+        "filepath": "synthetic.mp4", "width": 1080, "height": 1920,
+        "fps": 24, "duration": 1, "nb_frames": 24, "codec_name": "h264",
+        "has_audio": False, "audio_codec": "", "has_subtitles": False,
+        "r_frame_rate": "24/1"
+    }
     values.update(updates)
     return VideoMetadata(**values)
 

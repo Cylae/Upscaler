@@ -12,13 +12,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
 
 from src.core.scene_renamer import (
     find_forbidden_output_markers,
     strip_forbidden_output_markers,
 )
-
 
 TVMAZE_API_ROOT = "https://api.tvmaze.com"
 TVMAZE_SITE_ROOT = "https://www.tvmaze.com"
@@ -53,12 +51,12 @@ class SafePublicMetadata:
     episode_number: int
     episode_id: str
     airdate: str = ""
-    genres: Tuple[str, ...] = ()
+    genres: tuple[str, ...] = ()
     description: str = ""
     network: str = ""
     source_url: str = ""
 
-    def as_ffmpeg_tags(self) -> Dict[str, str]:
+    def as_ffmpeg_tags(self) -> dict[str, str]:
         tags = {
             "title": self.title,
             "show": self.show,
@@ -104,11 +102,11 @@ def _default_cache_dir() -> str:
 class TVMazeClient:
     """Small TVmaze client with an app-local cache and safe episode matching."""
 
-    def __init__(self, cache_dir: Optional[str] = None, timeout: float = 8.0, cache_ttl: int = 86_400):
+    def __init__(self, cache_dir: str | None = None, timeout: float = 8.0, cache_ttl: int = 86_400):
         self.cache_dir = cache_dir or _default_cache_dir()
         self.timeout = timeout
         self.cache_ttl = cache_ttl
-        self._memory: Dict[int, dict] = {}
+        self._memory: dict[int, dict] = {}
 
     def _cache_path(self, key: str) -> str:
         digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
@@ -140,7 +138,7 @@ class TVMazeClient:
             except OSError:
                 pass
 
-    def _request_json(self, path: str, params: Optional[Dict[str, object]] = None, cache_key: str = ""):
+    def _request_json(self, path: str, params: dict[str, object] | None = None, cache_key: str = ""):
         if cache_key:
             cached = self._read_cache(cache_key)
             if cached is not None:
@@ -168,7 +166,7 @@ class TVMazeClient:
                 pass
         return payload
 
-    def search_shows(self, query: str) -> List[ShowCandidate]:
+    def search_shows(self, query: str) -> list[ShowCandidate]:
         cleaned_query = sanitize_metadata_text(query, 200)
         if not cleaned_query:
             return []
@@ -177,7 +175,7 @@ class TVMazeClient:
             {"q": cleaned_query},
             cache_key=f"search:{cleaned_query.casefold()}",
         )
-        candidates: List[ShowCandidate] = []
+        candidates: list[ShowCandidate] = []
         for result in payload[:20]:
             show = result.get("show") or {}
             network_data = show.get("network") or show.get("webChannel") or {}
@@ -228,7 +226,7 @@ class TVMazeClient:
         season_number: int,
         episode_number: int,
         local_title: str = "",
-    ) -> Optional[SafePublicMetadata]:
+    ) -> SafePublicMetadata | None:
         bundle = self.get_show_bundle(show_id)
         episodes = bundle.get("episodes") or []
         local_key = _normalized_title(local_title)

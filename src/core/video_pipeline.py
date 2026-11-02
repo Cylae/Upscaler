@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-import json
 import math
 import os
-import re
 import shutil
 import subprocess
 import tempfile
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, replace
-from typing import Callable, Dict, List, Optional, Tuple
 
 from src.core.hardware import (
     HardwareInfo,
@@ -76,6 +74,57 @@ from src.core.validator import (
     validate_job_config,
 )
 
+__all__ = [
+    "AVAILABLE_MODELS",
+    "AIModelSpec",
+    "HardwareInfo",
+    "ModelEngine",
+    "ProcessTracker",
+    "SceneNamingConfig",
+    "UpscaleJobConfig",
+    "VideoMetadata",
+    "VideoUpscalerPipeline",
+    "auto_tile_size",
+    "calculate_target_dimensions",
+    "choose_best_model_for_video",
+    "clean_metadata_args",
+    "clean_scene_text",
+    "cleanup_stale_temp_directories",
+    "detect_ai_binaries",
+    "detect_ffmpeg",
+    "detect_nvidia_gpu",
+    "find_forbidden_media_metadata",
+    "find_forbidden_output_markers",
+    "format_clean_name",
+    "format_eta",
+    "format_output_name",
+    "format_scene_name",
+    "get_base_dir",
+    "get_hardware_info",
+    "get_optimal_thread_spec",
+    "get_scene_relative_output_path",
+    "is_file_complete_and_valid",
+    "is_heavy_model",
+    "is_process_alive",
+    "parse_episode_metadata",
+    "probe_audio_stream",
+    "probe_audio_streams",
+    "probe_video",
+    "recommend_model_for_video",
+    "register_active_job_dir",
+    "resolve_ai_binary",
+    "resolve_ffprobe_bin",
+    "resolve_realcugan_options",
+    "safe_atomic_move",
+    "safe_kill_process_tree",
+    "scrub_text_of_internal_markers",
+    "strip_forbidden_output_markers",
+    "unregister_active_job_dir",
+    "validate_encoded_video",
+    "validate_job_config",
+    "verify_clean_media_metadata",
+]
+
 _auto_tile_size = auto_tile_size
 
 # Image files and neural engines do not reliably honor pixel-aspect metadata.
@@ -83,12 +132,14 @@ _auto_tile_size = auto_tile_size
 _SQUARE_PIXEL_FILTER = "scale=w='max(2,round(iw*sar/2)*2)':h='max(2,round(ih/2)*2)',setsar=1"
 
 
-def _display_frame_dimensions(meta: VideoMetadata) -> Tuple[int, int]:
-    return tuple(max(2, int(math.floor(value / 2 + 0.5)) * 2)
-                 for value in (meta.display_width, meta.display_height))
+def _display_frame_dimensions(meta: VideoMetadata) -> tuple[int, int]:
+    w = max(2, math.floor(meta.display_width / 2 + 0.5) * 2)
+    h = max(2, math.floor(meta.display_height / 2 + 0.5) * 2)
+    return (w, h)
 
 
-def _square_pixel_filter(meta: Optional[VideoMetadata] = None) -> str:
+
+def _square_pixel_filter(meta: VideoMetadata | None = None) -> str:
     if meta is None:
         return _SQUARE_PIXEL_FILTER
     width, height = _display_frame_dimensions(meta)
@@ -100,7 +151,7 @@ def _select_model_scale(model: AIModelSpec, required_scale: float) -> int:
     return min((scale for scale in scales if scale >= required_scale - 0.05), default=max(scales))
 
 
-def _list_nonempty_frames(directory: str, frame_ext: str) -> List[str]:
+def _list_nonempty_frames(directory: str, frame_ext: str) -> list[str]:
     """Reuse directory-entry metadata instead of statting every output path."""
     suffix = f".{frame_ext}"
     with os.scandir(directory) as entries:
@@ -111,7 +162,7 @@ def _list_nonempty_frames(directory: str, frame_ext: str) -> List[str]:
         )
 
 
-def _complete_frame_sequence(names: List[str], frame_ext: str, expected: int) -> bool:
+def _complete_frame_sequence(names: list[str], frame_ext: str, expected: int) -> bool:
     """A missing frame must not be masked by a stray or misnumbered image."""
     return len(names) == expected and all(
         name == f"frame_{index:08d}.{frame_ext}"
@@ -124,14 +175,14 @@ def _complete_frame_sequence(names: List[str], frame_ext: str, expected: int) ->
 class UpscaleJobConfig:
     input_file: str
     output_dir: str
-    base_dir: Optional[str] = None
+    base_dir: str | None = None
     target_preset: str = "4k"  # "8k", "4k", "1440p", "1080p", "720p"
     video_codec: str = "hevc_nvenc"  # "hevc_nvenc", "h264_nvenc", "libx265", "libx264"
     model_id: str = "auto"
-    scene_config: Optional[SceneNamingConfig] = None
+    scene_config: SceneNamingConfig | None = None
     preserve_folders: bool = True
     overwrite: bool = False
-    temp_dir: Optional[str] = None
+    temp_dir: str | None = None
     tile_size: int = 0  # 0 for auto
     threads: str = "auto"  # "auto", "4:4:4", "2:4:2", "1:2:2"
     frame_format: str = "jpg"  # "jpg" (fastest I/O) or "png" (lossless)
@@ -140,11 +191,11 @@ class UpscaleJobConfig:
     enable_tta: bool = False
     denoise_level: int = -1
     audio_mode: str = "copy"  # "copy", "aac_192k", "aac_320k", "flac"
-    log_callback: Optional[Callable[[str], None]] = None
+    log_callback: Callable[[str], None] | None = None
     # When set, only `preview_duration_s` seconds are rendered (starting 10% into the
     # video so the clip is representative rather than a cold open).  The output file
     # receives a "[Preview Xsec]" suffix and never overwrites a full-length encode.
-    preview_duration_s: Optional[float] = None
+    preview_duration_s: float | None = None
 
 
 def _probe_cuda_support(ffmpeg_bin: str = "ffmpeg") -> bool:
@@ -163,14 +214,14 @@ def _probe_cuda_support(ffmpeg_bin: str = "ffmpeg") -> bool:
 
 
 class VideoUpscalerPipeline:
-    def __init__(self, hardware: Optional[HardwareInfo] = None):
+    def __init__(self, hardware: HardwareInfo | None = None):
         self.hardware = hardware or get_hardware_info()
         self._is_cancelled = False
-        self._current_process: Optional[subprocess.Popen] = None
+        self._current_process: subprocess.Popen | None = None
         self._process_lock = threading.Lock()
         self._active_processes: set[subprocess.Popen] = set()
         # Detect CUDA hwaccel once at construction — avoids repeated subprocess calls per job
-        self._cuda_available: Optional[bool] = None
+        self._cuda_available: bool | None = None
 
     def cancel(self):
         """Signals cancellation and terminates running subprocesses cleanly."""
@@ -186,7 +237,8 @@ class VideoUpscalerPipeline:
                                 ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
                                 stdout=subprocess.DEVNULL,
                                 stderr=subprocess.DEVNULL,
-                                timeout=3
+                                timeout=3,
+                                check=False,
                             )
                         except Exception:
                             pass
@@ -232,7 +284,8 @@ class VideoUpscalerPipeline:
                                     ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
                                     stdout=subprocess.DEVNULL,
                                     stderr=subprocess.DEVNULL,
-                                    timeout=3
+                                    timeout=3,
+                                check=False,
                                 )
                             except Exception:
                                 pass
@@ -275,7 +328,7 @@ class VideoUpscalerPipeline:
         encoder: str,
         cq_val: str,
         p_val: str,
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """Test the actual encoder configuration using one synthetic frame.
 
         A compiled NVENC encoder does not guarantee that the GPU supports the
@@ -291,10 +344,13 @@ class VideoUpscalerPipeline:
         input_pos = cmd.index("-i")
         fps_arg = cmd[cmd.index("-r") + 1]
         # Replace the image-sequence input, including its input -r, with lavfi.
-        cmd = cmd[:input_pos - 2] + [
+        cmd = [
+            *cmd[:input_pos - 2],
             "-hide_banner", "-loglevel", "error", "-nostdin",
             "-f", "lavfi", "-i", f"color=c=black:s={target_w}x{target_h}:r={fps_arg}",
-        ] + cmd[input_pos + 2:-1] + ["-frames:v", "1", "-f", "null", "-"]
+            *cmd[input_pos + 2:-1],
+            "-frames:v", "1", "-f", "null", "-",
+        ]
         proc = self._start_process(
             cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
             text=True, errors="replace",
@@ -349,8 +405,8 @@ class VideoUpscalerPipeline:
         frame_ext: str,
         use_hwdecode: bool,
         start_offset_s: float = 0.0,
-        duration_s: Optional[float] = None,
-        meta: Optional[VideoMetadata] = None,
+        duration_s: float | None = None,
+        meta: VideoMetadata | None = None,
     ) -> list:
         """Builds an optimised FFmpeg command to extract video frames.
 
@@ -388,10 +444,12 @@ class VideoUpscalerPipeline:
                 ffmpeg_bin, "-y",
                 "-hwaccel", "cuda",
                 "-hwaccel_output_format", "cuda",
-            ] + common_input_flags + seek_flags + [
+                *common_input_flags,
+                *seek_flags,
                 "-i", input_file,
                 "-map", "0:V:0", "-an", "-sn",
                 "-vf", f"hwdownload,format=nv12,{_square_pixel_filter(meta)}",
+                "-threads", "0",
                 "-filter_threads", "0",
                 "-filter_complex_threads", "0",
             ]
@@ -399,7 +457,8 @@ class VideoUpscalerPipeline:
             cmd = [
                 ffmpeg_bin, "-y",
                 "-threads", "0",
-            ] + common_input_flags + seek_flags + [
+                *common_input_flags,
+                *seek_flags,
                 "-i", input_file,
                 "-map", "0:V:0", "-an", "-sn",
                 "-vf", _square_pixel_filter(meta),
@@ -430,11 +489,11 @@ class VideoUpscalerPipeline:
         chosen_encoder: str,
         cq_val: str,
         p_val: str,
-        audio_input_path: Optional[str],
+        audio_input_path: str | None,
         audio_mode: str,
         part_output_file: str,
         audio_start_offset_s: float = 0.0,
-        audio_duration_s: Optional[float] = None,
+        audio_duration_s: float | None = None,
     ) -> list:
         """Builds an optimised FFmpeg command to re-encode upscaled frames to the target format.
 
@@ -528,6 +587,7 @@ class VideoUpscalerPipeline:
                 "-c:v", "libx265",
                 "-crf", cq_val,
                 "-preset", "fast",
+                "-x265-params", "no-sao=1",
                 "-pix_fmt", "yuv420p",
             ])
         else:  # libx264
@@ -562,8 +622,8 @@ class VideoUpscalerPipeline:
     def process_video(
         self,
         job: UpscaleJobConfig,
-        progress_callback: Optional[Callable[[float, str, Dict], None]] = None
-    ) -> Tuple[bool, str]:
+        progress_callback: Callable[[float, str, dict], None] | None = None
+    ) -> tuple[bool, str]:
         """
         Executes end-to-end upscale pipeline:
         1. Probe input video.
@@ -606,7 +666,7 @@ class VideoUpscalerPipeline:
                 except Exception:
                     pass
 
-        def report(ratio: float, status: str, extra: Optional[Dict] = None):
+        def report(ratio: float, status: str, extra: dict | None = None):
             if progress_callback:
                 progress_callback(ratio, status, extra or {})
 
@@ -725,7 +785,7 @@ class VideoUpscalerPipeline:
 
             # Compute preview segment boundaries once (needs meta.duration)
             _preview_start_s: float = 0.0
-            _preview_dur_s: Optional[float] = None
+            _preview_dur_s: float | None = None
             if _preview_mode:
                 _preview_dur_s = float(job.preview_duration_s)  # type: ignore[arg-type]
                 if meta.duration and meta.duration > 0:
@@ -751,9 +811,9 @@ class VideoUpscalerPipeline:
             # ------------------------------------------------------------------
 
             # Shared results written by threads
-            _audio_result: Dict = {"extracted": False, "error": None}
-            _frames_result: Dict = {"extracted": 0, "error": None}
-            _audio_proc: Dict = {"proc": None}
+            _audio_result: dict = {"extracted": False, "error": None}
+            _frames_result: dict = {"extracted": 0, "error": None}
+            _audio_proc: dict = {"proc": None}
 
             def _extract_audio_thread():
                 """Extracts audio stream from source; first tries copy, then AAC transcode.
@@ -834,7 +894,7 @@ class VideoUpscalerPipeline:
                         text=True, errors="ignore"
                     )
                     try:
-                        _, stderr_out = proc.communicate()
+                        _, _stderr_out = proc.communicate()
                     finally:
                         self._forget_process(proc)
                     rc = proc.returncode
@@ -1020,7 +1080,7 @@ class VideoUpscalerPipeline:
                 completed_frames = 0
                 last_report_time = time.monotonic()
                 est_encode_s = max(2.0, total_extracted / 120.0)
-                vulkan_errors: List[str] = []
+                vulkan_errors: list[str] = []
 
                 report(
                     0.15,
@@ -1316,13 +1376,13 @@ class VideoUpscalerPipeline:
         video_path: str,
         model_id: str = "auto",
         target_preset: str = "4k",
-        offset_seconds: Optional[float] = None,
+        offset_seconds: float | None = None,
         *,
         threads: str = "auto",
         tile_size: int = 0,
         denoise_level: int = -1,
         enable_tta: bool = False,
-    ) -> Tuple[bool, str, str, Dict]:
+    ) -> tuple[bool, str, str, dict]:
         """Extracts a single representative frame from video and upscales it with AI model.
 
         Returns (success, original_frame_path, upscaled_frame_path, info_dict).
@@ -1343,7 +1403,7 @@ class VideoUpscalerPipeline:
         if offset_seconds is None:
             offset_seconds = max(0.5, meta.duration * 0.15) if meta.duration > 1 else 0.0
 
-        target_w, target_h, res_tag = calculate_target_dimensions(
+        target_w, target_h, _res_tag = calculate_target_dimensions(
             meta.width, meta.height, target_preset,
             sample_aspect_ratio=meta.sample_aspect_ratio, rotation=meta.rotation,
         )

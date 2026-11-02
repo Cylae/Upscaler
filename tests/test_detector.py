@@ -1,5 +1,6 @@
 from unittest.mock import patch
-from src.core.detector import get_hardware_info, HardwareInfo, clear_hardware_cache
+
+from src.core.detector import HardwareInfo, clear_hardware_cache, get_hardware_info
 
 
 def test_hardware_detector():

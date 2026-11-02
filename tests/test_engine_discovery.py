@@ -9,7 +9,6 @@ from src.core import hardware
 from src.core.hardware import HardwareInfo
 from src.core.models import ModelEngine
 
-
 ENGINES = ["realesrgan", "realcugan", ModelEngine.REALESRGAN, ModelEngine.REALCUGAN]
 
 

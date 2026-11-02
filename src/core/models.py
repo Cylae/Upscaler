@@ -11,15 +11,14 @@ import os
 from dataclasses import dataclass
 from enum import Enum
 from fractions import Fraction
-from typing import Dict, List, Optional, Tuple, Union
 
 
 class ModelEngine(str, Enum):
     REALESRGAN = "realesrgan"
     REALCUGAN = "realcugan"
     # Legacy alias
-    REAL_ESRGAN = "realesrgan"
-    REAL_CUGAN = "realcugan"
+    REAL_ESRGAN = REALESRGAN
+    REAL_CUGAN = REALCUGAN
 
 
 @dataclass
@@ -28,7 +27,7 @@ class AIModelSpec:
     name: str
     engine: ModelEngine
     description: str
-    supported_scales: List[int]
+    supported_scales: list[int]
     default_scale: int
     recommended_for: str = ""
     internal_name: str = ""
@@ -50,7 +49,7 @@ class ModelRecommendation:
 
 
 # Curated catalog of models for Cartoons / 2D Animation
-AVAILABLE_MODELS: Dict[str, AIModelSpec] = {
+AVAILABLE_MODELS: dict[str, AIModelSpec] = {
     "auto": AIModelSpec(
         id="auto",
         name="Auto Selection (Recommended)",
@@ -138,7 +137,7 @@ AVAILABLE_MODELS: Dict[str, AIModelSpec] = {
 }
 
 
-def check_local_model_availability(base_dir: Optional[str] = None) -> Dict[str, bool]:
+def check_local_model_availability(base_dir: str | None = None) -> dict[str, bool]:
     """Verifies that all AI models are physically present on local storage."""
     if base_dir is None:
         current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -172,8 +171,8 @@ def check_local_model_availability(base_dir: Optional[str] = None) -> Dict[str, 
 
 
 def recommend_model_for_video(
-    width: Union[int, float],
-    height: Union[int, float],
+    width: float,
+    height: float,
     target_preset: str = "4k",
 ) -> ModelRecommendation:
     """Recommends an animation model from source geometry and requested output."""
@@ -216,13 +215,13 @@ def recommend_model_for_video(
     )
 
 
-def choose_best_model_for_video(width: Union[int, float], height: Union[int, float], target_preset: str = "4k") -> Tuple[AIModelSpec, int]:
+def choose_best_model_for_video(width: float, height: float, target_preset: str = "4k") -> tuple[AIModelSpec, int]:
     """Backward-compatible shorthand for recommend_model_for_video."""
     rec = recommend_model_for_video(width, height, target_preset)
     return rec.model, rec.scale
 
 
-def get_model_display_name(model_id_or_name: str, include_scale: bool = False, scale: Optional[int] = None) -> str:
+def get_model_display_name(model_id_or_name: str, include_scale: bool = False, scale: int | None = None) -> str:
     """Returns a concise, human-friendly model label for UI lists and tables."""
     if not model_id_or_name:
         return "Auto"
@@ -280,20 +279,22 @@ def normalize_rotation(value: object = 0) -> float:
 
 
 def calculate_display_dimensions(
-    orig_w: Union[int, float],
-    orig_h: Union[int, float],
+    orig_w: float,
+    orig_h: float,
     *,
     sample_aspect_ratio: str = "1:1",
     rotation: float = 0,
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     """Returns square-pixel geometry after SAR correction and FFmpeg autorotation.
 
     Quarter turns exchange the display axes. Other angles retain the coded frame
     bounds, as FFmpeg's automatic rotate filter does rather than expanding its canvas.
     """
     sar = Fraction(normalize_sample_aspect_ratio(sample_aspect_ratio).replace(":", "/"))
-    width = max(2, orig_w) * float(sar)
-    height = float(max(2, orig_h))
+    safe_w = float(orig_w) if isinstance(orig_w, (int, float)) and math.isfinite(orig_w) and orig_w > 0 else 2.0
+    safe_h = float(orig_h) if isinstance(orig_h, (int, float)) and math.isfinite(orig_h) and orig_h > 0 else 2.0
+    width = max(2.0, safe_w) * float(sar)
+    height = float(max(2.0, safe_h))
     degrees = normalize_rotation(rotation) % 360
     if math.isclose(degrees, 90, abs_tol=1e-3) or math.isclose(degrees, 270, abs_tol=1e-3):
         width, height = height, width
@@ -301,13 +302,13 @@ def calculate_display_dimensions(
 
 
 def calculate_target_dimensions(
-    orig_w: Union[int, float],
-    orig_h: Union[int, float],
+    orig_w: float,
+    orig_h: float,
     target_preset: str = "4k",
     *,
     sample_aspect_ratio: str = "1:1",
     rotation: float = 0,
-) -> Tuple[int, int, str]:
+) -> tuple[int, int, str]:
     """Fits display geometry into the requested landscape or portrait resolution.
 
     Supported presets: '8k' (4320p), '4k' (2160p), '1440p', '1080p',
@@ -322,12 +323,12 @@ def calculate_target_dimensions(
     preset_clean = (target_preset or "4k").lower().strip()
 
     if preset_clean in ("2x", "x2"):
-        target_w = int(round(display_w * 2))
-        target_h = int(round(display_h * 2))
+        target_w = round(display_w * 2)
+        target_h = round(display_h * 2)
         tag = f"{target_h}p"
     elif preset_clean in ("4x", "x4"):
-        target_w = int(round(display_w * 4))
-        target_h = int(round(display_h * 4))
+        target_w = round(display_w * 4)
+        target_h = round(display_h * 4)
         tag = f"{target_h}p"
     else:
         if preset_clean in ("8k", "4320p"):
@@ -345,16 +346,16 @@ def calculate_target_dimensions(
 
         if aspect > 16.0 / 9.0:
             target_w = max_w
-            target_h = int(round(target_w / aspect))
+            target_h = round(target_w / aspect)
         elif aspect < 1.0:
             target_w = base_h
-            target_h = int(round(target_w / aspect))
+            target_h = round(target_w / aspect)
             if target_h > max_w:
                 target_h = max_w
-                target_w = int(round(target_h * aspect))
+                target_w = round(target_h * aspect)
         else:
             target_h = base_h
-            target_w = int(round(target_h * aspect))
+            target_w = round(target_h * aspect)
 
     target_w = max(2, target_w - (target_w % 2))
     target_h = max(2, target_h - (target_h % 2))
@@ -362,7 +363,7 @@ def calculate_target_dimensions(
     return target_w, target_h, tag
 
 
-def is_heavy_model(model: Optional[AIModelSpec | str] = None) -> bool:
+def is_heavy_model(model: AIModelSpec | str | None = None) -> bool:
     """Returns True if the model uses heavy architecture (like RRDBNet or RealCUGAN)
     requiring conservative VRAM tile sizes and worker concurrency to avoid Vulkan OOM.
     """
@@ -388,7 +389,7 @@ def is_heavy_model(model: Optional[AIModelSpec | str] = None) -> bool:
 
 def auto_tile_size(
     gpu_vram_gb: float = 0.0,
-    model: Optional[AIModelSpec | str] = None,
+    model: AIModelSpec | str | None = None,
     *args,
     **kwargs
 ) -> int:
@@ -440,9 +441,9 @@ def auto_tile_size(
 def get_optimal_thread_spec(
     threads_param: str = "auto",
     gpu_vram_gb: float = 0.0,
-    vram_gb: Optional[float] = None,
-    cpu_cores: Optional[int] = None,
-    model: Optional[AIModelSpec | str] = None,
+    vram_gb: float | None = None,
+    cpu_cores: int | None = None,
+    model: AIModelSpec | str | None = None,
     *args,
     **kwargs
 ) -> str:
@@ -503,7 +504,7 @@ def resolve_realcugan_options(
     requested_denoise: int = -1,
     *args,
     **kwargs
-) -> Tuple[int, int, str]:
+) -> tuple[int, int, str]:
     """Finds the best valid scale, denoise level, and model subfolder for RealCUGAN."""
     if isinstance(models_dir, int):
         # Called as resolve_realcugan_options(scale, denoise, sync_mode)

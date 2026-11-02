@@ -1,8 +1,6 @@
 import os
 import re
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
-
 
 FORBIDDEN_PATTERNS = [
     r"(?<![a-zA-Z0-9])a\.i\.(?![a-zA-Z0-9])",
@@ -23,7 +21,7 @@ FORBIDDEN_PATTERNS = [
 FORBIDDEN_REGEX = re.compile("|".join(FORBIDDEN_PATTERNS), re.IGNORECASE)
 
 
-def find_forbidden_output_markers(s: str) -> List[str]:
+def find_forbidden_output_markers(s: str) -> list[str]:
     """Finds any forbidden AI / upscaler reference markers in text."""
     if not s:
         return []
@@ -71,7 +69,7 @@ def clean_scene_text(text: str) -> str:
     return ".".join(clean_words)
 
 
-def parse_episode_metadata(filepath: str, base_dir: Optional[str] = None) -> Tuple[str, str, str, str]:
+def parse_episode_metadata(filepath: str, base_dir: str | None = None) -> tuple[str, str, str, str]:
     """
     Analyzes filepath and extracts:
     - sub_category (e.g. 'TV', '2003.Smoochies', 'Irregular', '')
@@ -103,11 +101,11 @@ def parse_episode_metadata(filepath: str, base_dir: Optional[str] = None) -> Tup
     title_raw = ""
 
     # Regex patterns
-    m_s_e = re.search(r"s(\d+)e(\d+)\s*[-_]?\s*(.*)", filename, re.I)
+    m_s_e = re.search(r"s(\d+)e(\d+)\s*[-_]?\s*(.*)", filename, re.IGNORECASE)
     m_leading_num = re.search(r"^(\d+)\s*[-_]?\s*(.*)", filename)
-    m_season_folder = re.search(r"Season\s*(\d+)", folder, re.I)
-    m_tv_folder = re.search(r"2006\s*TV", folder, re.I)
-    m_others_folder = re.search(r"Others", folder, re.I)
+    m_season_folder = re.search(r"Season\s*(\d+)", folder, re.IGNORECASE)
+    m_tv_folder = re.search(r"2006\s*TV", folder, re.IGNORECASE)
+    m_others_folder = re.search(r"Others", folder, re.IGNORECASE)
 
     if m_s_e:
         s_num = int(m_s_e.group(1))
@@ -151,8 +149,8 @@ def parse_episode_metadata(filepath: str, base_dir: Optional[str] = None) -> Tup
 
 def format_scene_name(
     filepath: str,
-    base_dir: Optional[str] = None,
-    config: Optional[SceneNamingConfig] = None
+    base_dir: str | None = None,
+    config: SceneNamingConfig | None = None
 ) -> str:
     """Generates the full Warez/Scene release filename for a video."""
     cfg = config or SceneNamingConfig()
@@ -214,7 +212,7 @@ def format_clean_name(
         clean_stem = "video"
 
     ext = container if (container and container.startswith(".")) else f".{container or orig_ext.lstrip('.') or 'mp4'}"
-    
+
     if custom_suffix:
         tag = custom_suffix if custom_suffix.startswith("_") else f"_{custom_suffix}"
     else:
@@ -243,8 +241,8 @@ def format_clean_name(
 
 def format_output_name(
     filepath: str,
-    base_dir: Optional[str] = None,
-    config: Optional[SceneNamingConfig] = None
+    base_dir: str | None = None,
+    config: SceneNamingConfig | None = None
 ) -> str:
     """Formats output filename based on selected naming mode (clean, scene, or original)."""
     cfg = config or SceneNamingConfig()
@@ -263,8 +261,8 @@ def format_output_name(
 
 def get_scene_relative_output_path(
     filepath: str,
-    base_dir: Optional[str] = None,
-    config: Optional[SceneNamingConfig] = None,
+    base_dir: str | None = None,
+    config: SceneNamingConfig | None = None,
     preserve_folders: bool = True
 ) -> str:
     """Returns the relative path under the output directory (preserving folder structure if desired)."""

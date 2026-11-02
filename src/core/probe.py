@@ -17,9 +17,12 @@ from collections import OrderedDict
 from concurrent.futures import Future
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
 
-from src.core.models import calculate_display_dimensions, normalize_rotation, normalize_sample_aspect_ratio
+from src.core.models import (
+    calculate_display_dimensions,
+    normalize_rotation,
+    normalize_sample_aspect_ratio,
+)
 
 
 @dataclass
@@ -51,7 +54,7 @@ class VideoMetadata:
     def display_height(self) -> float:
         return self._display_dimensions()[1]
 
-    def _display_dimensions(self) -> Tuple[float, float]:
+    def _display_dimensions(self) -> tuple[float, float]:
         return calculate_display_dimensions(
             self.width,
             self.height,
@@ -63,8 +66,8 @@ class VideoMetadata:
 # Keep complete probe documents together: one inspection covers video, all audio
 # tracks, subtitles, display geometry, and the tags used by the privacy audit.
 _PROBE_CACHE_LIMIT = 256
-_PROBE_CACHE: OrderedDict[tuple, Dict] = OrderedDict()
-_IN_FLIGHT_PROBES: Dict[tuple, Future] = {}
+_PROBE_CACHE: OrderedDict[tuple, dict] = OrderedDict()
+_IN_FLIGHT_PROBES: dict[tuple, Future] = {}
 _CACHE_LOCK = threading.Lock()
 _CACHE_GENERATION = 0
 
@@ -78,7 +81,7 @@ def clear_probe_cache() -> None:
         _CACHE_GENERATION += 1
 
 
-def resolve_ffprobe_bin(ffprobe_bin: Optional[str] = None) -> str:
+def resolve_ffprobe_bin(ffprobe_bin: str | None = None) -> str:
     """Finds the usable ffprobe executable path."""
     if ffprobe_bin and (os.path.isfile(ffprobe_bin) or shutil.which(ffprobe_bin)):
         return ffprobe_bin
@@ -96,7 +99,7 @@ def resolve_ffprobe_bin(ffprobe_bin: Optional[str] = None) -> str:
     return "ffprobe"
 
 
-def _file_identity(filepath: str) -> Optional[tuple]:
+def _file_identity(filepath: str) -> tuple | None:
     """Use one stat call and nanosecond timestamps, including replacement identity."""
     try:
         info = os.stat(filepath)
@@ -114,7 +117,7 @@ def _file_identity(filepath: str) -> Optional[tuple]:
     )
 
 
-def _probe_media(filepath: str, ffprobe_bin: Optional[str], timeout: int) -> Dict:
+def _probe_media(filepath: str, ffprobe_bin: str | None, timeout: int) -> dict:
     """Read a bounded, shared snapshot; never publish a file changed mid-probe."""
     bin_name = resolve_ffprobe_bin(ffprobe_bin)
     resolved_bin = shutil.which(bin_name) or bin_name
@@ -169,7 +172,7 @@ def _probe_media(filepath: str, ffprobe_bin: Optional[str], timeout: int) -> Dic
     raise RuntimeError(f"Media file changed while ffprobe was inspecting it: {filepath}")
 
 
-def _read_probe_document(filepath: str, bin_name: str, timeout: int) -> Dict:
+def _read_probe_document(filepath: str, bin_name: str, timeout: int) -> dict:
     cmd = [
         bin_name,
         "-v", "error",
@@ -181,11 +184,11 @@ def _read_probe_document(filepath: str, bin_name: str, timeout: int) -> Dict:
     raw = subprocess.check_output(cmd, text=True, errors="ignore", timeout=timeout)
     data = json.loads(raw)
     if not isinstance(data, dict):
-        raise ValueError(f"Invalid ffprobe response for {filepath}")
+        raise TypeError(f"Invalid ffprobe response for {filepath}")
     return data
 
 
-def probe_video(filepath: str, ffprobe_bin: Optional[str] = None) -> VideoMetadata:
+def probe_video(filepath: str, ffprobe_bin: str | None = None) -> VideoMetadata:
     """Extract complete video metadata, sharing fresh bounded snapshots with audits."""
     data = _probe_media(filepath, ffprobe_bin, timeout=30)
 
@@ -287,7 +290,7 @@ def probe_video(filepath: str, ffprobe_bin: Optional[str] = None) -> VideoMetada
     return meta
 
 
-def probe_audio_streams(filepath: str, ffprobe_bin: Optional[str] = None) -> List[Dict]:
+def probe_audio_streams(filepath: str, ffprobe_bin: str | None = None) -> list[dict]:
     """Return every audio track without exposing mutable cached stream dictionaries."""
     try:
         data = _probe_media(filepath, ffprobe_bin, timeout=20)
@@ -296,7 +299,7 @@ def probe_audio_streams(filepath: str, ffprobe_bin: Optional[str] = None) -> Lis
         return []
 
 
-def probe_audio_stream(filepath: str, ffprobe_bin: Optional[str] = None) -> bool:
+def probe_audio_stream(filepath: str, ffprobe_bin: str | None = None) -> bool:
     """Uses ffprobe to verify that the file contains at least one valid audio stream."""
     if not os.path.isfile(filepath) or os.path.getsize(filepath) < 500:
         return False
@@ -304,7 +307,7 @@ def probe_audio_stream(filepath: str, ffprobe_bin: Optional[str] = None) -> bool
     return len(streams) > 0
 
 
-def format_eta(seconds: Optional[float]) -> str:
+def format_eta(seconds: float | None) -> str:
     """Formats seconds into human-readable text (e.g. '45s', '1m 24s', '2h 15m')."""
     if seconds is None:
         return "--"
@@ -313,7 +316,7 @@ def format_eta(seconds: Optional[float]) -> str:
             return "--"
     except (TypeError, ValueError):
         return "--"
-    s = int(round(seconds))
+    s = round(seconds)
     if s < 60:
         return f"{s}s"
     minutes = s // 60
@@ -348,7 +351,7 @@ def clean_metadata_args(include_video: bool = True) -> list:
     return args
 
 
-def verify_clean_media_metadata(filepath: str, ffprobe_bin: Optional[str] = None) -> tuple[bool, list[str], str]:
+def verify_clean_media_metadata(filepath: str, ffprobe_bin: str | None = None) -> tuple[bool, list[str], str]:
     """Inspects output media file tags via ffprobe for forbidden markers."""
     from src.core.scene_renamer import find_forbidden_output_markers
     try:
@@ -363,9 +366,9 @@ def verify_clean_media_metadata(filepath: str, ffprobe_bin: Optional[str] = None
         return False, [], str(exc)
 
 
-def find_forbidden_media_metadata(filepath: str, ffprobe_bin: Optional[str] = None) -> list:
+def find_forbidden_media_metadata(filepath: str, ffprobe_bin: str | None = None) -> list:
     """Checks output media file tags via ffprobe for any forbidden markers."""
-    is_clean, violations, err = verify_clean_media_metadata(filepath, ffprobe_bin)
+    _is_clean, violations, err = verify_clean_media_metadata(filepath, ffprobe_bin)
     if err:
         raise RuntimeError(f"Failed to inspect media metadata for {filepath}: {err}")
     return violations

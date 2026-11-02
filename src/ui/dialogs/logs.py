@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import html
 import os
-from typing import Dict, List, Optional
+from typing import ClassVar
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
@@ -27,7 +27,7 @@ class LogViewerDialog(QDialog):
     live filter, and export to file.
     """
 
-    _COLORS: Dict[str, str] = {
+    _COLORS: ClassVar[dict[str, str]] = {
         "[FFMPEG AUDIO]": "#ff9f0a",
         "[FFMPEG AUDIO FALLBACK]": "#ff9f0a",
         "[FFMPEG EXTRACT": "#5e5ce6",
@@ -43,7 +43,7 @@ class LogViewerDialog(QDialog):
     }
     _DEFAULT_COLOR = "#8e8e93"
 
-    def __init__(self, log_buffer: Optional[List[str]] = None, parent=None):
+    def __init__(self, log_buffer: list[str] | None = None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("📋 Live Engine Logs")
         self.resize(900, 560)
@@ -124,7 +124,9 @@ class LogViewerDialog(QDialog):
         self.txt_log = QTextEdit()
         self.txt_log.setObjectName("txtConsole")
         self.txt_log.setReadOnly(True)
-        self.txt_log.document().setMaximumBlockCount(5000)
+        doc = self.txt_log.document()
+        if doc is not None:
+            doc.setMaximumBlockCount(5000)
         self.txt_log.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
         layout.addWidget(self.txt_log, 1)
 
@@ -147,7 +149,8 @@ class LogViewerDialog(QDialog):
             self.txt_log.append(html_line)
             if self._auto_scroll:
                 sb = self.txt_log.verticalScrollBar()
-                sb.setValue(sb.maximum())
+                if sb is not None:
+                    sb.setValue(sb.maximum())
         self._update_count()
 
     def _color_for(self, msg: str) -> str:
@@ -169,7 +172,8 @@ class LogViewerDialog(QDialog):
         self.txt_log.setHtml("".join(f"<p style='margin:0;'>{line}</p>" for line in lines))
         if self._auto_scroll:
             sb = self.txt_log.verticalScrollBar()
-            sb.setValue(sb.maximum())
+            if sb is not None:
+                sb.setValue(sb.maximum())
         self._update_count()
 
     def _apply_filter(self):
@@ -181,7 +185,8 @@ class LogViewerDialog(QDialog):
             self.btn_autoscroll.setText("⬇ Auto-scroll: ON")
             self.btn_autoscroll.setStyleSheet("padding: 4px 12px; font-size: 11px; font-weight: 600; color: #30d158; border: 1px solid #30d158; border-radius: 6px;")
             sb = self.txt_log.verticalScrollBar()
-            sb.setValue(sb.maximum())
+            if sb is not None:
+                sb.setValue(sb.maximum())
         else:
             self.btn_autoscroll.setText("⬇ Auto-scroll: OFF")
             self.btn_autoscroll.setStyleSheet("padding: 4px 12px; font-size: 11px; font-weight: 600; color: #8e8e93; border: 1px solid #8e8e93; border-radius: 6px;")

@@ -1,5 +1,4 @@
-import os
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 from PyQt6.QtWidgets import QApplication, QHeaderView
@@ -69,7 +68,7 @@ def test_doctor_dialog(qapp, tmp_path):
 
 
 def test_doctor_dialog_with_parent_status(qapp, tmp_path):
-    from PyQt6.QtWidgets import QWidget, QLabel
+    from PyQt6.QtWidgets import QLabel, QWidget
     parent = QWidget()
     parent.lbl_overall_status = QLabel()
     dlg = DoctorDialog(parent=parent)

@@ -1,8 +1,15 @@
 import os
+
 from PyQt6.QtCore import QSize
 from PyQt6.QtGui import QResizeEvent
 from PyQt6.QtWidgets import QApplication
-from src.ui.app_qt import DARK_STYLESHEET, DoctorDialog, LogViewerDialog, UpscalerMainWindow
+
+from src.ui.app_qt import (
+    DARK_STYLESHEET,
+    DoctorDialog,
+    LogViewerDialog,
+    UpscalerMainWindow,
+)
 
 
 def test_macos_dark_stylesheet_tokens():
@@ -21,7 +28,7 @@ def test_macos_dark_stylesheet_tokens():
 def test_macos_window_components_and_paddings():
     """Verify macOS window elements, progress bar height, and dialogs."""
     os.environ["QT_QPA_PLATFORM"] = "offscreen"
-    app = QApplication.instance() or QApplication(["test", "-platform", "offscreen"])
+    _app = QApplication.instance() or QApplication(["test", "-platform", "offscreen"])
 
     window = UpscalerMainWindow()
 

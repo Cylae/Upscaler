@@ -34,30 +34,7 @@ COLOR_APPLE_GREEN = "#30d158"
 COLOR_APPLE_INDIGO = "#5e5ce6"
 COLOR_APPLE_RED = "#ff453a"
 
-# The processing window favors compact, rectangular controls and a native titlebar.
-# Inspection dialogs retain the existing theme for compatibility.
-UTILITY_STYLESHEET = """
-QWidget { background: #242424; color: #ededed; font-family: "Segoe UI"; font-size: 12px; }
-QLabel { background: transparent; }
-QLineEdit, QComboBox, QSpinBox, QTextEdit, QTableWidget {
-    background: #191919; border: 1px solid #666; border-radius: 0; padding: 3px;
-    selection-background-color: #355f89; selection-color: white;
-}
-QPushButton { background: #363636; border: 1px solid #777; border-radius: 0; padding: 5px 8px; }
-QPushButton:hover { background: #454545; }
-QPushButton:checked { background: #355f89; border-color: #8ab8e0; }
-QPushButton:disabled, QComboBox:disabled { color: #888; border-color: #444; }
-QPushButton:focus, QLineEdit:focus, QComboBox:focus, QSpinBox:focus { border-color: #a6cbed; }
-QTabWidget::pane { border: 1px solid #666; }
-QTabBar::tab { background: #303030; border: 1px solid #666; padding: 6px 10px; border-radius: 0; }
-QTabBar::tab:selected { background: #464646; color: white; }
-QHeaderView::section { background: #363636; padding: 5px; border: 1px solid #555; }
-QTableWidget { alternate-background-color: #292929; gridline-color: #444; }
-QProgressBar { border: 1px solid #666; border-radius: 0; background: #191919; }
-QProgressBar::chunk { background: #689a6a; border-radius: 0; }
-QScrollArea { border: none; }
-QToolTip { background: #333; color: white; border: 1px solid #999; }
-"""
+# Modern unified dark stylesheet token definition
 
 DARK_STYLESHEET = """
 /* ==========================================================================
@@ -746,6 +723,129 @@ QLabel#sectionHeader {
     letter-spacing: 1px;
     text-transform: uppercase;
 }
+
+/* ---------- Settings Tabs & Navigation ---------- */
+QTabWidget::pane {
+    border: 1px solid #1e1e2e;
+    background-color: #11111a;
+    border-radius: 10px;
+    margin-top: -1px;
+}
+
+QTabBar::tab {
+    background-color: #161622;
+    border: 1px solid #1e1e2e;
+    border-bottom: none;
+    color: #94a3b8;
+    padding: 8px 18px;
+    font-weight: 600;
+    font-size: 12px;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    margin-right: 4px;
+    min-width: 65px;
+}
+
+QTabBar::tab:hover {
+    background-color: #1d1d2e;
+    color: #f1f5f9;
+    border-color: #2e2e46;
+}
+
+QTabBar::tab:selected {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1a1a2e, stop:1 #11111a);
+    color: #60a5fa;
+    border: 1px solid #282845;
+    border-bottom: 2px solid #3b82f6;
+    font-weight: 700;
+}
+
+/* ---------- Status Badges (Top Bar) ---------- */
+QLabel#statusBadgeGpu {
+    background-color: rgba(52, 211, 153, 0.10);
+    border: 1px solid rgba(52, 211, 153, 0.28);
+    border-radius: 8px;
+    padding: 5px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #34d399;
+}
+
+QLabel#statusBadgeEncoder {
+    background-color: rgba(96, 165, 250, 0.10);
+    border: 1px solid rgba(96, 165, 250, 0.28);
+    border-radius: 8px;
+    padding: 5px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #60a5fa;
+}
+
+QLabel#statusBadgeAudio {
+    background-color: rgba(167, 139, 250, 0.10);
+    border: 1px solid rgba(167, 139, 250, 0.28);
+    border-radius: 8px;
+    padding: 5px 12px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #a78bfa;
+}
+
+QPushButton#btnTopDiagnostics, QPushButton#btnTopLogs {
+    background-color: #141420;
+    border: 1px solid #222235;
+    border-radius: 8px;
+    padding: 5px 12px;
+    color: #94a3b8;
+    font-weight: 600;
+    font-size: 12px;
+}
+
+QPushButton#btnTopDiagnostics:hover, QPushButton#btnTopLogs:hover {
+    background-color: #1c1c2e;
+    border-color: #3b3b55;
+    color: #e2e8f0;
+}
+
+/* ---------- Action Bar Status & ETA Badges ---------- */
+QLabel#lblOverallStatus {
+    color: #94a3b8;
+    font-weight: 500;
+    font-size: 12px;
+}
+
+QLabel#lblEta {
+    background-color: rgba(96, 165, 250, 0.12);
+    border: 1px solid rgba(96, 165, 250, 0.3);
+    border-radius: 6px;
+    padding: 3px 8px;
+    color: #60a5fa;
+    font-weight: 600;
+    font-size: 11px;
+}
+
+/* ---------- Search and Queue Action Buttons ---------- */
+QPushButton#btnRemoveSelected, QPushButton#btnClearQueue {
+    background-color: #161622;
+    border: 1px solid #202030;
+    border-radius: 6px;
+    padding: 5px 10px;
+    color: #94a3b8;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+QPushButton#btnRemoveSelected:hover {
+    border-color: #ef4444;
+    color: #f87171;
+    background-color: rgba(239, 68, 68, 0.08);
+}
+
+QPushButton#btnClearQueue:hover {
+    border-color: #f59e0b;
+    color: #fbbf24;
+    background-color: rgba(245, 158, 11, 0.08);
+}
 """
 
 if _CHEVRON_CSS:
@@ -773,7 +873,8 @@ def apply_dark_titlebar(widget, bg_hex: str = "#0d0d10", text_hex: str = "#94a3b
         return False
     try:
         import ctypes
-        from ctypes import c_int, byref, sizeof
+        from ctypes import byref, c_int, sizeof
+
         from PyQt6.QtGui import QColor
 
         hwnd = int(widget.winId())
@@ -813,7 +914,7 @@ def setup_frameless_window(widget) -> bool:
         return False
     try:
         import ctypes
-        from ctypes import c_int, byref, sizeof
+        from ctypes import byref, c_int, sizeof
 
         hwnd = int(widget.winId())
         if hwnd <= 0:
@@ -838,3 +939,5 @@ def setup_frameless_window(widget) -> bool:
     except Exception:
         return False
 
+
+UTILITY_STYLESHEET = DARK_STYLESHEET

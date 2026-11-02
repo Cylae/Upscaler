@@ -2,9 +2,9 @@
 
 import importlib.util
 import os
-from pathlib import Path
 import subprocess
 import sys
+from pathlib import Path
 from types import ModuleType
 from unittest.mock import Mock
 

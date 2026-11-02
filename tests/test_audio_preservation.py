@@ -1,10 +1,9 @@
-import os
 from unittest.mock import MagicMock, patch
+
 from src.core.video_pipeline import (
-    VideoMetadata,
     UpscaleJobConfig,
+    VideoMetadata,
     is_file_complete_and_valid,
-    clean_metadata_args
 )
 
 
@@ -79,8 +78,12 @@ def test_probe_audio_stream():
 
 def test_audio_integrity_check_failure_aborts_output():
     """Verify that if an output file is missing audio and repair fails, the pipeline aborts."""
-    from src.core.video_pipeline import VideoUpscalerPipeline, VideoMetadata, UpscaleJobConfig
     from src.core.detector import HardwareInfo
+    from src.core.video_pipeline import (
+        UpscaleJobConfig,
+        VideoMetadata,
+        VideoUpscalerPipeline,
+    )
 
     fake_hw = HardwareInfo(
         gpu_name="NVIDIA GeForce RTX 3070",
@@ -130,8 +133,12 @@ def test_audio_integrity_check_failure_aborts_output():
 
 def test_audio_integrity_repair_pass_restores_audio():
     """Verify that when initial encode misses audio, repair remux pass recovers it and succeeds."""
-    from src.core.video_pipeline import VideoUpscalerPipeline, VideoMetadata, UpscaleJobConfig
     from src.core.detector import HardwareInfo
+    from src.core.video_pipeline import (
+        UpscaleJobConfig,
+        VideoMetadata,
+        VideoUpscalerPipeline,
+    )
 
     fake_hw = HardwareInfo(
         gpu_name="NVIDIA GeForce RTX 3070",

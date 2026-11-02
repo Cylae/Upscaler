@@ -11,7 +11,11 @@ if __name__ == "__main__" or "src" not in sys.modules:
 
 from src.core.ai_models import AVAILABLE_MODELS, recommend_model_for_video
 from src.core.batch_manager import BatchManager, EpisodeStatus, QueueItem
-from src.core.detector import export_diagnostic_report, get_hardware_info, print_doctor_report
+from src.core.detector import (
+    export_diagnostic_report,
+    get_hardware_info,
+    print_doctor_report,
+)
 from src.core.presets import ENHANCEMENT_PRESETS, RESOLUTION_TAGS, get_preset
 from src.core.scene_renamer import SceneNamingConfig
 from src.core.video_pipeline import probe_video
@@ -162,7 +166,7 @@ def run_cli(argv: list[str] | None = None) -> int:
     print(f"Destination folder: {args.output}\n")
 
     if model_val == "auto":
-        recommendations = {}
+        recommendations: dict[tuple[str, int, str], int] = {}
         for item in queue:
             try:
                 meta = probe_video(item.source_path)

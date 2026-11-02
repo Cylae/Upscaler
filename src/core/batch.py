@@ -13,9 +13,10 @@ import shutil
 import threading
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any
 
 from src.core.hardware import HardwareInfo, get_hardware_info
 from src.core.models import calculate_target_dimensions
@@ -27,6 +28,14 @@ from src.core.scene_namer import (
     format_scene_name,
     get_scene_relative_output_path,
 )
+
+__all__ = [
+    "BatchManager",
+    "EpisodeStatus",
+    "QueueItem",
+    "format_output_name",
+    "format_scene_name",
+]
 from src.core.storage import cleanup_stale_temp_directories
 from src.core.validator import is_file_complete_and_valid
 
@@ -62,12 +71,12 @@ class QueueItem:
 
 
 class BatchManager:
-    def __init__(self, hardware: Optional[HardwareInfo] = None):
+    def __init__(self, hardware: HardwareInfo | None = None):
         self.hardware = hardware or get_hardware_info()
-        self.queue: List[QueueItem] = []
+        self.queue: list[QueueItem] = []
         self._is_running = False
         self._stop_requested = False
-        self._active_pipelines: Set[VideoUpscalerPipeline] = set()
+        self._active_pipelines: set[VideoUpscalerPipeline] = set()
         self._lock = threading.Lock()
 
     @property
@@ -78,9 +87,9 @@ class BatchManager:
         self,
         folder_path: str,
         output_dir: str,
-        scene_config: Optional[SceneNamingConfig] = None,
+        scene_config: SceneNamingConfig | None = None,
         preserve_folders: bool = True
-    ) -> List[QueueItem]:
+    ) -> list[QueueItem]:
         """Scans a directory recursively for supported video files and builds the batch queue."""
         self.queue.clear()
         cfg = scene_config or SceneNamingConfig()
@@ -88,7 +97,7 @@ class BatchManager:
         cleanup_stale_temp_directories(output_dir)
 
         valid_exts = {".mp4", ".mkv", ".avi", ".mov", ".m4v", ".webm", ".flv", ".ts", ".wmv"}
-        found_files: List[str] = []
+        found_files: list[str] = []
 
         if os.path.isfile(folder_path):
             if os.path.splitext(folder_path)[1].lower() in valid_exts:
@@ -153,11 +162,11 @@ class BatchManager:
 
     def add_files(
         self,
-        file_paths: List[str],
+        file_paths: list[str],
         output_dir: str,
-        scene_config: Optional[SceneNamingConfig] = None,
+        scene_config: SceneNamingConfig | None = None,
         preserve_folders: bool = False
-    ) -> List[QueueItem]:
+    ) -> list[QueueItem]:
         """Appends individual files to the queue without clearing existing items."""
         cfg = scene_config or SceneNamingConfig()
         valid_exts = {".mp4", ".mkv", ".avi", ".mov", ".m4v", ".webm", ".flv", ".ts", ".wmv"}
@@ -221,12 +230,12 @@ class BatchManager:
         self,
         output_dir: str,
         base_dir: str,
-        scene_config: Optional[SceneNamingConfig] = None,
+        scene_config: SceneNamingConfig | None = None,
         preserve_folders: bool = True,
         *,
         target_preset: str = "4k",
         overwrite: bool = False,
-    ) -> List[QueueItem]:
+    ) -> list[QueueItem]:
         """Replan existing rows without rescanning or replacing their identities.
 
         Call before preflight or starting a batch after output settings change.
@@ -311,7 +320,7 @@ class BatchManager:
         for idx, it in enumerate(self.queue, start=1):
             it.index = idx
 
-    def remove_items_by_indices(self, indices: Set[int]):
+    def remove_items_by_indices(self, indices: set[int]):
         """Removes queue items whose indices are in the set and reindexes."""
         self.queue = [it for it in self.queue if it.index not in indices]
         self.reindex_queue()
@@ -417,12 +426,12 @@ class BatchManager:
     def plan_dry_run(
         self,
         output_dir: str,
-        scene_config: Optional[SceneNamingConfig] = None,
+        scene_config: SceneNamingConfig | None = None,
         preserve_folders: bool = True
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Generates dry-run source-to-output mapping without modifying files."""
-        results: List[Dict[str, Any]] = []
-        target_counts: Dict[str, int] = {}
+        results: list[dict[str, Any]] = []
+        target_counts: dict[str, int] = {}
         for item in self.queue:
             target_counts[item.target_full_path] = target_counts.get(item.target_full_path, 0) + 1
 
@@ -451,7 +460,7 @@ class BatchManager:
         video_codec: str = "hevc_nvenc",
         model_id: str = "auto",
         cq_level: int = 19
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Summarizes the queue with a rough, output-only disk size estimate.
 
         Actual compressed size varies with source detail, codec and CQ. Temporary
@@ -487,7 +496,7 @@ class BatchManager:
         except Exception:
             pass
 
-        warnings: List[str] = []
+        warnings: list[str] = []
         if total_items == 0:
             warnings.append("Queue is empty. Please add source videos.")
         if pending_items > 0 and free_disk_mb > 0 and free_disk_mb < estimated_output_mb:
@@ -496,7 +505,7 @@ class BatchManager:
                 f"roughly {estimated_output_mb:.0f} MB estimated for output alone."
             )
 
-        target_paths: Dict[str, List[str]] = {}
+        target_paths: dict[str, list[str]] = {}
         for it in self.queue:
             target_paths.setdefault(it.target_full_path, []).append(it.source_path)
         for target, sources in target_paths.items():
@@ -548,7 +557,7 @@ class BatchManager:
         target_preset: str = "4k",
         video_codec: str = "hevc_nvenc",
         model_id: str = "auto",
-        scene_config: Optional[SceneNamingConfig] = None,
+        scene_config: SceneNamingConfig | None = None,
         preserve_folders: bool = True,
         overwrite: bool = False,
         threads: str = "auto",
@@ -560,11 +569,11 @@ class BatchManager:
         denoise_level: int = -1,
         audio_mode: str = "copy",
         tile_size: int = 0,
-        target_indices: Optional[List[int]] = None,
-        preview_duration_s: Optional[float] = None,
-        log_callback: Optional[Callable[[str], None]] = None,
-        item_callback: Optional[Callable[[QueueItem], None]] = None,
-        batch_callback: Optional[Callable[..., None]] = None
+        target_indices: list[int] | None = None,
+        preview_duration_s: float | None = None,
+        log_callback: Callable[[str], None] | None = None,
+        item_callback: Callable[[QueueItem], None] | None = None,
+        batch_callback: Callable[..., None] | None = None
     ):
         """Executes batch processing on queue with optional multi-worker concurrency."""
         self._is_running = True
@@ -580,7 +589,7 @@ class BatchManager:
         completed_items = [0]
         # Progress notifications can arrive for every frame. Keep work per update
         # bounded by the active workers rather than the entire queued library.
-        active_progress: Dict[int, float] = {}
+        active_progress: dict[int, float] = {}
         t_batch_start = time.monotonic()
 
         def process_single_item(item: QueueItem):
@@ -656,7 +665,7 @@ class BatchManager:
                 preview_duration_s=preview_duration_s,
             )
 
-            def on_progress(ratio: float, status_text: str, extra: Dict):
+            def on_progress(ratio: float, status_text: str, extra: dict):
                 item.progress = ratio
                 item.status_detail = status_text
                 item.file_eta = extra.get("file_eta_str", "")

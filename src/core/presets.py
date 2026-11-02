@@ -1,6 +1,4 @@
 from dataclasses import dataclass
-from typing import Dict, Optional
-
 
 # Ordered to preserve the existing desktop defaults and resolution choices.
 RESOLUTION_LABELS = {
@@ -32,7 +30,7 @@ class EnhancementPreset:
     frame_format: str = "jpg"
 
 
-ENHANCEMENT_PRESETS: Dict[str, EnhancementPreset] = {
+ENHANCEMENT_PRESETS: dict[str, EnhancementPreset] = {
     "cartoon_4k_master": EnhancementPreset(
         id="cartoon_4k_master",
         name="Cartoon 4K Master (Recommended)",
@@ -130,7 +128,7 @@ ENHANCEMENT_PRESETS: Dict[str, EnhancementPreset] = {
         cq_level=19,
         nvenc_preset="p7",
         enable_tta=False,
-        denoise_level=1,
+        denoise_level=2,
         audio_mode="copy",
         workers=2,
         frame_format="jpg"

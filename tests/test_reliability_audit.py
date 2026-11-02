@@ -1,30 +1,25 @@
+import json
 import os
-import sys
 import tempfile
 import time
-import json
-import uuid
-import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-from src.core.video_pipeline import (
-    is_file_complete_and_valid,
-    cleanup_stale_temp_directories,
-    register_active_job_dir,
-    unregister_active_job_dir,
-    safe_atomic_move,
-    is_process_alive,
-    VideoMetadata,
-)
 from src.core.batch_manager import (
     BatchManager,
-    QueueItem,
     EpisodeStatus,
+    QueueItem,
 )
-from src.core.scene_renamer import SceneNamingConfig
 from src.core.detector import (
-    generate_diagnostic_report,
     export_diagnostic_report,
+    generate_diagnostic_report,
+)
+from src.core.video_pipeline import (
+    VideoMetadata,
+    cleanup_stale_temp_directories,
+    is_file_complete_and_valid,
+    register_active_job_dir,
+    safe_atomic_move,
+    unregister_active_job_dir,
 )
 
 
@@ -45,7 +40,7 @@ def test_is_file_complete_and_valid_dimension_and_duration_checks():
     with patch("os.path.isfile", return_value=True), \
          patch("os.path.getsize", return_value=50 * 1024 * 1024), \
          patch("src.core.video_pipeline.probe_video") as mock_probe:
-        
+
         # Valid output matching expected dimensions and duration
         mock_probe.return_value = VideoMetadata(
             filepath=dummy_path,
@@ -119,10 +114,10 @@ def test_active_job_temp_cleanup_protection():
         try:
             # Force max_age_seconds=0 to test cleanup logic
             deleted_count = cleanup_stale_temp_directories(root_dir=tmp_root, max_age_seconds=0)
-            
+
             # Active job directory must still exist!
             assert os.path.exists(active_job_dir)
-            
+
             # Dead job directory was cleaned up
             assert not os.path.exists(stale_job_dir)
             assert deleted_count >= 1

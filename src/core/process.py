@@ -7,9 +7,9 @@ and are terminated cleanly on cancellation without leaving orphaned processes.
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import threading
-from typing import List, Optional, Set
 
 
 def safe_kill_process_tree(proc: subprocess.Popen) -> None:
@@ -22,8 +22,18 @@ def safe_kill_process_tree(proc: subprocess.Popen) -> None:
                 ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                timeout=3
+                timeout=3,
+                check=False,
             )
+        except Exception:
+            pass
+    elif proc.pid and hasattr(os, "killpg") and hasattr(os, "getpgid"):
+        try:
+            getpgid = getattr(os, "getpgid", None)
+            killpg = getattr(os, "killpg", None)
+            sigkill = getattr(signal, "SIGKILL", getattr(signal, "SIGTERM", 15))
+            if callable(getpgid) and callable(killpg):
+                killpg(getpgid(proc.pid), sigkill)
         except Exception:
             pass
     try:
@@ -35,11 +45,11 @@ def safe_kill_process_tree(proc: subprocess.Popen) -> None:
 class ProcessTracker:
     """Tracks active subprocesses and manages atomic cancellation across pipeline stages."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._is_cancelled = False
-        self._current_process: Optional[subprocess.Popen] = None
+        self._current_process: subprocess.Popen | None = None
         self._process_lock = threading.Lock()
-        self._active_processes: Set[subprocess.Popen] = set()
+        self._active_processes: set[subprocess.Popen] = set()
 
     @property
     def is_cancelled(self) -> bool:
@@ -57,7 +67,7 @@ class ProcessTracker:
         self._is_cancelled = False
         self._current_process = None
 
-    def start_process(self, cmd: List[str], **popen_kwargs) -> subprocess.Popen:
+    def start_process(self, cmd: list[str], **popen_kwargs) -> subprocess.Popen:
         """Spawns a child process in a new process group and tracks it."""
         if self._is_cancelled:
             raise RuntimeError("Operation cancelled by user.")
@@ -65,6 +75,9 @@ class ProcessTracker:
             creationflags = popen_kwargs.get("creationflags", 0)
             creationflags |= subprocess.CREATE_NEW_PROCESS_GROUP
             popen_kwargs["creationflags"] = creationflags
+        else:
+            if "preexec_fn" not in popen_kwargs and "start_new_session" not in popen_kwargs:
+                popen_kwargs["start_new_session"] = True
         with self._process_lock:
             if self._is_cancelled:
                 raise RuntimeError("Operation cancelled by user.")
@@ -83,7 +96,7 @@ class ProcessTracker:
         while True:
             try:
                 proc.wait(timeout=0.05)
-                return proc.returncode
+                return proc.returncode if proc.returncode is not None else 0
             except subprocess.TimeoutExpired:
                 if self._is_cancelled:
                     safe_kill_process_tree(proc)
@@ -93,7 +106,7 @@ class ProcessTracker:
                         pass
                     return -1
 
-    def run_tracked(self, cmd: List[str], **popen_kwargs) -> int:
+    def run_tracked(self, cmd: list[str], **popen_kwargs) -> int:
         proc = self.start_process(cmd, **popen_kwargs)
         self._current_process = proc
         try:

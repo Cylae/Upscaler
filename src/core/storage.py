@@ -11,13 +11,12 @@ import os
 import shutil
 import threading
 import time
-from typing import Dict, Optional, Set
 
-_active_job_dirs: Set[str] = set()
+_active_job_dirs: set[str] = set()
 _active_job_dirs_lock = threading.Lock()
 
 
-def register_active_job_dir(work_dir: str, job_info: Optional[Dict] = None) -> None:
+def register_active_job_dir(work_dir: str, job_info: dict | None = None) -> None:
     """Registers an active work directory to protect it from cleanup."""
     norm_path = os.path.normcase(os.path.abspath(work_dir))
     with _active_job_dirs_lock:
@@ -25,7 +24,7 @@ def register_active_job_dir(work_dir: str, job_info: Optional[Dict] = None) -> N
     create_job_lock(work_dir, job_info)
 
 
-def create_job_lock(work_dir: str, job_info: Optional[Dict] = None) -> str:
+def create_job_lock(work_dir: str, job_info: dict | None = None) -> str:
     """Writes a PID-based lease lock file (.job_lock) inside the working directory."""
     os.makedirs(work_dir, exist_ok=True)
     lock_file = os.path.join(work_dir, ".job_lock")
@@ -77,9 +76,9 @@ def is_process_alive(pid: int) -> bool:
 
 
 def cleanup_stale_temp_directories(
-    root_dir: Optional[str] = None,
+    root_dir: str | None = None,
     max_age_seconds: int = 86400,
-    max_age_hours: Optional[float] = None
+    max_age_hours: float | None = None
 ) -> int:
     """Scans and removes stale .temp_upscaler directories left over from terminated sessions.
 

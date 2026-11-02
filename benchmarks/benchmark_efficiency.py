@@ -10,13 +10,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
-from pathlib import Path
 import shutil
 import statistics
 import subprocess
 import sys
 import tempfile
 import time
+from pathlib import Path
 from types import ModuleType
 from unittest.mock import patch
 
@@ -24,8 +24,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
-from src.core import batch, probe, video_pipeline
-from src.core.hardware import HardwareInfo, get_hardware_info
+from src.core import batch, probe, video_pipeline  # noqa: E402
+from src.core.hardware import HardwareInfo, get_hardware_info  # noqa: E402
 
 
 def baseline_module(ref, path):
@@ -54,7 +54,7 @@ def comparison(before, after):
 
 def frame_hashes(ffmpeg, path, audio=False):
     args = [ffmpeg, "-v", "error", "-i", str(path), "-map", "0:a:0" if audio else "0:v:0"]
-    result = subprocess.check_output(args + ["-f", "framemd5", "-"], text=True, timeout=120)
+    result = subprocess.check_output([*args, "-f", "framemd5", "-"], text=True, timeout=120)
     return [line for line in result.splitlines() if not line.startswith("#")]
 
 
@@ -179,6 +179,7 @@ def inventory_benchmark(scratch, rounds):
 def ui_benchmarks(old_ui, scratch, rounds):
     from PyQt6.QtCore import QSettings
     from PyQt6.QtWidgets import QApplication
+
     from src.ui import main_window
     app = QApplication.instance() or QApplication([])
     results = {}

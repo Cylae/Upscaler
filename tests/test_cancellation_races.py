@@ -1,8 +1,8 @@
 """A stop request cannot miss a child spawned concurrently or be reset by a job."""
 
-from concurrent.futures import ThreadPoolExecutor
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import Mock
 
 import pytest

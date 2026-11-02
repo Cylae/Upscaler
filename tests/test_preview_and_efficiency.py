@@ -1,11 +1,11 @@
-import os
 import inspect
-import pytest
-from unittest.mock import MagicMock, patch
+import os
+from unittest.mock import patch
+
 from src.core.batch_manager import BatchManager, EpisodeStatus, QueueItem
 from src.core.detector import HardwareInfo
 from src.core.scene_renamer import SceneNamingConfig
-from src.core.video_pipeline import UpscaleJobConfig, VideoUpscalerPipeline
+from src.core.video_pipeline import VideoUpscalerPipeline
 
 
 def test_batch_manager_selective_target_indices():
@@ -69,11 +69,12 @@ def test_nvenc_spatial_and_temporal_aq():
 def test_qt_ui_preview_and_error_pills():
     """Verify UI components (Preview button, error stat pill, filter modes) without GUI crash."""
     from PyQt6.QtWidgets import QApplication
+
     from src.ui.app_qt import UpscalerMainWindow
 
     # Ensure offscreen QApplication
     os.environ["QT_QPA_PLATFORM"] = "offscreen"
-    app = QApplication.instance() or QApplication(["test", "-platform", "offscreen"])
+    _app = QApplication.instance() or QApplication(["test", "-platform", "offscreen"])
 
     window = UpscalerMainWindow()
 
@@ -109,10 +110,11 @@ def test_ui_audit_fixes():
     from PyQt6.QtCore import QSize
     from PyQt6.QtGui import QResizeEvent
     from PyQt6.QtWidgets import QApplication
+
     from src.ui.app_qt import UpscalerMainWindow
 
     os.environ["QT_QPA_PLATFORM"] = "offscreen"
-    app = QApplication.instance() or QApplication(["test", "-platform", "offscreen"])
+    _app = QApplication.instance() or QApplication(["test", "-platform", "offscreen"])
 
     window = UpscalerMainWindow()
 
@@ -167,10 +169,11 @@ def test_ui_audit_fixes():
 def test_frame_comparison_dialog_and_controls():
     """Verify FrameComparisonDialog instantiation, zoom, view modes and new controls."""
     from PyQt6.QtWidgets import QApplication
+
     from src.ui.app_qt import DARK_STYLESHEET, FrameComparisonDialog, UpscalerMainWindow
 
     os.environ["QT_QPA_PLATFORM"] = "offscreen"
-    app = QApplication.instance() or QApplication(["test", "-platform", "offscreen"])
+    _app = QApplication.instance() or QApplication(["test", "-platform", "offscreen"])
 
     # 1. Window controls
     win = UpscalerMainWindow()

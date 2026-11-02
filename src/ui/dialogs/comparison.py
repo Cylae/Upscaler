@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-from typing import Dict
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
@@ -25,7 +24,7 @@ from src.ui.theme import DARK_STYLESHEET, apply_dark_titlebar, setup_combobox
 class FrameComparisonDialog(QDialog):
     """Interactive visual Before / After comparison with side-by-side or single viewing."""
 
-    def __init__(self, orig_path: str, upscaled_path: str, info: Dict, parent=None):
+    def __init__(self, orig_path: str, upscaled_path: str, info: dict, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Before / After Visual Preview")
         self.resize(1100, 750)
@@ -156,18 +155,17 @@ class FrameComparisonDialog(QDialog):
                 finally:
                     self._syncing_scroll = False
 
-        self.scroll_orig.horizontalScrollBar().valueChanged.connect(
-            lambda _: _sync_scroll(self.scroll_orig.horizontalScrollBar(), self.scroll_up.horizontalScrollBar())
-        )
-        self.scroll_up.horizontalScrollBar().valueChanged.connect(
-            lambda _: _sync_scroll(self.scroll_up.horizontalScrollBar(), self.scroll_orig.horizontalScrollBar())
-        )
-        self.scroll_orig.verticalScrollBar().valueChanged.connect(
-            lambda _: _sync_scroll(self.scroll_orig.verticalScrollBar(), self.scroll_up.verticalScrollBar())
-        )
-        self.scroll_up.verticalScrollBar().valueChanged.connect(
-            lambda _: _sync_scroll(self.scroll_up.verticalScrollBar(), self.scroll_orig.verticalScrollBar())
-        )
+        orig_h_bar = self.scroll_orig.horizontalScrollBar()
+        up_h_bar = self.scroll_up.horizontalScrollBar()
+        orig_v_bar = self.scroll_orig.verticalScrollBar()
+        up_v_bar = self.scroll_up.verticalScrollBar()
+
+        if orig_h_bar is not None and up_h_bar is not None:
+            orig_h_bar.valueChanged.connect(lambda _: _sync_scroll(orig_h_bar, up_h_bar))
+            up_h_bar.valueChanged.connect(lambda _: _sync_scroll(up_h_bar, orig_h_bar))
+        if orig_v_bar is not None and up_v_bar is not None:
+            orig_v_bar.valueChanged.connect(lambda _: _sync_scroll(orig_v_bar, up_v_bar))
+            up_v_bar.valueChanged.connect(lambda _: _sync_scroll(up_v_bar, orig_v_bar))
 
         layout.addWidget(self.img_container, 1)
 

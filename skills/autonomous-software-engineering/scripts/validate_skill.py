@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Validation script for autonomous-software-engineering skill package."""
 
-import sys
 import os
+import sys
 
 REQUIRED_FILES = [
     "skills/autonomous-software-engineering/SKILL.md",

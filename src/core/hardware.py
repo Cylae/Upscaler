@@ -7,12 +7,12 @@ and portable Vulkan neural upscalers.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
 import threading
 from dataclasses import dataclass
-from typing import Optional, Tuple
 
 
 @dataclass
@@ -22,11 +22,11 @@ class HardwareInfo:
     has_nvidia: bool = False
     has_nvenc_hevc: bool = False
     has_nvenc_h264: bool = False
-    ffmpeg_path: Optional[str] = None
-    ffprobe_path: Optional[str] = None
+    ffmpeg_path: str | None = None
+    ffprobe_path: str | None = None
     ffmpeg_version: str = "Not detected"
-    realesrgan_bin: Optional[str] = None
-    realcugan_bin: Optional[str] = None
+    realesrgan_bin: str | None = None
+    realcugan_bin: str | None = None
     cpu_cores: int = 4
 
     @property
@@ -46,7 +46,7 @@ def get_base_dir() -> str:
     return os.path.dirname(os.path.dirname(current_dir))
 
 
-def detect_ffmpeg() -> Tuple[Optional[str], Optional[str], str, bool, bool]:
+def detect_ffmpeg() -> tuple[str | None, str | None, str, bool, bool]:
     """Detects ffmpeg and ffprobe on PATH or adjacent directory, checks version and NVENC support."""
     ffmpeg_path = shutil.which("ffmpeg")
     ffprobe_path = shutil.which("ffprobe")
@@ -84,7 +84,7 @@ def detect_ffmpeg() -> Tuple[Optional[str], Optional[str], str, bool, bool]:
     return ffmpeg_path, ffprobe_path, version_str, has_hevc_nvenc, has_h264_nvenc
 
 
-def detect_nvidia_gpu() -> Tuple[str, float, bool]:
+def detect_nvidia_gpu() -> tuple[str, float, bool]:
     """Uses nvidia-smi to query NVIDIA GPU model and dedicated VRAM capacity."""
     gpu_name = "Unknown"
     gpu_vram = 0.0
@@ -115,7 +115,7 @@ def detect_nvidia_gpu() -> Tuple[str, float, bool]:
     return gpu_name, gpu_vram, has_nvidia
 
 
-def detect_ai_binaries(base_dir: str) -> Tuple[Optional[str], Optional[str]]:
+def detect_ai_binaries(base_dir: str) -> tuple[str | None, str | None]:
     """Locates portable Vulkan neural executables inside tools/."""
     ext = ".exe" if os.name == "nt" else ""
     realesrgan_candidate = os.path.join(base_dir, "tools", "realesrgan", f"realesrgan-ncnn-vulkan{ext}")
@@ -164,7 +164,7 @@ def resolve_ai_binary(hardware: HardwareInfo, engine: str) -> str:
     )
 
 
-_CACHED_HARDWARE_INFO: Optional[HardwareInfo] = None
+_CACHED_HARDWARE_INFO: HardwareInfo | None = None
 _HARDWARE_LOCK = threading.Lock()
 
 
@@ -263,14 +263,14 @@ def generate_diagnostic_report(redact_paths: bool = False) -> str:
         user_home = os.path.expanduser("~")
         for orig in (user_home, user_home.replace("\\", "/")):
             if len(orig) > 3:
-                report_text = report_text.replace(orig, "<USER_HOME>")
+                report_text = re.sub(re.escape(orig), "<USER_HOME>", report_text, flags=re.IGNORECASE)
         if "<USER_HOME>" not in report_text:
             report_text += "\n[Privacy Masking: <USER_HOME> enabled]"
 
     return report_text
 
 
-def export_diagnostic_report(output_path: Optional[str] = None, redact_paths: bool = True) -> str:
+def export_diagnostic_report(output_path: str | None = None, redact_paths: bool = True) -> str:
     """Exports diagnostic report to file with sensitive paths redacted by default."""
     report = generate_diagnostic_report(redact_paths=redact_paths)
     if output_path:

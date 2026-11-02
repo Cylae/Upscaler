@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
-
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from src.core.batch import BatchManager
@@ -137,8 +135,8 @@ class UpscaleWorker(QThread):
         denoise_level: int = -1,
         audio_mode: str = "copy",
         tile_size: int = 0,
-        target_indices: Optional[List[int]] = None,
-        preview_duration_s: Optional[float] = None,
+        target_indices: list[int] | None = None,
+        preview_duration_s: float | None = None,
     ):
         super().__init__()
         self.bm = batch_manager

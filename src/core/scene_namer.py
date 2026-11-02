@@ -25,9 +25,9 @@ scrub_text_of_internal_markers = strip_forbidden_output_markers
 FORBIDDEN_MARKERS = FORBIDDEN_PATTERNS
 
 __all__ = [
+    "FORBIDDEN_MARKERS",
     "FORBIDDEN_PATTERNS",
     "FORBIDDEN_REGEX",
-    "FORBIDDEN_MARKERS",
     "SceneNamingConfig",
     "clean_scene_text",
     "find_forbidden_output_markers",
@@ -37,6 +37,6 @@ __all__ = [
     "get_scene_relative_output_path",
     "parse_episode_metadata",
     "sanitize_title_word",
-    "strip_forbidden_output_markers",
     "scrub_text_of_internal_markers",
+    "strip_forbidden_output_markers",
 ]

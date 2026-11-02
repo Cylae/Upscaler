@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "video-enhancer-4k"
+version = "1.0.0"
+description = "High-performance AI video upscaling and batch remastering suite."
+authors = [{ name = "CYLAE" }]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "PyQt6>=6.7.0",
+    "Pillow>=10.0.0",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "C4", "SIM", "PIE", "RUF"]
+ignore = [
+    "E501",    # line length handled by formatter
+    "RUF001",  # ambiguous unicode in UI strings (×, ➔, etc.)
+    "RUF002",  # ambiguous unicode in docstrings
+    "RUF003",  # ambiguous unicode in comments
+    "SIM105",  # contextlib.suppress is slower than try-except-pass in hot loops
+    "SIM117",  # multiple with statements
+]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+warn_unused_configs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+

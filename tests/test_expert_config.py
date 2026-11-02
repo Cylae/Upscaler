@@ -1,6 +1,8 @@
-import os
-from src.core.video_pipeline import UpscaleJobConfig, is_file_complete_and_valid, clean_metadata_args
-from src.core.scene_renamer import SceneNamingConfig
+from src.core.video_pipeline import (
+    UpscaleJobConfig,
+    clean_metadata_args,
+    is_file_complete_and_valid,
+)
 
 
 def test_upscale_job_config_expert_fields():

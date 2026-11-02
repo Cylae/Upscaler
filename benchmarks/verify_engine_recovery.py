@@ -7,19 +7,19 @@ Requires the portable engines/models, FFmpeg/FFprobe and a working Vulkan GPU.
 from __future__ import annotations
 
 import argparse
-from dataclasses import replace
 import hashlib
 import json
-from pathlib import Path
 import platform
 import subprocess
 import tempfile
+from dataclasses import replace
+from pathlib import Path
 
 from benchmark_efficiency import baseline_module, frame_hashes
 from PIL import Image
 
-from src.core.hardware import get_hardware_info
 from src.core import video_pipeline
+from src.core.hardware import get_hardware_info
 
 
 def pixels(path):
@@ -50,7 +50,7 @@ def verify(baseline):
         ):
             if not getattr(hardware, field):
                 raise RuntimeError(f"Install {field} before running this check")
-            options = dict(threads="2:2:2", tile_size=100, denoise_level=0, enable_tta=True)
+            options = {"threads": "2:2:2", "tile_size": 100, "denoise_level": 0, "enable_tta": True}
             old = previous.VideoUpscalerPipeline(replace(hardware, **{field: None}))
             failed = old.extract_and_upscale_single_frame(str(source), model, "720p", **options)
             assert not failed[0] and "not found" in failed[3]["error"], failed

@@ -1,4 +1,4 @@
-from src.core.presets import ENHANCEMENT_PRESETS, get_preset, EnhancementPreset
+from src.core.presets import ENHANCEMENT_PRESETS, get_preset
 
 
 def test_presets_exist():

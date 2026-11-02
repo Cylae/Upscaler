@@ -110,7 +110,12 @@ class CoreReliabilityTests(unittest.TestCase):
                     os.remove(p)
 
     def test_heavy_model_tile_and_thread_safety(self):
-        from src.core.models import is_heavy_model, auto_tile_size, get_optimal_thread_spec, AVAILABLE_MODELS
+        from src.core.models import (
+            AVAILABLE_MODELS,
+            auto_tile_size,
+            get_optimal_thread_spec,
+            is_heavy_model,
+        )
 
         # 1. Model weight detection
         self.assertTrue(is_heavy_model("realesrgan-x4plus-anime"))
