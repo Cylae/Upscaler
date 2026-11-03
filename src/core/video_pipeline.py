@@ -1093,7 +1093,11 @@ class VideoUpscalerPipeline:
                 if selected_model.engine == ModelEngine.REALESRGAN:
                     models_dir = os.path.join(os.path.dirname(bin_path), "models")
                     if not os.path.isdir(models_dir):
-                        return False, f"Local Real-ESRGAN models directory not found: {models_dir}"
+                        alt_models = os.path.join(get_base_dir(), "tools", "realesrgan", "models")
+                        if os.path.isdir(alt_models):
+                            models_dir = alt_models
+                        else:
+                            return False, f"Local Real-ESRGAN models directory not found: {models_dir}"
 
                     ai_cmd = [
                         bin_path,
@@ -1114,7 +1118,11 @@ class VideoUpscalerPipeline:
                 elif selected_model.engine == ModelEngine.REALCUGAN:
                     models_dir = os.path.join(os.path.dirname(bin_path), selected_model.internal_name)
                     if not os.path.isdir(models_dir):
-                        return False, f"Local RealCUGAN models directory not found: {models_dir}"
+                        alt_models = os.path.join(get_base_dir(), "tools", "realcugan", selected_model.internal_name)
+                        if os.path.isdir(alt_models):
+                            models_dir = alt_models
+                        else:
+                            return False, f"Local RealCUGAN models directory not found: {models_dir}"
 
                     try:
                         chosen_scale, effective_denoise, target_model_name = resolve_realcugan_options(
@@ -1572,6 +1580,10 @@ class VideoUpscalerPipeline:
 
         if selected_model.engine == ModelEngine.REALESRGAN:
             models_dir = os.path.join(os.path.dirname(bin_path), "models")
+            if not os.path.isdir(models_dir):
+                alt_models = os.path.join(get_base_dir(), "tools", "realesrgan", "models")
+                if os.path.isdir(alt_models):
+                    models_dir = alt_models
             ai_cmd = [
                 bin_path,
                 "-i", orig_frame,
@@ -1586,6 +1598,10 @@ class VideoUpscalerPipeline:
                 ai_cmd.extend(["-t", str(effective_tile_size)])
         elif selected_model.engine == ModelEngine.REALCUGAN:
             models_dir = os.path.join(os.path.dirname(bin_path), selected_model.internal_name)
+            if not os.path.isdir(models_dir):
+                alt_models = os.path.join(get_base_dir(), "tools", "realcugan", selected_model.internal_name)
+                if os.path.isdir(alt_models):
+                    models_dir = alt_models
             chosen_scale, eff_denoise, target_model_name = resolve_realcugan_options(
                 models_dir, chosen_scale, denoise_level if denoise_level is not None else -1,
             )

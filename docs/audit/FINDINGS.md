@@ -82,3 +82,35 @@
 - **Component**: `src/cli.py`
 - **Description**: Users dragging-and-dropping video files onto launcher scripts (`start_fast_4k_upscale.bat`, `start_photorealistic_upscale.bat`) or invoking `main.py <video_file>` encountered `argparse` errors: `error: unrecognized arguments: <filename>`.
 - **Fix**: Introduced `parser.add_argument("positional_source", nargs="?", default=None)` and transparently routed it to `args.source`. Updated launcher batch scripts with interactive prompting when executed without arguments.
+
+### F-052: MP4/MOV Audio Repair Remux Faststart Streaming Flag
+- **Severity**: Quality / Polish
+- **Status**: FIXED
+- **Component**: `src/core/video_pipeline.py`
+- **Description**: Secondary audio re-muxing on MP4 and MOV containers omitted `-movflags +faststart`, preventing progressive streaming and instant playback on web or media streamers.
+- **Fix**: Added `-movflags +faststart` to audio repair remux command for MP4 and MOV files.
+
+### F-053: Non-NVIDIA GPU Detection Fallback (WMI / DirectX on Windows)
+- **Severity**: High (P1)
+- **Status**: FIXED
+- **Component**: `src/core/hardware.py`
+- **Description**: When `nvidia-smi` was not installed (e.g. Intel UHD/Iris or AMD Radeon graphics), `detect_nvidia_gpu()` returned `("Unknown", 0.0, False)`. The UI top badge displayed `GPU: Unknown (0 GB)` and `_auto_tile_size` / `get_optimal_thread_spec` received 0 GB VRAM metrics.
+- **Fix**: Implemented `detect_fallback_gpu()` leveraging Windows WMI (`Win32_VideoController`) to detect integrated/discrete GPUs (e.g. `Intel(R) UHD Graphics`) and allocated VRAM (`2.0 GB`), updating UI headers and thread/tile budgeting.
+
+### F-054: Portable AI Models Directory Discovery Fallback
+- **Severity**: High (P1)
+- **Status**: FIXED
+- **Component**: `src/core/video_pipeline.py`
+- **Description**: When resolving neural model directories, the pipeline only checked adjacent to `bin_path` (`os.path.join(os.path.dirname(bin_path), "models")`). If binaries were symlinked, wrapped, or installed in custom PATH configurations, model resolution failed with `Local Real-ESRGAN models directory not found`.
+- **Fix**: Added secondary root fallback checking `os.path.join(get_base_dir(), "tools", <engine>, "models")` for Real-ESRGAN and RealCUGAN across full video and single-frame extraction pipelines.
+
+### F-055: Unreported Engine Failures in Live Console Log and Truncated UI Error Inspection
+- **Severity**: High (P1)
+- **Status**: FIXED
+- **Component**: `src/core/batch.py`, `src/ui/main_window.py`
+- **Description**: On pipeline error, `item.error_message` was set but `log_callback` was never notified. The "Live engine log" console silently stopped, concealing the failure reason. Furthermore, table columns truncated the error text with no tooltips or inspection mechanism.
+- **Fix**:
+  1. In `src/core/batch.py`, added explicit failure logging to `log_callback` (`[ERROR] Episode {item.index} ({filename}): {msg}`).
+  2. In `src/ui/main_window.py`, attached comprehensive tooltips displaying the complete error message to both status and detail table cells.
+  3. Added "⚠️ View Error Details" and "📋 Copy Error Message" to the table right-click context menu, and a double-click handler opening a rich error dialog with clipboard export.
+

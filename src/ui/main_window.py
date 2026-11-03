@@ -1021,6 +1021,21 @@ class UpscalerMainWindow(QMainWindow):
 
         menu.addSeparator()
 
+        if q_item.error_message or q_item.status == EpisodeStatus.FAILED:
+            act_show_error = QAction("⚠️ View Error Details", self)
+            act_show_error.triggered.connect(lambda checked=False, item=q_item: self._show_error_dialog(item))
+            menu.addAction(act_show_error)
+
+            def _copy_err(it=q_item):
+                cb = QApplication.clipboard()
+                if cb is not None:
+                    cb.setText(it.error_message or it.status_detail or "")
+
+            act_copy_err = QAction("📋 Copy Error Message", self)
+            act_copy_err.triggered.connect(_copy_err)
+            menu.addAction(act_copy_err)
+            menu.addSeparator()
+
         act_play_src = QAction("🎬 Play Source Video", self)
         act_play_src.triggered.connect(lambda: self.play_file(q_item.source_path))
         menu.addAction(act_play_src)
@@ -1066,10 +1081,29 @@ class UpscalerMainWindow(QMainWindow):
 
         q_item = self._get_queue_item_from_row(row)
         if q_item:
+            if item.column() in (5, 6) and (q_item.error_message or q_item.status == EpisodeStatus.FAILED):
+                self._show_error_dialog(q_item)
+                return
             if os.path.isfile(q_item.target_full_path):
                 self.play_file(q_item.target_full_path)
             else:
                 self.reveal_file(q_item.source_path)
+
+    def _show_error_dialog(self, q_item: QueueItem):
+        from PyQt6.QtWidgets import QMessageBox
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle(f"Error Details - Episode #{q_item.index}")
+        msg_box.setIcon(QMessageBox.Icon.Critical)
+        err_text = q_item.error_message or q_item.status_detail or "Unknown error."
+        msg_box.setText(f"<b>Processing failed:</b> {os.path.basename(q_item.source_path)}")
+        msg_box.setInformativeText(err_text)
+        btn_copy = msg_box.addButton("Copy Error", QMessageBox.ButtonRole.ActionRole)
+        msg_box.addButton(QMessageBox.StandardButton.Close)
+        msg_box.exec()
+        if msg_box.clickedButton() == btn_copy:
+            cb = QApplication.clipboard()
+            if cb is not None:
+                cb.setText(err_text)
 
     def _show_model_selection_menu(self, row: int):
         q_item = self._get_queue_item_from_row(row)
@@ -1693,13 +1727,19 @@ class UpscalerMainWindow(QMainWindow):
                 it_model.setToolTip(self._get_model_tooltip_for_item(item))
 
             it_status = self.table.item(row, 5)
-            if it_status and status_changed:
-                it_status.setText(self._status_badge_text(item.status))
-                self._style_status_item(it_status, item.status)
+            if it_status:
+                if status_changed:
+                    it_status.setText(self._status_badge_text(item.status))
+                    self._style_status_item(it_status, item.status)
+                if item.error_message:
+                    it_status.setToolTip(f"Status: {item.status.value}\nError: {item.error_message}")
+                else:
+                    it_status.setToolTip(self._status_badge_text(item.status))
 
             it_detail = self.table.item(row, 6)
             if it_detail:
                 it_detail.setText(item.status_detail)
+                it_detail.setToolTip(item.error_message if item.error_message else item.status_detail)
 
             if status_changed and item.status == EpisodeStatus.PROCESSING and it_status:
                 self.table.scrollToItem(it_status)

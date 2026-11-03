@@ -767,6 +767,9 @@ class BatchManager:
                     item.status = EpisodeStatus.FAILED
                     item.status_detail = f"Error: {msg}"
                     item.error_message = msg
+                    if log_callback:
+                        file_label = os.path.basename(item.source_path)
+                        log_callback(f"[ERROR] Episode {item.index} ({file_label}): {msg}")
                 with self._lock:
                     active_progress.pop(id(item), None)
                     completed_items[0] += 1

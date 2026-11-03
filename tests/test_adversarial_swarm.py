@@ -827,3 +827,55 @@ def test_adversarial_audio_repair_mp4_faststart():
     from src.core.scene_namer import SceneNamingConfig
     scene_cfg = SceneNamingConfig(container=".mp4")
     assert scene_cfg.container.lower() in (".mp4", ".m4v", ".mov")
+
+
+def test_adversarial_gpu_fallback_detection():
+    """Verify GPU detection falls back to secondary / WMI display adapters when nvidia-smi is unavailable."""
+    from src.core.hardware import detect_nvidia_gpu
+    import json
+
+    # Mock nvidia-smi as unavailable
+    fake_wmi = json.dumps({"Name": "Intel(R) Iris(R) Xe Graphics", "AdapterRAM": 2147483648})
+    with patch("shutil.which", return_value=None), \
+         patch("os.path.isfile", return_value=False), \
+         patch("subprocess.check_output", return_value=fake_wmi):
+        name, vram, has_nv = detect_nvidia_gpu()
+        assert "Intel" in name
+        assert vram >= 2.0
+        assert has_nv is False
+
+
+def test_adversarial_batch_error_logged_to_console():
+    """Verify that when a pipeline job fails, the error is visibly routed to log_callback."""
+    bm = BatchManager(HardwareInfo())
+    item = QueueItem(
+        index=1,
+        source_path="corrupt_vid.mp4",
+        relative_source_path="corrupt_vid.mp4",
+        target_scene_name="out.mp4",
+        target_full_path="out.mp4",
+        file_size_mb=10.0,
+        status=EpisodeStatus.PENDING
+    )
+    bm.queue = [item]
+
+    logs = []
+    def fake_process_video(job, progress_callback=None):
+        return False, "Fatal neural engine out of memory (OOM)"
+
+    with patch("src.core.batch.VideoUpscalerPipeline.process_video", side_effect=fake_process_video):
+        bm.run_batch(
+            output_dir="dummy",
+            base_dir="dummy",
+            target_preset="4k",
+            max_workers=1,
+            log_callback=logs.append
+        )
+
+    assert item.status == EpisodeStatus.FAILED
+    assert "Fatal neural engine" in item.error_message
+    error_logs = [log for log in logs if "[ERROR]" in log]
+    assert len(error_logs) == 1
+    assert "corrupt_vid.mp4" in error_logs[0]
+    assert "Fatal neural engine" in error_logs[0]
+

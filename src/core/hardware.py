@@ -85,8 +85,50 @@ def detect_ffmpeg() -> tuple[str | None, str | None, str, bool, bool]:
     return ffmpeg_path, ffprobe_path, version_str, has_hevc_nvenc, has_h264_nvenc
 
 
+def detect_fallback_gpu() -> tuple[str, float, bool]:
+    """Queries secondary / integrated / non-NVIDIA GPUs on Windows (WMI) and other OSs."""
+    gpu_name = "Unknown"
+    gpu_vram = 0.0
+    has_nvidia = False
+
+    if os.name == "nt":
+        try:
+            cmd = [
+                "powershell", "-NoProfile", "-NonInteractive", "-Command",
+                "Get-CimInstance Win32_VideoController | Select-Object Name, AdapterRAM | ConvertTo-Json -Compress"
+            ]
+            raw = subprocess.check_output(cmd, text=True, errors="ignore", timeout=4).strip()
+            if raw:
+                import json
+                data = json.loads(raw)
+                if isinstance(data, list):
+                    physical = [
+                        d for d in data
+                        if not any(v in d.get("Name", "").lower() for v in ("basic render", "remote", "rdp", "virtual"))
+                    ]
+                    data = physical[0] if physical else data[0]
+                if isinstance(data, dict):
+                    name = data.get("Name", "").strip() or "Unknown"
+                    raw_ram = data.get("AdapterRAM", 0) or 0
+                    if raw_ram < 0:
+                        raw_ram = raw_ram & 0xFFFFFFFF
+                    ram_gb = round(raw_ram / (1024**3), 1)
+                    if ram_gb == 0.0 and any(igpu in name.lower() for igpu in ("intel", "iris", "uhd", "radeon", "vega")):
+                        ram_gb = 2.0
+                    gpu_name = name
+                    gpu_vram = ram_gb
+                    if any(nv in name.lower() for nv in ("geforce", "rtx", "gtx", "quadro", "tesla", "nvidia")):
+                        has_nvidia = True
+        except Exception:
+            pass
+
+    return gpu_name, gpu_vram, has_nvidia
+
+
 def detect_nvidia_gpu() -> tuple[str, float, bool]:
-    """Uses nvidia-smi to query NVIDIA GPU model and dedicated VRAM capacity."""
+    """Uses nvidia-smi to query NVIDIA GPU model and dedicated VRAM capacity,
+    falling back to OS-level display adapter detection (e.g. Intel UHD / AMD Radeon) if absent.
+    """
     gpu_name = "Unknown"
     gpu_vram = 0.0
     has_nvidia = False
@@ -112,6 +154,13 @@ def detect_nvidia_gpu() -> tuple[str, float, bool]:
                 has_nvidia = True
         except Exception:
             pass
+
+    if not has_nvidia or gpu_name == "Unknown":
+        fb_name, fb_vram, fb_nv = detect_fallback_gpu()
+        if fb_name != "Unknown":
+            gpu_name = fb_name
+            gpu_vram = fb_vram
+            has_nvidia = fb_nv
 
     return gpu_name, gpu_vram, has_nvidia
 

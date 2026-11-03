@@ -399,3 +399,35 @@ def test_ui_table_shows_model_per_file(qapp):
     assert window.table.isRowHidden(1) is False
 
 
+def test_ui_error_display_tooltips_and_dialog(qapp):
+    """Verify that failed items receive rich tooltips and double-click opens error details."""
+    window = UpscalerMainWindow()
+    item = QueueItem(
+        index=1,
+        source_path="error_test.mp4",
+        relative_source_path="error_test.mp4",
+        target_scene_name="error_test_out.mp4",
+        target_full_path="error_test_out.mp4",
+        file_size_mb=10.0,
+        status=EpisodeStatus.FAILED,
+        status_detail="Error: Real-ESRGAN engine not found",
+        error_message="Real-ESRGAN engine not found. Expected executable: tools/realesrgan/..."
+    )
+    window.batch_manager.queue = [item]
+    window._populate_table(window.batch_manager.queue)
+    window.on_item_updated(item)
+    qapp.processEvents()
+
+    # Tooltips
+    it_status = window.table.item(0, 5)
+    it_detail = window.table.item(0, 6)
+    assert it_status is not None and "Real-ESRGAN" in it_status.toolTip()
+    assert it_detail is not None and "Expected executable" in it_detail.toolTip()
+
+    # Double click on detail triggers _show_error_dialog
+    with patch.object(window, "_show_error_dialog") as mock_err_dlg:
+        window.on_table_double_click(it_detail)
+        mock_err_dlg.assert_called_once_with(item)
+
+
+

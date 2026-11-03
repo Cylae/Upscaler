@@ -122,3 +122,21 @@
 20. `test_adversarial_nvenc_unconstrained_cq_bitrate_ceiling`: Verification that `-b:v 0` is passed to unconstrain NVENC CQ mode.
 21. `test_adversarial_tile_size_stride_quantization`: Verification that `auto_tile_size` returns strictly quantized multiples of 32.
 22. `test_adversarial_batch_cancellation_race_registration`: Verification that stop requests cancel pending workers under lock before registering zombie pipelines.
+23. `test_adversarial_ffmpeg_chapter_mapping_without_audio_or_subs`: Chapter mapping omitted when secondary inputs are absent to avoid FFmpeg exit code 4294967274.
+24. `test_adversarial_mkv_attachment_preservation_without_subtitles`: Font attachments preserved in MKV even when no text subtitles are present.
+25. `test_adversarial_cli_positional_source_argument`: Support for CLI positional source arguments and Windows batch drag-and-drop.
+26. `test_adversarial_batch_cancellation_active_cancelled_and_queue_preserved`: Active items cancel cleanly and unstarted items remain pending for resume.
+27. `test_adversarial_audio_repair_mp4_faststart`: Inclusion of `-movflags +faststart` during audio repair on MP4/MOV containers.
+28. `test_adversarial_gpu_fallback_detection`: Automatic fallback to WMI display adapters (e.g. Intel UHD Graphics) when `nvidia-smi` is unavailable.
+29. `test_adversarial_batch_error_logged_to_console`: Visible routing of pipeline failure messages to `log_callback` with `[ERROR]` tags.
+30. `test_ui_error_display_tooltips_and_dialog`: Rich error tooltips on table status/detail cells and interactive error modal dialog with clipboard copy.
+
+---
+
+## 8. Final Test Metrics
+
+- **Unit, Integration, and Adversarial Tests Passed**: 441 / 441 (100%)
+- **Ruff Linter Cleanliness**: 0 warnings / 0 errors
+- **Mypy Static Typing**: Success, no issues found in 29 source files (`check_untyped_defs = true`)
+- **Memory & Resource Cleanliness**: 0 dangling background processes, 0 leaked temporary directories
+

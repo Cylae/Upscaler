@@ -190,3 +190,35 @@ Avec 2 workers simultanés en file d'attente :
   - **Les 6 P-cores (12 threads)** restent entièrement dédiés à la soumission Vulkan ncnn, au redimensionnement Lanczos et au multiplexage FFmpeg.
 - Les 32 Go de RAM sont pleinement exploités pour la mémoire tampon de trames sans risquer l'OOM.
 - Résultat : Suppression des micro-gels, températures stabilisées sous le seuil de throttling thermique, et débit maximal soutenu sur les longues sessions par lots.
+
+---
+
+## 9. Session de Durcissement Extrême et Résolution des Incidents d'Exécution (F-047 à F-055)
+
+1. **`F-047` (Erreur fatale FFmpeg 4294967274 sur fichiers muets / sans sous-titres)** :
+   - Injonction inconditionnelle de `-map_chapters 1` alors que seule l'entrée 0 (séquence d'images) était fournie.
+   - Résolu en liant la source de chapitres à l'existence réelle d'un flux audio ou sous-titre (`chapter_source_idx`).
+
+2. **`F-048` & `F-049` (Résilience du Batch Manager sur annulation utilisateur)** :
+   - Traitement des exceptions `CancelledError` lors de l'arrêt des workers concurrents.
+   - Élimination des fuites de ratios de progression (`active_progress.pop`) faussant l'ETA du lot.
+
+3. **`F-050` & `F-052` (Intégrité des conteneurs MKV/MP4)** :
+   - Préservation garantie des polices de caractères attachées dans les conteneurs MKV sans flux de sous-titres textuels.
+   - Ajout de l'indicateur `-movflags +faststart` sur la passe de réparation audio MP4/MOV pour permettre la lecture en continu (streaming).
+
+4. **`F-051` (Compatibilité Glisser-Déposer Windows & CLI)** :
+   - Support d'un argument source positionnel optionnel dans `src/cli.py` et invite interactive dans les scripts `.bat` lorsque lancés sans paramètres.
+
+5. **`F-053` (Détection de GPU de repli WMI pour graphiques intégrés Intel UHD / AMD Radeon)** :
+   - Lorsque `nvidia-smi` est absent, interrogation de l'adaptateur principal via `Win32_VideoController` sous Windows.
+   - Affichage précis dans le bandeau supérieur de l'UI (`GPU: Intel(R) UHD Graphics (2.0 GB)`) et budgétisation VRAM dynamique.
+
+6. **`F-054` (Résolution de repli des dossiers de modèles IA portables)** :
+   - Recherche multi-racines des modèles Real-ESRGAN et RealCUGAN pour pallier les environnements où les exécutables sont isolés du dossier `models/`.
+
+7. **`F-055` (Visibilité complète des erreurs dans la console et le tableau UI)** :
+   - Routage explicite de tous les messages d'échec vers `log_callback` (`[ERROR] Episode ... : ...`).
+   - Ajout d'infobulles complètes au survol des cellules d'état et de détail du tableau.
+   - Menu contextuel enrichi ("⚠️ View Error Details", "📋 Copy Error Message") et ouverture d'une boîte de dialogue détaillée au double-clic avec copie dans le presse-papiers.
+
