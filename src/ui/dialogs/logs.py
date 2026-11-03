@@ -193,7 +193,8 @@ class LogViewerDialog(QDialog):
 
     def _copy_all(self):
         clipboard = QApplication.clipboard()
-        clipboard.setText("\n".join(self._log_buffer))
+        if clipboard is not None:
+            clipboard.setText("\n".join(self._log_buffer))
 
     def _export_log(self):
         path, _ = QFileDialog.getSaveFileName(self, "Export Log", "upscaler_engine.log", "Log Files (*.log *.txt)")
@@ -206,8 +207,9 @@ class LogViewerDialog(QDialog):
                 self.lbl_count.setText(f"Export failed: {e}")
 
     def _clear_logs(self):
-        if self.parent() and hasattr(self.parent(), "clear_all_logs"):
-            self.parent().clear_all_logs()
+        parent = self.parent()
+        if parent is not None and hasattr(parent, "clear_all_logs"):
+            getattr(parent, "clear_all_logs")()
         else:
             self._log_buffer.clear()
             self.txt_log.clear()

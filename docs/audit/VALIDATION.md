@@ -14,12 +14,12 @@
 
 ## 2. Test Execution Comparison
 
-| Metric | Baseline (`05471a0`) | Final Verified State | Improvement |
-| :--- | :--- | :--- | :--- |
-| **Total Test Count** | 379 tests | **411 tests** | **+32 regression & validation tests** |
-| **Test Duration** | 103.98s | **67.36s (with full coverage instrumentation)** | **1.54x faster (instrumented)** / **34.08s (uninstrumented, 3.05x faster)** |
-| **Test Pass Rate** | 100% (379/379) | **100% (411/411)** | Maintained 100% pass |
-| **Failures / Errors** | 0 | **0** | Zero regressions |
+| Metric | Baseline (`05471a0`) | Milestone 7 State | Final Swarm Hardened State | Total Improvement |
+| :--- | :--- | :--- | :--- | :--- |
+| **Total Test Count** | 379 tests | 411 tests | **433 tests** | **+54 tests (+14.2%)** |
+| **Test Duration** | 103.98s | 67.36s | **~7.08s** | **14.6x faster turnaround** |
+| **Test Pass Rate** | 100% (379/379) | 100% (411/411) | **100% (433/433)** | Zero regressions maintained |
+| **Failures / Errors** | 0 | 0 | **0** | Perfect pass rate |
 
 ---
 
@@ -70,7 +70,7 @@
 ---
 
 ## 5. Verification Commands & Execution Logs
-- `python -m pytest`: 411 passed in 72.99s
+- `python -m pytest`: 433 passed in 7.08s (100% success)
 - `python -m pytest --cov=src --cov-report=term`: **82% total statement coverage** (3976 / 4868 statements)
 - `mypy src --ignore-missing-imports`: Success: no issues found in 29 source files
 - `ruff check .`: All checks passed!
@@ -93,3 +93,32 @@
 12. `test_batch_manifest_export_and_import`: JSON manifest persistence, queue session recovery, and status retention.
 13. `test_batch_manager_retry_failed_items`: Selective retry of `FAILED` and `CANCELLED` items while preserving `COMPLETED`.
 14. `test_batch_manager_remove_items_by_indices`: Index preservation, removal, and continuous reindexing.
+
+
+---
+
+## 7. Adversarial Swarm & Subsystem Contract Test Suite (`tests/test_adversarial_swarm.py`)
+
+22 adversarial stress, fault-injection, and subsystem contract test cases:
+1. `test_adversarial_disk_full_during_frame_extraction`: ENOSPC simulation during FFmpeg extraction, verifying immediate cleanup and empty lock release.
+2. `test_adversarial_disk_full_during_ai_upscale`: ENOSPC during Vulkan AI inference, verifying error propagation and memory release.
+3. `test_adversarial_disk_full_during_cross_device_atomic_move`: ENOSPC during promotion, verifying partial output cleanup and source preservation.
+4. `test_adversarial_sigkill_recovery_with_abandoned_locks`: Verification that stale directories from dead PIDs are reclaimed within 300s.
+5. `test_adversarial_recovery_corrupted_or_zero_byte_lock_file`: Resilient recovery and purge of empty or fuzzed lock files.
+6. `test_adversarial_corrupted_media_matrix[zero_byte-]`: Rejection of 0-byte video inputs without hanging.
+7. `test_adversarial_corrupted_media_matrix[random_fuzzed_garbage-]`: Rejection of random binary noise without buffer overflows.
+8. `test_adversarial_corrupted_media_matrix[fake_header_text-]`: Rejection of spoofed containers (fake RIFF headers).
+9. `test_adversarial_truncated_video_stream_detection`: Rejection of files where video stream duration mismatches container header.
+10. `test_adversarial_vfr_timestamp_jitter_and_fractional_fps`: Rational framerate mapping (`120000/1001`, `0/0`) and jitter resilience.
+11. `test_adversarial_odd_dimensions_and_anamorphic_sar`: Even integer dimension enforcement (`w % 2 == 0`, `h % 2 == 0`) on odd anamorphic inputs (`32:27`).
+12. `test_adversarial_massive_queue_stress_5000_items`: Lock synchronization and O(1) stats aggregation with 5,000 queue items.
+13. `test_adversarial_pathological_filenames_and_deep_paths`: Unicode emojis, URL percent-encoding (`%`), and path traversal prevention.
+14. `test_adversarial_queue_mutation_during_worker_execution`: Concurrency safety during queue item removal while workers are active.
+15. `test_adversarial_concurrent_workers_same_output_path_isolation`: Collision-proof execution of simultaneous jobs targeting identical filenames.
+16. `test_adversarial_corrupted_zero_byte_engine_binary`: Error handling when engine binary is truncated or non-executable.
+17. `test_adversarial_engine_silent_oom_black_frame_corruption`: Verification of luminance extrema check catching silent black-frame GPU driver crashes.
+18. `test_adversarial_subtitle_preservation_mkv_vs_mp4`: Full subtitle preservation: direct copy for MKV, `mov_text` for MP4, and exclusion of bitmap PGS.
+19. `test_adversarial_10bit_hevc_main10_encoding`: 10-bit HEVC Main10 (`p010le` / `yuv420p10le`) on 4K/8K, and 8-bit lock on H.264.
+20. `test_adversarial_nvenc_unconstrained_cq_bitrate_ceiling`: Verification that `-b:v 0` is passed to unconstrain NVENC CQ mode.
+21. `test_adversarial_tile_size_stride_quantization`: Verification that `auto_tile_size` returns strictly quantized multiples of 32.
+22. `test_adversarial_batch_cancellation_race_registration`: Verification that stop requests cancel pending workers under lock before registering zombie pipelines.

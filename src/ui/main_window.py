@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 from collections import Counter
 
@@ -329,7 +330,7 @@ class UpscalerMainWindow(QMainWindow):
         self.cb_threads.setEditable(True)
         self.cb_threads.setToolTip("Auto or a custom LOAD:PROCESS:SAVE thread count, e.g. 3:2:4.")
         engine.addRow("Vulkan threads", self.cb_threads)
-        self.cb_tile_size = combo([("Auto", 0)] + [(str(value), value) for value in (64, 100, 128, 200, 300, 400, 600)])
+        self.cb_tile_size = combo([("Auto", 0)] + [(str(value), value) for value in (64, 128, 192, 256, 320, 384, 512)])
         self.cb_tile_size.setEditable(True)
         self.cb_tile_size.setToolTip("Auto (0), or a custom tile edge of at least 32 pixels. Smaller tiles use less VRAM.")
         engine.addRow("Tile size (px)", self.cb_tile_size)
@@ -375,10 +376,10 @@ class UpscalerMainWindow(QMainWindow):
         queue_layout = QVBoxLayout(queue_panel)
         queue_layout.setContentsMargins(0, 0, 0, 0)
         filters = QHBoxLayout()
-        for suffix, label, mode in (("all", "All", "all"), ("ready", "Ready", "ready"),
-                                    ("completed", "Completed", "completed"), ("skipped", "Skipped", "skipped"),
-                                    ("failed", "Errors", "failed")):
-            button = QPushButton(f"{label}: 0")
+        for suffix, btn_label, mode in (("all", "All", "all"), ("ready", "Ready", "ready"),
+                                        ("completed", "Completed", "completed"), ("skipped", "Skipped", "skipped"),
+                                        ("failed", "Errors", "failed")):
+            button = QPushButton(f"{btn_label}: 0")
             button.setCheckable(True)
             button.setChecked(mode == "all")
             button.setProperty("class", "statPillError" if suffix == "failed" else "statPill")
@@ -419,17 +420,20 @@ class UpscalerMainWindow(QMainWindow):
         self.table = QTableWidget(0, 7)
         self.table.setHorizontalHeaderLabels(["#", "Original File", "Size", "Output File", "Model", "Status", "Detail / Progress"])
         header = self.table.horizontalHeader()
-        for column, width in ((0, 45), (2, 70), (4, 120), (5, 105)):
-            header.setSectionResizeMode(column, QHeaderView.ResizeMode.Fixed)
-            self.table.setColumnWidth(column, width)
-        for column in (1, 3):
-            header.setSectionResizeMode(column, QHeaderView.ResizeMode.Interactive)
-            self.table.setColumnWidth(column, 220)
-        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Interactive)
-        self.table.setColumnWidth(6, 220)
-        header.setMinimumSectionSize(45)
-        self.table.verticalHeader().setDefaultSectionSize(28)
-        self.table.verticalHeader().setVisible(False)
+        if header is not None:
+            for column, width in ((0, 45), (2, 70), (4, 120), (5, 105)):
+                header.setSectionResizeMode(column, QHeaderView.ResizeMode.Fixed)
+                self.table.setColumnWidth(column, width)
+            for column in (1, 3):
+                header.setSectionResizeMode(column, QHeaderView.ResizeMode.Interactive)
+                self.table.setColumnWidth(column, 220)
+            header.setSectionResizeMode(6, QHeaderView.ResizeMode.Interactive)
+            self.table.setColumnWidth(6, 220)
+            header.setMinimumSectionSize(45)
+        v_header = self.table.verticalHeader()
+        if v_header is not None:
+            v_header.setDefaultSectionSize(28)
+            v_header.setVisible(False)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setAlternatingRowColors(True)
@@ -451,7 +455,9 @@ class UpscalerMainWindow(QMainWindow):
         self.txt_console = QTextEdit()
         self.txt_console.setObjectName("txtConsole")
         self.txt_console.setReadOnly(True)
-        self.txt_console.document().setMaximumBlockCount(250)
+        doc = self.txt_console.document()
+        if doc is not None:
+            doc.setMaximumBlockCount(250)
         self.txt_console.setMaximumHeight(100)
         self.txt_console.setPlaceholderText("Commands and errors appear here; full logs are available above.")
         queue_layout.addWidget(self.txt_console)
@@ -658,7 +664,7 @@ class UpscalerMainWindow(QMainWindow):
         if os.path.isfile(base):
             base = os.path.dirname(base)
         self.batch_manager.refresh_output_plan(
-            self.txt_output.text().strip(), base or None,
+            self.txt_output.text().strip(), base or "",
             self.get_current_scene_config(), self.chk_preserve_folders.isChecked(),
             target_preset=self._get_target_preset(), overwrite=self.chk_overwrite.isChecked(),
         )
@@ -739,7 +745,9 @@ class UpscalerMainWindow(QMainWindow):
 
     def on_copy_cli_clicked(self):
         if hasattr(self, '_last_cli_cmd') and self._last_cli_cmd:
-            QApplication.clipboard().setText(self._last_cli_cmd)
+            cb = QApplication.clipboard()
+            if cb is not None:
+                cb.setText(self._last_cli_cmd)
             self.btn_copy_cli.setText("✔ Copied!")
             QTimer.singleShot(1500, lambda: self.btn_copy_cli.setText("📋 Copy Last CLI Command"))
 
@@ -851,14 +859,16 @@ class UpscalerMainWindow(QMainWindow):
     def on_remove_item_clicked(self, target_idx: int):
         if self._operation_active or self.batch_manager.is_running:
             return
-        self.batch_manager.remove_items_by_indices([target_idx])
+        self.batch_manager.remove_items_by_indices({target_idx})
         self._populate_table(self.batch_manager.queue)
         self.lbl_overall_status.setText(f"Episode #{target_idx} removed from queue.")
 
     def on_remove_selected_clicked(self):
         if self._operation_active or self.batch_manager.is_running:
             return
-        indices = {item.index for row in self.table.selectionModel().selectedRows()
+        sel_model = self.table.selectionModel()
+        selected_rows = sel_model.selectedRows() if sel_model is not None else []
+        indices = {item.index for row in selected_rows
                    if (item := self._get_queue_item_from_row(row.row())) is not None}
         self.batch_manager.remove_items_by_indices(indices)
         self._populate_table(self.batch_manager.queue)
@@ -990,18 +1000,18 @@ class UpscalerMainWindow(QMainWindow):
 
         model_menu_title = f"🤖 Set AI Model for {len(selected_rows)} Selected Episode(s)" if len(selected_rows) > 1 else "🤖 Set AI Model for this file"
         model_menu = menu.addMenu(model_menu_title)
+        if model_menu is not None:
+            act_auto = QAction("Auto Selection (Recommended)", self)
+            act_auto.triggered.connect(lambda: self._set_model_for_rows(selected_rows, ""))
+            model_menu.addAction(act_auto)
+            model_menu.addSeparator()
 
-        act_auto = QAction("Auto Selection (Recommended)", self)
-        act_auto.triggered.connect(lambda: self._set_model_for_rows(selected_rows, ""))
-        model_menu.addAction(act_auto)
-        model_menu.addSeparator()
-
-        for m_id, spec in AVAILABLE_MODELS.items():
-            if m_id == "auto":
-                continue
-            act_m = QAction(spec.name, self)
-            act_m.triggered.connect(lambda checked=False, mid=m_id: self._set_model_for_rows(selected_rows, mid))
-            model_menu.addAction(act_m)
+            for m_id, spec in AVAILABLE_MODELS.items():
+                if m_id == "auto":
+                    continue
+                act_m = QAction(spec.name, self)
+                act_m.triggered.connect(lambda checked=False, mid=m_id: self._set_model_for_rows(selected_rows, mid))
+                model_menu.addAction(act_m)
 
         menu.addSeparator()
 
@@ -1026,15 +1036,27 @@ class UpscalerMainWindow(QMainWindow):
         act_reveal_src.triggered.connect(lambda: self.reveal_file(q_item.source_path))
         menu.addAction(act_reveal_src)
 
+        def _copy_name():
+            cb = QApplication.clipboard()
+            if cb is not None:
+                cb.setText(q_item.target_scene_name)
+
+        def _copy_path():
+            cb = QApplication.clipboard()
+            if cb is not None:
+                cb.setText(q_item.source_path)
+
         act_copy_name = QAction("📋 Copy Target File Name", self)
-        act_copy_name.triggered.connect(lambda: QApplication.clipboard().setText(q_item.target_scene_name))
+        act_copy_name.triggered.connect(_copy_name)
         menu.addAction(act_copy_name)
 
         act_copy_path = QAction("📋 Copy Full Path", self)
-        act_copy_path.triggered.connect(lambda: QApplication.clipboard().setText(q_item.source_path))
+        act_copy_path.triggered.connect(_copy_path)
         menu.addAction(act_copy_path)
 
-        menu.exec(self.table.viewport().mapToGlobal(pos))
+        vp = self.table.viewport()
+        if vp is not None:
+            menu.exec(vp.mapToGlobal(pos))
 
     def on_table_double_click(self, item: QTableWidgetItem):
         row = item.row()
@@ -1419,8 +1441,10 @@ class UpscalerMainWindow(QMainWindow):
             style_class = "statPillError" if failed_count else "statPill"
             if self.btn_stat_failed.property("class") != style_class:
                 self.btn_stat_failed.setProperty("class", style_class)
-                self.btn_stat_failed.style().unpolish(self.btn_stat_failed)
-                self.btn_stat_failed.style().polish(self.btn_stat_failed)
+                btn_style = self.btn_stat_failed.style()
+                if btn_style is not None:
+                    btn_style.unpolish(self.btn_stat_failed)
+                    btn_style.polish(self.btn_stat_failed)
 
     def _status_badge_text(self, status: EpisodeStatus) -> str:
         if status == EpisodeStatus.PENDING:
@@ -1511,7 +1535,10 @@ class UpscalerMainWindow(QMainWindow):
         self.start_processing(target_indices=[target_idx], preview_duration_s=dur)
 
     def _selected_item_index(self) -> int | None:
-        selected = self.table.selectionModel().selectedRows()
+        sel_model = self.table.selectionModel()
+        if sel_model is None:
+            return None
+        selected = sel_model.selectedRows()
         if selected:
             item = self._get_queue_item_from_row(selected[0].row())
             if item:
@@ -1640,10 +1667,10 @@ class UpscalerMainWindow(QMainWindow):
 
     def on_stop_clicked(self):
         self.lbl_overall_status.setText("Stopping active workers...")
-        self.batch_manager.stop()
+        self.btn_stop.setEnabled(False)
         if self._frame_worker and self._frame_worker.isRunning():
             self._frame_worker.pipeline.cancel()
-        self.btn_stop.setEnabled(False)
+        threading.Thread(target=self.batch_manager.stop, daemon=True).start()
 
     def on_item_updated(self, item: QueueItem):
         row = self._find_row_by_item_id(item.id)
@@ -1767,7 +1794,10 @@ class UpscalerMainWindow(QMainWindow):
 
     def _resize_queue_columns(self):
         if hasattr(self, "table"):
-            available = self.table.viewport().width()
+            vp = self.table.viewport()
+            if vp is None:
+                return
+            available = vp.width()
             detail = max(180, min(360, available // 4))
             self.table.setColumnWidth(6, detail)
             filename = max(220, (available - (45 + 70 + 120 + 105 + detail)) // 2)

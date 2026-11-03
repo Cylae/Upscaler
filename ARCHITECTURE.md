@@ -92,19 +92,50 @@ sequenceDiagram
    - Selects optimal scale factors (2x, 3x, 4x) and neural architectures (`realesrgan-x4plus-anime`, `realesr-animevideov3`, `realcugan-pro`, etc.).
    - Computes GPU tile sizes dynamically based on detected VRAM to prevent Vulkan out-of-memory (OOM) driver crashes on high-resolution inputs.
 
-5. **Hardware-Accelerated Video Encoding**:
+5. **Hardware-Accelerated Video Encoding & 10-Bit Main10 Architecture**:
    - Targets NVIDIA NVENC (`hevc_nvenc` or `h264_nvenc`) with Constant Quality (`-cq 19`), spatial/temporal adaptive quantization (`-spatial-aq 1 -temporal-aq 1`), and high-performance presets (`p1` through `p7`).
+   - Includes `-b:v 0` in NVENC Constant Quality mode to unconstrain FFmpeg's default 2 Mbps bitrate ceiling on 4K/8K renders.
+   - 10-bit HEVC Main10 encoding (`-pix_fmt p010le -profile:v main10` on `hevc_nvenc`, `-pix_fmt yuv420p10le -profile:v main10` on `libx265`) is automatically engaged when source is 10-bit or when upscaling to 4K/8K, eliminating intermediate quantization banding.
+   - H.264 (`h264_nvenc` / `libx264`) remains locked to 8-bit `yuv420p` (`-profile:v high`) to ensure universal hardware playback compatibility across consumer TVs and mobile devices.
    - Automatically falls back to multi-threaded CPU encoding (`libx265` / `libx264`) on systems without NVIDIA hardware.
 
-6. **Audio Stream Preservation & Multiplexing**:
-   - Default mode is **Direct Stream Copy** (`-c:a copy`), preserving all original multi-channel audio tracks, bitrates, sample rates, and language tags without re-encoding loss.
-   - Includes an automated integrity check: if the muxed audio stream duration diverges from the original or encounters corrupt packets, a secondary repair pass reconstructs the audio container cleanly.
+```mermaid
+flowchart TD
+    Input["Input Frame Stream"] --> Check10{"10-Bit Source OR Target >= 4K?"}
+    Check10 -->|"Yes"| CodecChoice{"Selected Encoder"}
+    Check10 -->|"No"| Default8["Encode 8-Bit yuv420p (Main Profile)"]
+    CodecChoice -->|"hevc_nvenc"| NVENC10["-pix_fmt p010le -profile:v main10 -b:v 0"]
+    CodecChoice -->|"libx265"| X26510["-pix_fmt yuv420p10le -profile:v main10"]
+    CodecChoice -->|"h264_nvenc / libx264"| H264Compat["Lock to 8-Bit yuv420p High Profile (Universal Hardware Playback)"]
+```
+
+6. **Multi-Track Audio & Subtitle Multiplexing**:
+   - Default audio mode is **Direct Stream Copy** (`-c:a copy`), preserving all original multi-channel audio tracks (`-map 1:a?`), bitrates, sample rates, and language tags without re-encoding loss.
+   - Subtitle preservation routing:
+     - For Matroska (`.mkv`): Direct stream copy of all subtitle tracks (`-c:s copy`) and font attachments (`-c:t copy`).
+     - For MP4 (`.mp4`, `.m4v`, `.mov`): Direct transcode of text subtitles to `mov_text` (`-c:s mov_text`). Bitmap subtitles (PGS, VobSub) and font attachments are strictly omitted to prevent container specification rejection.
+     - In preview mode: Subtitle muxing is bypassed to avoid out-of-window timestamp clipping.
+   - Includes an automated multi-track integrity check: if the muxed audio stream duration diverges from the original or encounters corrupt packets, a secondary repair pass reconstructs all audio tracks and chapters (`-map_chapters 1`) cleanly.
+
+```mermaid
+flowchart TD
+    A["Source Media Stream"] --> B{"Target Container?"}
+    B -->|"Matroska (.mkv)"| C["All Audio Tracks: -map 1:a?"]
+    C --> D["Direct Subtitle Copy: -c:s copy"]
+    D --> E["Font Attachments: -c:t copy"]
+    B -->|"MP4 (.mp4 / .mov)"| F["Audio Tracks: -map 1:a?"]
+    F --> G{"Subtitles in Source?"}
+    G -->|"No"| H["Encode Video & Mux Audio Only"]
+    G -->|"Yes"| I{"Contains Bitmap Subs? (PGS/VobSub)"}
+    I -->|"Yes"| J["Omit Subtitles (Prevents MP4 ISO Mux Crash)"]
+    I -->|"No (Text Only)"| K["Transcode to 3GPP mov_text: -c:s mov_text"]
+```
 
 7. **Contract-Based Output Validation (`src/core/validator.py`)**:
    - Verification does not simply check that a file exists on disk.
    - It probes the final file to confirm:
      - Exact target width and height (`width == target_w`, `height == target_h`).
-     - Duration matches the source file within an allowed tolerance (`|dur_out - dur_in| <= 1.5s`).
+     - Duration matches the source file within an allowed tolerance (`|dur_out - dur_in| <= 2.0s`).
      - At least one valid video stream and matching audio streams exist.
      - Container integrity is intact (no truncated moov atoms).
 
@@ -123,7 +154,28 @@ Managing multiple concurrent workers invoking external CLI binaries (FFmpeg, Rea
 - When cancellation is triggered:
   1. `ProcessTracker.cancel()` marks cancellation atomic flags.
   2. It iterates through all active child PIDs and executes `taskkill /F /T /PID <pid>` to terminate the entire process hierarchy (preventing orphaned GPU background engines).
-  3. A guarded timeout wait `proc.wait(timeout=2.0)` prevents worker threads from deadlock in unread pipe buffer states.
+  3. A guarded timeout wait `proc.wait(timeout=2.0)` ensures all Windows OS file handles are closed before temporary directory purging.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant UI as Qt GUI Main Thread
+    participant BM as BatchManager
+    participant PT as ProcessTracker
+    participant OS as Windows OS (taskkill)
+    participant CHILD as FFmpeg / AI Engine Process Tree
+
+    UI->>BM: on_stop_clicked() [Async Background Thread]
+    BM->>PT: cancel()
+    PT->>PT: Set _is_cancelled = True (Atomic)
+    loop Every Active Subprocess
+        PT->>OS: taskkill /F /T /PID <pid>
+        OS->>CHILD: Terminate Entire Process Hierarchy
+        PT->>CHILD: proc.wait(timeout=2.0)
+    end
+    PT-->>BM: All Windows File Handles Released
+    BM-->>UI: Safe Directory Purge & Zero GUI Freeze
+```
 
 ### Threading Architecture (`src/ui/workers.py`)
 - **`UpscaleWorker` (`QThread`)**: Executes batch processing independently of the Qt GUI event loop. Emits PyQt signals (`batch_updated`, `item_updated`, `log_signal`, `finished_signal`) to safely update widgets on the main GUI thread.
@@ -204,4 +256,4 @@ The automated suite covers core, CLI, integration and Qt behavior. Passing tests
 | [`tests/test_ui_dialogs.py`](file:///c:/Users/Cylae/Documents/GitHub/Upscaler/tests/test_ui_dialogs.py) | `PreflightDialog`, `DoctorDialog`, `LogViewerDialog`, `FrameComparisonDialog`. |
 | [`tests/test_ui_reliability.py`](file:///c:/Users/Cylae/Documents/GitHub/Upscaler/tests/test_ui_reliability.py) | Table filtering, 1080p responsive distribution, ETA visibility, status pill behaviors. |
 | [`tests/test_cancellation_races.py`](file:///c:/Users/Cylae/Documents/GitHub/Upscaler/tests/test_cancellation_races.py) | Non-blocking process tree cancellation, PID handle release, zero-orphan process lifecycle. |
-| [`tests/test_adversarial_swarm.py`](file:///c:/Users/Cylae/Documents/GitHub/Upscaler/tests/test_adversarial_swarm.py) | 17 adversarial fault tests: disk exhaustion (ENOSPC), dead PID lock reclamation, corrupted locks, 5,000-item queue stress, hostile path traversal with emojis/`%`, silent Vulkan black-frame detection, and odd-dimension aspect calculations. |
+| [`tests/test_adversarial_swarm.py`](file:///c:/Users/Cylae/Documents/GitHub/Upscaler/tests/test_adversarial_swarm.py) | 22 comprehensive adversarial fault tests: disk exhaustion (ENOSPC), dead PID lock reclamation, corrupted locks, 5,000-item queue stress, hostile path traversal with emojis/`%`, silent Vulkan black-frame detection, odd-dimension aspect calculations, subtitle preservation (MKV vs MP4), 10-bit HEVC Main10, unconstrained NVENC CQ rate control, stride-aligned tile size quantization (multiples of 32), and batch cancellation race protection. |

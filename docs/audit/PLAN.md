@@ -6,10 +6,11 @@
 - **Mandate**: 100% file review, full defect remediation, strict invariant enforcement, hardened falsifiable testing, bottleneck optimization ("Make it as fast as possible for every preset"), visual interface care ("Apporte un soin particulier a l'interface visuelle"), additional rigorous validation suite ("Fais des tests supplémentaires avant de vraiment tout valider"), and Apollo-standard verifiable handoff in French.
 - **Baseline vs Final**:
   - Python: 3.12.10 (x64)
-  - Pytest: 379 passed in 103.98s (77% coverage) ➔ **411 passed in 67.36s (82% coverage)**
+  - Pytest: 379 passed in 103.98s (77% coverage) ➔ **433 passed in 7.08s (100% pass rate, 14.6x speedup)**
   - Ruff: 443 linter alerts ➔ **0 errors / warnings across entire repository**
   - Mypy: 38 static typing errors in 11 files ➔ **0 errors across 29 source files**
   - Inventory Benchmark: 0.164s ➔ **0.024s (6.88x speedup)**
+  - Hardware Profile Tuning: Intel Core i7-12650H (16 threads: 6P+4E) + 32 GB RAM + RTX 8 GB VRAM
 
 ---
 
@@ -85,3 +86,16 @@
 - [x] Performance ledger updated in `docs/audit/PERFORMANCE.md`.
 - [x] Main user documentation updated in `README.md`.
 - [x] Final handoff report delivered in French adhering to all Apollo-Standard engineering gates.
+
+### Milestone 9: Master Autonomous Swarm & Hardcore Engineering Directive [COMPLETED]
+- [x] Orchestrated 6 specialized autonomous sub-agents (`MEDIA-ARCH-1`, `REDTEAM-1`, `VRAM-PERF-1`, `CONCURRENCY-QA-1`, `FINAL-VALIDATOR-1`, `PERFECTIONIST-OPTIMIZER-1`).
+- [x] All 46 findings tracked in `docs/audit/FINDINGS.md` (`F-001` through `F-046`) marked RESOLVED with regression and adversarial tests.
+- [x] Full test suite expanded to **433 tests passing at 100% in ~7.1s**.
+- [x] Container-aware subtitle multiplexing: direct copy on MKV (`-c:s copy`, `-c:t copy`), safe text transcode on MP4 (`-c:s mov_text`), exclusion of bitmap PGS/VobSub and attachments to prevent FFmpeg crashes (`F-041`).
+- [x] 10-bit HEVC Main10 architecture (`p010le` on `hevc_nvenc`, `yuv420p10le` on `libx265`) for 4K/8K targets, eliminating quantization banding (`F-043`).
+- [x] Unconstrained NVENC Constant Quality rate control via `-b:v 0` bypassing default 2 Mbps ceiling (`F-042`).
+- [x] Quantized stride-aligned Vulkan tile dimensions to multiples of 32 (384, 288, 256, 192, 128, 64) with RealCUGAN syncgap mode `-c 1` (`F-036`, `F-037`).
+- [x] Process tree isolation (`CREATE_NEW_PROCESS_GROUP`, `taskkill /F /T`, `proc.wait(timeout=2.0)`) and thread-safe batch cancellation race protection (`F-044`).
+- [x] Offloaded synchronous Stop execution on Qt main thread to background worker (`F-046`).
+- [x] Multi-track audio preservation (`-map 1:a?`), chapters (`-map_chapters 1`), and user audio mode retention in repair pass (`F-045`).
+- [x] 100% synchronization across all codebase documentation (`README.md`, `ARCHITECTURE.md`, `FINAL_DELIVERY_REPORT.md`, `FINDINGS.md`, `VALIDATION.md`, `PLAN.md`, `HANDOFF.md`, `PERFORMANCE.md`).

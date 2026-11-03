@@ -606,7 +606,10 @@ class BatchManager:
                 with self._lock:
                     completed_items[0] += 1
                 if item_callback:
-                    item_callback(item)
+                    try:
+                        item_callback(item)
+                    except Exception:
+                        pass
                 return
 
             if item.status == EpisodeStatus.SKIPPED and not overwrite and preview_duration_s is None:
@@ -645,6 +648,17 @@ class BatchManager:
 
             pipeline = pipeline_cls(self.hardware)
             with self._lock:
+                if self._stop_requested:
+                    item.status = EpisodeStatus.CANCELLED
+                    item.status_detail = "Cancelled by user"
+                    item.file_eta = ""
+                    completed_items[0] += 1
+                    if item_callback:
+                        try:
+                            item_callback(item)
+                        except Exception:
+                            pass
+                    return
                 self._active_pipelines.add(pipeline)
 
             effective_model_id = item.model if (hasattr(item, "model") and item.model and item.model != "auto") else model_id

@@ -107,5 +107,8 @@ class DoctorDialog(QDialog):
         )
         if target_path:
             out_file = export_diagnostic_report(target_path)
-            if self.parent() and hasattr(self.parent(), "lbl_overall_status"):
-                self.parent().lbl_overall_status.setText(f"Diagnostic exported: {os.path.basename(out_file)}")
+            parent = self.parent()
+            if parent is not None and hasattr(parent, "lbl_overall_status"):
+                lbl = getattr(parent, "lbl_overall_status")
+                if hasattr(lbl, "setText"):
+                    lbl.setText(f"Diagnostic exported: {os.path.basename(out_file)}")

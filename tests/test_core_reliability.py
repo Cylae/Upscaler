@@ -127,8 +127,8 @@ class CoreReliabilityTests(unittest.TestCase):
         # 2. Tile size safety for 8GB GPU (e.g. RTX 3070)
         tile_heavy = auto_tile_size(gpu_vram_gb=8.0, model="realesrgan-x4plus-anime")
         tile_light = auto_tile_size(gpu_vram_gb=8.0, model="realesr-animevideov3")
-        self.assertEqual(tile_heavy, 200)
-        self.assertEqual(tile_light, 400)
+        self.assertEqual(tile_heavy, 192)
+        self.assertEqual(tile_light, 256)
 
         # 3. Thread spec safety
         spec_heavy = get_optimal_thread_spec("auto", gpu_vram_gb=8.0, cpu_cores=8, model="realesrgan-x4plus-anime")

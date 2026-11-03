@@ -425,29 +425,30 @@ def auto_tile_size(
 
     if is_heavy_model(chosen_model):
         if val_per_worker >= 16.0:
-            tile = 400
+            tile = 384  # Multiple of 32 (32 * 12)
         elif val_per_worker >= 10.0:
-            tile = 300
+            tile = 288  # Multiple of 32 (32 * 9)
         elif val_per_worker >= 6.0:
-            tile = 200  # Multiple of 32/8; safe and performant for 6GB-8GB GPUs
+            tile = 192  # Multiple of 32 (32 * 6); safe and performant for 6GB-8GB GPUs
         elif val_per_worker >= 4.0:
-            tile = 128  # Multiple of 32 (replaces non-stride-aligned 100)
+            tile = 128  # Multiple of 32 (32 * 4)
         else:
             tile = 64
-        return tile
+        return max(64, (tile // 32) * 32)
     else:
         if val_per_worker >= 10.0 and not is_high_res and workers == 1:
             return 0    # No tiling for 1080p on single-worker 10GB+ GPUs
         elif val_per_worker >= 10.0:
-            return 384  # High-res or multi-worker safely tiled
+            tile = 384  # High-res or multi-worker safely tiled (32 * 12)
         elif val_per_worker >= 6.0:
-            return 400
+            tile = 256  # Multiple of 32 (32 * 8)
         elif val_per_worker >= 4.0:
-            return 200
+            tile = 192  # Multiple of 32 (32 * 6)
         elif val_per_worker >= 2.0:
-            return 128  # Multiple of 32 (replaces non-stride-aligned 100)
+            tile = 128  # Multiple of 32 (32 * 4)
         else:
-            return 64
+            tile = 64
+        return max(64, (tile // 32) * 32)
 
 
 def get_optimal_thread_spec(

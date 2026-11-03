@@ -266,6 +266,10 @@ class VideoUpscalerPipeline:
             except subprocess.TimeoutExpired:
                 if self._is_cancelled:
                     safe_kill_process_tree(proc)
+                    try:
+                        proc.wait(timeout=2.0)
+                    except (subprocess.TimeoutExpired, Exception):
+                        pass
                     return -1
 
     def _run_tracked(self, cmd: list, **popen_kwargs) -> int:
@@ -414,6 +418,7 @@ class VideoUpscalerPipeline:
         if use_hwdecode:
             cmd = [
                 ffmpeg_bin, "-y",
+                "-loglevel", "error", "-nostats",
                 "-hwaccel", "cuda",
                 "-hwaccel_output_format", "cuda",
                 *common_input_flags,
@@ -429,6 +434,7 @@ class VideoUpscalerPipeline:
         else:
             cmd = [
                 ffmpeg_bin, "-y",
+                "-loglevel", "error", "-nostats",
                 "-threads", "0",
                 *common_input_flags,
                 *seek_flags,
@@ -470,6 +476,7 @@ class VideoUpscalerPipeline:
         part_output_file: str,
         audio_start_offset_s: float = 0.0,
         audio_duration_s: float | None = None,
+        sub_input_path: str | None = None,
     ) -> list:
         """Builds an optimised FFmpeg command to re-encode upscaled frames to the target format.
 
@@ -478,6 +485,9 @@ class VideoUpscalerPipeline:
           - Adds -movflags +faststart so the moov atom is written at the start of
             the file — enables progressive playback and faster seeks in media players.
           - Retains NVENC lookahead, surfaces, AQ and the requested CQ/preset.
+          - Adds -b:v 0 in NVENC CQ mode to unconstrain bitrate ceiling on 4K/8K.
+          - Preserves 10-bit color (p010le / yuv420p10le Main10) on 4K/8K or 10-bit sources.
+          - Full subtitle stream multiplexing and font attachment preservation.
           - Retains the existing CPU fallback preset and requested CRF.
           - filter_threads / filter_complex_threads set to 0 for maximum CPU usage
             during the Lanczos scale filter.
@@ -506,6 +516,10 @@ class VideoUpscalerPipeline:
             "-i", os.path.join(frames_out_dir.replace("%", "%%"), f"frame_%08d.{frame_ext}"),
         ]
 
+        audio_input_idx: int | None = None
+        sub_input_idx: int | None = None
+        next_input_idx = 1
+
         if audio_input_path:
             # A direct source-audio fallback must use the preview window too;
             # otherwise a preview that starts mid-episode gets audio from 0:00.
@@ -514,9 +528,43 @@ class VideoUpscalerPipeline:
             cmd.extend(["-i", audio_input_path])
             if audio_duration_s is not None:
                 cmd.extend(["-t", f"{audio_duration_s:.3f}"])
-            cmd.extend(["-map", "0:v:0", "-map", "1:a?"])
-        else:
-            cmd.extend(["-map", "0:v:0"])
+            audio_input_idx = next_input_idx
+            next_input_idx += 1
+
+        if sub_input_path:
+            if audio_input_path and os.path.abspath(sub_input_path) == os.path.abspath(audio_input_path):
+                sub_input_idx = audio_input_idx
+            else:
+                cmd.extend(["-i", sub_input_path])
+                sub_input_idx = next_input_idx
+                next_input_idx += 1
+
+        # Map video stream
+        cmd.extend(["-map", "0:v:0"])
+
+        # Map audio streams
+        if audio_input_idx is not None:
+            cmd.extend(["-map", f"{audio_input_idx}:a?"])
+
+        # Map subtitle and attachment streams
+        is_mkv = part_output_file.lower().endswith(".mkv")
+        is_mp4 = part_output_file.lower().endswith((".mp4", ".m4v", ".mov"))
+        if sub_input_idx is not None:
+            if is_mkv:
+                cmd.extend(["-map", f"{sub_input_idx}:s?", "-c:s", "copy"])
+                if meta.has_attachments:
+                    cmd.extend(["-map", f"{sub_input_idx}:t?", "-c:t", "copy"])
+            elif is_mp4:
+                # MP4 ISO container only supports text subtitles (mov_text) and cannot store font attachments.
+                # Strictly omit bitmap subtitles (PGS, VobSub) and font attachments which break FFmpeg.
+                has_bitmap_subs = bool(
+                    meta.subtitle_codecs and any(
+                        c in ("hdmv_pgs_subtitle", "dvd_subtitle", "pgssub", "dvdsub")
+                        for c in meta.subtitle_codecs
+                    )
+                )
+                if not has_bitmap_subs and meta.has_subtitles:
+                    cmd.extend(["-map", f"{sub_input_idx}:s?", "-c:s", "mov_text"])
 
         # High-quality Lanczos resize with all CPU cores assigned
         cmd.extend([
@@ -548,18 +596,25 @@ class VideoUpscalerPipeline:
             if meta.color_transfer and meta.color_transfer not in ("unknown", "unspecified"):
                 cmd.extend(["-color_trc", meta.color_transfer])
 
+        use_10bit = bool(meta.is_10bit or target_w >= 3840 or target_h >= 2160)
+
         # Encoder-specific parameters
-        if chosen_encoder in ("hevc_nvenc", "h264_nvenc"):
+        if chosen_encoder == "hevc_nvenc":
             cmd.extend([
-                "-c:v", chosen_encoder,
+                "-c:v", "hevc_nvenc",
                 "-preset", p_val,
                 "-cq", cq_val,
+                "-b:v", "0",
             ])
+            if use_10bit:
+                cmd.extend(["-pix_fmt", "p010le", "-profile:v", "main10"])
+            else:
+                cmd.extend(["-pix_fmt", "yuv420p", "-profile:v", "main"])
+
             if p_val in ("p1", "p2", "p3"):
                 cmd.extend([
                     "-surfaces", "16",
                     "-b_ref_mode", "disabled",
-                    "-pix_fmt", "yuv420p",
                 ])
             else:
                 cmd.extend([
@@ -568,7 +623,28 @@ class VideoUpscalerPipeline:
                     "-spatial-aq", "1",
                     "-temporal-aq", "1",
                     "-b_ref_mode", "middle",
-                    "-pix_fmt", "yuv420p",
+                ])
+        elif chosen_encoder == "h264_nvenc":
+            cmd.extend([
+                "-c:v", "h264_nvenc",
+                "-preset", p_val,
+                "-cq", cq_val,
+                "-b:v", "0",
+                "-pix_fmt", "yuv420p",
+                "-profile:v", "high",
+            ])
+            if p_val in ("p1", "p2", "p3"):
+                cmd.extend([
+                    "-surfaces", "16",
+                    "-b_ref_mode", "disabled",
+                ])
+            else:
+                cmd.extend([
+                    "-rc-lookahead", "32",
+                    "-surfaces", "64",
+                    "-spatial-aq", "1",
+                    "-temporal-aq", "1",
+                    "-b_ref_mode", "middle",
                 ])
         elif chosen_encoder == "libx265":
             cmd.extend([
@@ -576,18 +652,22 @@ class VideoUpscalerPipeline:
                 "-crf", cq_val,
                 "-preset", "fast",
                 "-x265-params", "no-sao=1",
-                "-pix_fmt", "yuv420p",
             ])
+            if use_10bit:
+                cmd.extend(["-pix_fmt", "yuv420p10le", "-profile:v", "main10"])
+            else:
+                cmd.extend(["-pix_fmt", "yuv420p"])
         else:  # libx264
             cmd.extend([
                 "-c:v", "libx264",
                 "-crf", cq_val,
                 "-preset", "fast",
                 "-pix_fmt", "yuv420p",
+                "-profile:v", "high",
             ])
 
         # Audio codec selection
-        if audio_input_path:
+        if audio_input_idx is not None:
             if audio_mode == "aac_192k":
                 cmd.extend(["-c:a", "aac", "-b:a", "192k"])
             elif audio_mode == "aac_320k":
@@ -599,7 +679,6 @@ class VideoUpscalerPipeline:
             cmd.append("-shortest")
 
         # movflags: faststart for MP4/MOV only (invalid for MKV)
-        is_mp4 = part_output_file.lower().endswith((".mp4", ".m4v", ".mov"))
         if is_mp4:
             cmd.extend(["-movflags", "+faststart"])
 
@@ -1251,6 +1330,8 @@ class VideoUpscalerPipeline:
             cq_val = str(job.cq_level) if job.cq_level else "19"
             p_val = (job.nvenc_preset or "p7").lower()
 
+            sub_input_path = job.input_file if (meta.has_subtitles and not _preview_mode) else None
+
             encode_cmd = self._build_encode_cmd(
                 frames_out_dir=frames_out_dir,
                 frame_ext=frame_ext,
@@ -1265,6 +1346,7 @@ class VideoUpscalerPipeline:
                 part_output_file=part_output_file,
                 audio_start_offset_s=_preview_start_s if audio_input_path == job.input_file else 0.0,
                 audio_duration_s=_preview_dur_s if audio_input_path == job.input_file else None,
+                sub_input_path=sub_input_path,
             )
 
             log_cmd(f"[FFMPEG ENCODE] {' '.join(encode_cmd)}")
@@ -1300,6 +1382,16 @@ class VideoUpscalerPipeline:
                     log_cmd("[AUDIO REPAIR] Warning: Soundtrack missing in initial encode. Triggering guaranteed remux from source.")
                     repair_file = part_output_file + ".fixed" + scene_cfg.container
                     ffmpeg_bin = self.hardware.ffmpeg_path or shutil.which("ffmpeg") or "ffmpeg"
+                    repair_audio_args = []
+                    if job.audio_mode == "aac_320k":
+                        repair_audio_args = ["-c:a", "aac", "-b:a", "320k"]
+                    elif job.audio_mode == "flac":
+                        repair_audio_args = ["-c:a", "flac"]
+                    elif job.audio_mode == "copy":
+                        repair_audio_args = ["-c:a", "copy"]
+                    else:
+                        repair_audio_args = ["-c:a", "aac", "-b:a", "192k"]
+
                     repair_cmd = [
                         ffmpeg_bin, "-y",
                         "-i", part_output_file,
@@ -1309,14 +1401,15 @@ class VideoUpscalerPipeline:
                     repair_cmd.extend([
                         "-i", job.input_file,
                         "-map", "0:v:0",
-                        "-map", "1:a:0",
+                        "-map", "1:a?",
                         "-c:v", "copy",
-                        "-c:a", "aac", "-b:a", "192k",
+                        *repair_audio_args,
                     ])
                     if _preview_dur_s is not None:
                         repair_cmd.extend(["-t", f"{_preview_dur_s:.3f}"])
                     repair_cmd.append("-shortest")
                     repair_cmd.extend(clean_metadata_args(include_video=False))
+                    repair_cmd.extend(["-map_chapters", "1"])
                     repair_cmd.append(repair_file)
                     log_cmd(f"[AUDIO REPAIR REMUX] {' '.join(repair_cmd)}")
                     repair_rc = self._run_tracked(repair_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
@@ -1496,6 +1589,7 @@ class VideoUpscalerPipeline:
                 alt_dir = os.path.join(os.path.dirname(bin_path), target_model_name)
                 if os.path.isdir(alt_dir):
                     models_dir = alt_dir
+            syncgap_mode = "1" if effective_tile_size > 0 else "3"
             ai_cmd = [
                 bin_path,
                 "-i", orig_frame,
@@ -1504,6 +1598,7 @@ class VideoUpscalerPipeline:
                 "-s", str(chosen_scale),
                 "-j", thread_spec,
                 "-f", "png",
+                "-c", syncgap_mode,
                 "-n", str(eff_denoise)
             ]
             if effective_tile_size > 0:

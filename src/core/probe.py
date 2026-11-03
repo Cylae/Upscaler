@@ -16,7 +16,7 @@ import threading
 from collections import OrderedDict
 from concurrent.futures import Future
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from src.core.models import (
     calculate_display_dimensions,
@@ -45,6 +45,22 @@ class VideoMetadata:
     audio_stream_count: int = 1
     sample_aspect_ratio: str = "1:1"
     rotation: float = 0
+    pix_fmt: str = "yuv420p"
+    bits_per_raw_sample: int = 8
+    subtitle_codecs: list[str] = field(default_factory=list)
+    has_attachments: bool = False
+    audio_channels: int = 2
+
+    @property
+    def is_10bit(self) -> bool:
+        """Returns True if the source stream has 10-bit or greater color depth."""
+        return (
+            self.bits_per_raw_sample >= 10
+            or "10" in self.pix_fmt
+            or "12" in self.pix_fmt
+            or "16" in self.pix_fmt
+            or self.color_transfer in ("smpte2084", "arib-std-b67")
+        )
 
     @property
     def display_width(self) -> float:
@@ -244,9 +260,26 @@ def probe_video(filepath: str, ffprobe_bin: str | None = None) -> VideoMetadata:
     a_streams = [s for s in data.get("streams", []) if s.get("codec_type") == "audio"]
     has_audio = len(a_streams) > 0
     audio_codec = a_streams[0].get("codec_name", "") if has_audio else ""
+    audio_channels = 2
+    if has_audio:
+        try:
+            audio_channels = int(a_streams[0].get("channels", 2))
+        except (ValueError, TypeError):
+            audio_channels = 2
 
-    s_stream = next((s for s in data.get("streams", []) if s.get("codec_type") == "subtitle"), None)
-    has_subtitles = s_stream is not None
+    s_streams = [s for s in data.get("streams", []) if s.get("codec_type") == "subtitle"]
+    has_subtitles = len(s_streams) > 0
+    subtitle_codecs = [str(s.get("codec_name", "")).lower() for s in s_streams if s.get("codec_name")]
+
+    t_streams = [s for s in data.get("streams", []) if s.get("codec_type") == "attachment"]
+    has_attachments = len(t_streams) > 0
+
+    pix_fmt = str(v_stream.get("pix_fmt", "") or "yuv420p")
+    raw_bits = v_stream.get("bits_per_raw_sample")
+    try:
+        bits_per_raw_sample = int(raw_bits) if raw_bits and str(raw_bits).isdigit() else (10 if "10" in pix_fmt else 8)
+    except (ValueError, TypeError):
+        bits_per_raw_sample = 8
 
     r_frame_rate = str(v_stream.get("r_frame_rate", "") or "")
     color_range = str(v_stream.get("color_range", "") or "")
@@ -285,6 +318,11 @@ def probe_video(filepath: str, ffprobe_bin: str | None = None) -> VideoMetadata:
         audio_stream_count=len(a_streams),
         sample_aspect_ratio=sample_aspect_ratio,
         rotation=rotation,
+        pix_fmt=pix_fmt,
+        bits_per_raw_sample=bits_per_raw_sample,
+        subtitle_codecs=subtitle_codecs,
+        has_attachments=has_attachments,
+        audio_channels=audio_channels,
     )
 
     return meta

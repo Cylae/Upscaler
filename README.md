@@ -17,8 +17,15 @@ Built for **exceptional visual fidelity** without ringing or seam artifacts, acc
   - **Real-ESRGAN General High-Detail (`realesrgan-x4plus`)**: General x4 model for realistic footage and complex backgrounds, selected by the `realistic_8k` profile.
   - **RealCUGAN Pro / SE (`realcugan-pro`, `realcugan-se`)**: Specialized deep U-Net architectures for anime illustration with adjustable denoise levels (-1 to 3).
   - **Intelligent Auto-Selection**: Evaluates input resolution, aspect ratio, and target dimensions to select the optimal model and scale multiplier automatically.
+- **10-Bit HEVC Main10 & Advanced Color Pipeline**:
+  - **10-Bit Main10 Encoding**: Automatically engaged (`p010le` on `hevc_nvenc`, `yuv420p10le` on `libx265`) when upscaling to 4K/8K or when processing 10-bit sources, completely eliminating color gradient banding.
+  - **Unconstrained NVENC Bitrate**: Automatically passes `-b:v 0` in NVENC Constant Quality mode, bypassing FFmpeg's default 2 Mbps bitrate ceiling for pristine 4K/8K delivery.
+  - **Strict H.264 8-Bit Lock**: Retains universal 8-bit `yuv420p` High profile on H.264 encodes for flawless compatibility across all consumer hardware decoders.
+- **Full Auxiliary Audio & Subtitle Multiplexing**:
+  - **Multi-Track Audio Preservation**: Preserves all audio tracks (`-map 1:a?`), chapters (`-map_chapters 1`), and commentary streams with automatic fallback repair.
+  - **Container-Aware Subtitle Routing**: Full passthrough of all subtitles and font attachments in Matroska (`.mkv`), and safe text subtitle transcoding (`mov_text`) in MP4 with bitmap (PGS/VobSub) exclusion to prevent container muxing crashes.
 - **Robust Pipeline & Strict Verification**:
-  - **Verification by Contract**: Already-existing outputs are validated not just by file existence, but by container integrity, exact target resolution (`expected_width` × `expected_height`), duration within tolerance, and audio stream presence.
+  - **Verification by Contract**: Already-existing outputs are validated not just by file existence, but by container integrity, exact target resolution (`expected_width` × `expected_height`), duration within tolerance (`<= 2.0s`), and audio stream presence.
   - **Atomic Safe Replacement**: Outputs are rendered to isolated temporary files with PID-based lease locking (`.job_lock`) and promoted via atomic replacement. Cross-drive / cross-filesystem moves use safe staged copies.
   - **Active Job Protection**: Stale directory cleanup checks in-memory active jobs and alive PID lock files before deleting abandoned directories.
 - **High-Performance Multithreading & Multi-Worker Concurrency**:
@@ -115,7 +122,10 @@ python main.py --source "D:\Videos\Source" --retry-failed
 | `--tta` | | Flag | Enables 8-pass Test-Time Augmentation ensemble inference |
 | `--denoise` | | `-1`, `0`, `1`, `2`, `3` | RealCUGAN denoise level (`-1` = conservative) |
 | `--audio-mode` | | `copy`, `aac_192k`, `aac_320k`, `flac` | Audio stream handling mode (default: `copy`) |
-| `--tile-size` | | Integer (pixels) | Vulkan inference tile size (`0` = auto, tuned to GPU VRAM) |
+| `--tile-size` | | Integer (pixels) | Vulkan inference tile size (`0` = auto, quantized to multiples of 32) |
+| `--group` | `-g` | String | Scene release group tag (default: `'CYLAE'`) |
+| `--show-name` | | String | Show name used in Scene Release filenames |
+| `--source-tag` | | `WEB-DL`, `WEBRip`, `UHD.WEB-DL`, `REMASTER` | Scene source tag |
 | `--workers` | `-w` | `1` to `4` | Concurrent batch workers (default: `2`) |
 | `--threads` | `-t` | `auto` or `LOAD:PROC:SAVE` (e.g. `2:4:2`) | Engine thread specification |
 | `--frame-format`| `-f` | `jpg`, `png` | Extracted frame format (`jpg` = 2x–3x faster I/O) |
@@ -209,7 +219,7 @@ Run the full automated test suite:
 .\.venv\Scripts\python.exe -m pytest -v
 ```
 
-The rigorous test suite comprises **428 automated unit, integration, UI, and adversarial stress tests** running with 100% pass rate and zero regressions, reaching **83% total statement coverage**. It includes exhaustive static typing (0 mypy errors across 29 source files) and 0 lint warnings (Ruff). The suite validates audio preservation (including auxiliary commentary/dub tracks and lossless FLAC/PCM in MKV), stream copy fallback to AAC, CUDA decode fallback to CPU, BT.709 colorspace conformance, CFR frame-rate stabilization, rational framerate precision, display geometry, contract integrity, CLI parsing, 8K profiles, dry-run mappings, process cancellation safety (`CREATE_NEW_PROCESS_GROUP` / `safe_kill_process_tree`), UI event-loop responsiveness, and adversarial fault recovery (disk exhaustion ENOSPC, dead PID locks, 5,000-item queue stress, and silent Vulkan black-frame detection).
+The rigorous test suite comprises **433 automated unit, integration, UI, and adversarial stress tests** running with 100% pass rate and zero regressions, reaching **83% total statement coverage**. It includes exhaustive static typing (0 mypy errors across 29 source files) and 0 lint warnings (Ruff). The suite validates audio preservation (including auxiliary commentary/dub tracks and lossless FLAC/PCM in MKV), stream copy fallback to AAC, CUDA decode fallback to CPU, BT.709 colorspace conformance, CFR frame-rate stabilization, rational framerate precision, display geometry, contract integrity, CLI parsing, 8K profiles, dry-run mappings, process cancellation safety (`CREATE_NEW_PROCESS_GROUP` / `safe_kill_process_tree`), UI event-loop responsiveness, and adversarial fault recovery (disk exhaustion ENOSPC, dead PID locks, 5,000-item queue stress, and silent Vulkan black-frame detection).
 
 Reproduce performance comparisons against the previous implementation using generated media and isolated desktop settings:
 ```powershell

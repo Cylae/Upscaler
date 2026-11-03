@@ -569,3 +569,164 @@ def test_adversarial_engine_silent_oom_black_frame_corruption(tmp_path):
         assert success is False
         assert "blank/black output frames detected" in msg
         assert not (out_dir / "out.mp4").exists()
+
+
+# ==============================================================================
+# GROUP 7: MULTI-AGENT SWARM ADVANCED SUBSYSTEM CONTRACT TESTS
+# ==============================================================================
+
+def test_adversarial_subtitle_preservation_mkv_vs_mp4():
+    """Verify subtitle routing: direct copy on MKV, mov_text on MP4 for text, and exclusion of bitmap on MP4."""
+    pipeline = VideoUpscalerPipeline(HardwareInfo())
+
+    # Case 1: MKV with ASS subtitles and font attachments
+    meta_mkv = VideoMetadata(
+        filepath="input.mkv", width=1920, height=1080, fps=24.0, duration=10.0,
+        nb_frames=240, codec_name="h264", has_audio=True, audio_codec="aac",
+        has_subtitles=True, subtitle_codecs=["ass"], has_attachments=True
+    )
+    cmd_mkv = pipeline._build_encode_cmd(
+        frames_out_dir="frames_out", frame_ext="png", meta=meta_mkv,
+        target_w=3840, target_h=2160, chosen_encoder="hevc_nvenc",
+        cq_val="19", p_val="p7", audio_input_path="input.mkv",
+        audio_mode="copy", part_output_file="out.mkv", sub_input_path="input.mkv"
+    )
+    assert "-c:s" in cmd_mkv
+    s_idx = cmd_mkv.index("-c:s")
+    assert cmd_mkv[s_idx + 1] == "copy"
+    assert "-c:t" in cmd_mkv
+    t_idx = cmd_mkv.index("-c:t")
+    assert cmd_mkv[t_idx + 1] == "copy"
+
+    # Case 2: MP4 with text subtitles (SRT) -> mov_text, font attachments excluded
+    meta_mp4_text = VideoMetadata(
+        filepath="input.mp4", width=1920, height=1080, fps=24.0, duration=10.0,
+        nb_frames=240, codec_name="h264", has_audio=True, audio_codec="aac",
+        has_subtitles=True, subtitle_codecs=["subrip"], has_attachments=True
+    )
+    cmd_mp4 = pipeline._build_encode_cmd(
+        frames_out_dir="frames_out", frame_ext="png", meta=meta_mp4_text,
+        target_w=3840, target_h=2160, chosen_encoder="hevc_nvenc",
+        cq_val="19", p_val="p7", audio_input_path="input.mp4",
+        audio_mode="copy", part_output_file="out.mp4", sub_input_path="input.mp4"
+    )
+    assert "-c:s" in cmd_mp4
+    s_idx_mp4 = cmd_mp4.index("-c:s")
+    assert cmd_mp4[s_idx_mp4 + 1] == "mov_text"
+    assert "-c:t" not in cmd_mp4
+
+    # Case 3: MP4 with PGS bitmap subtitles -> omitted to prevent fatal FFmpeg crash
+    meta_mp4_pgs = VideoMetadata(
+        filepath="input.mp4", width=1920, height=1080, fps=24.0, duration=10.0,
+        nb_frames=240, codec_name="h264", has_audio=True, audio_codec="aac",
+        has_subtitles=True, subtitle_codecs=["hdmv_pgs_subtitle"], has_attachments=False
+    )
+    cmd_pgs = pipeline._build_encode_cmd(
+        frames_out_dir="frames_out", frame_ext="png", meta=meta_mp4_pgs,
+        target_w=3840, target_h=2160, chosen_encoder="hevc_nvenc",
+        cq_val="19", p_val="p7", audio_input_path="input.mp4",
+        audio_mode="copy", part_output_file="out.mp4", sub_input_path="input.mp4"
+    )
+    assert "-c:s" not in cmd_pgs
+
+
+def test_adversarial_10bit_hevc_main10_encoding():
+    """Verify 10-bit HEVC Main10 encoding on 4K/8K targets and strict 8-bit lock for H.264."""
+    pipeline = VideoUpscalerPipeline(HardwareInfo())
+
+    meta_8bit = VideoMetadata(
+        filepath="input.mp4", width=1920, height=1080, fps=24.0, duration=10.0,
+        nb_frames=240, codec_name="h264", has_audio=False, audio_codec="",
+        has_subtitles=False, bits_per_raw_sample=8, pix_fmt="yuv420p"
+    )
+
+    # 4K target with hevc_nvenc -> Must use p010le and Main10
+    cmd_nvenc_4k = pipeline._build_encode_cmd(
+        frames_out_dir="frames_out", frame_ext="png", meta=meta_8bit,
+        target_w=3840, target_h=2160, chosen_encoder="hevc_nvenc",
+        cq_val="19", p_val="p7", audio_input_path=None,
+        audio_mode="copy", part_output_file="out.mp4"
+    )
+    assert "-pix_fmt" in cmd_nvenc_4k
+    pix_idx = cmd_nvenc_4k.index("-pix_fmt")
+    assert cmd_nvenc_4k[pix_idx + 1] == "p010le"
+    assert "-profile:v" in cmd_nvenc_4k
+    prof_idx = cmd_nvenc_4k.index("-profile:v")
+    assert cmd_nvenc_4k[prof_idx + 1] == "main10"
+
+    # 4K target with libx265 -> Must use yuv420p10le and Main10
+    cmd_x265_4k = pipeline._build_encode_cmd(
+        frames_out_dir="frames_out", frame_ext="png", meta=meta_8bit,
+        target_w=3840, target_h=2160, chosen_encoder="libx265",
+        cq_val="19", p_val="fast", audio_input_path=None,
+        audio_mode="copy", part_output_file="out.mp4"
+    )
+    pix_x265 = cmd_x265_4k.index("-pix_fmt")
+    assert cmd_x265_4k[pix_x265 + 1] == "yuv420p10le"
+    prof_x265 = cmd_x265_4k.index("-profile:v")
+    assert cmd_x265_4k[prof_x265 + 1] == "main10"
+
+    # 4K target with h264_nvenc -> Must remain strictly 8-bit yuv420p (High profile)
+    cmd_h264 = pipeline._build_encode_cmd(
+        frames_out_dir="frames_out", frame_ext="png", meta=meta_8bit,
+        target_w=3840, target_h=2160, chosen_encoder="h264_nvenc",
+        cq_val="19", p_val="p7", audio_input_path=None,
+        audio_mode="copy", part_output_file="out.mp4"
+    )
+    pix_h264 = cmd_h264.index("-pix_fmt")
+    assert cmd_h264[pix_h264 + 1] == "yuv420p"
+    prof_h264 = cmd_h264.index("-profile:v")
+    assert cmd_h264[prof_h264 + 1] == "high"
+
+
+def test_adversarial_nvenc_unconstrained_cq_bitrate_ceiling():
+    """Verify that NVENC CQ mode passes -b:v 0 to unconstrain FFmpeg default 2Mbps ceiling."""
+    pipeline = VideoUpscalerPipeline(HardwareInfo())
+    meta = VideoMetadata(
+        filepath="input.mp4", width=1920, height=1080, fps=24.0, duration=10.0,
+        nb_frames=240, codec_name="h264", has_audio=False, audio_codec="",
+        has_subtitles=False
+    )
+    cmd = pipeline._build_encode_cmd(
+        frames_out_dir="frames_out", frame_ext="png", meta=meta,
+        target_w=3840, target_h=2160, chosen_encoder="hevc_nvenc",
+        cq_val="18", p_val="p7", audio_input_path=None,
+        audio_mode="copy", part_output_file="out.mp4"
+    )
+    assert "-b:v" in cmd
+    b_idx = cmd.index("-b:v")
+    assert cmd[b_idx + 1] == "0"
+
+
+def test_adversarial_tile_size_stride_quantization():
+    """Verify that auto_tile_size always returns a multiple of 32 for Vulkan stride alignment."""
+    from src.core.models import auto_tile_size
+    for vram in [1.0, 2.0, 4.0, 6.0, 8.0, 12.0, 16.0, 24.0]:
+        tile = auto_tile_size(vram)
+        if tile > 0:
+            assert tile % 32 == 0, f"Tile size {tile} for VRAM {vram}GB is not a multiple of 32!"
+            assert tile >= 64
+
+
+def test_adversarial_batch_cancellation_race_registration():
+    """Verify that when stop is requested, active and pending worker tasks cancel cleanly."""
+    bm = BatchManager(HardwareInfo())
+
+    item1 = QueueItem(index=1, source_path="test1.mp4", relative_source_path="test1.mp4", target_scene_name="out1.mp4", target_full_path="out1.mp4", file_size_mb=10.0, status=EpisodeStatus.PENDING)
+    item2 = QueueItem(index=2, source_path="test2.mp4", relative_source_path="test2.mp4", target_scene_name="out2.mp4", target_full_path="out2.mp4", file_size_mb=10.0, status=EpisodeStatus.PENDING)
+    bm.queue = [item1, item2]
+
+    # When item1 runs, it triggers bm.stop()
+    def fake_process_video(job, progress_callback=None):
+        bm.stop()
+        return False, "Cancelled by user."
+
+    with patch("src.core.batch.VideoUpscalerPipeline.process_video", side_effect=fake_process_video):
+        bm.run_batch(output_dir="dummy", base_dir="dummy", target_preset="1080p", max_workers=1)
+
+    assert bm._stop_requested is True
+    # item1 was cancelled during execution
+    assert item1.status == EpisodeStatus.CANCELLED
+    assert "Cancelled" in item1.status_detail
+    # Zero active pipelines remaining registered
+    assert len(bm._active_pipelines) == 0
