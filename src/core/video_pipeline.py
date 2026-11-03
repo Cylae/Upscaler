@@ -682,9 +682,11 @@ class VideoUpscalerPipeline:
         if is_mp4:
             cmd.extend(["-movflags", "+faststart"])
 
-        # Preserve chapters and clean metadata
+        # Preserve chapters from source container if an input stream was provided
         cmd.extend(clean_metadata_args(include_video=True))
-        cmd.extend(["-map_chapters", "1"])
+        chapter_source_idx = audio_input_idx if audio_input_idx is not None else sub_input_idx
+        if chapter_source_idx is not None:
+            cmd.extend(["-map_chapters", str(chapter_source_idx)])
 
         cmd.append(part_output_file)
         return cmd
@@ -1330,7 +1332,7 @@ class VideoUpscalerPipeline:
             cq_val = str(job.cq_level) if job.cq_level else "19"
             p_val = (job.nvenc_preset or "p7").lower()
 
-            sub_input_path = job.input_file if (meta.has_subtitles and not _preview_mode) else None
+            sub_input_path = job.input_file if ((meta.has_subtitles or meta.has_attachments) and not _preview_mode) else None
 
             encode_cmd = self._build_encode_cmd(
                 frames_out_dir=frames_out_dir,
@@ -1408,6 +1410,8 @@ class VideoUpscalerPipeline:
                     if _preview_dur_s is not None:
                         repair_cmd.extend(["-t", f"{_preview_dur_s:.3f}"])
                     repair_cmd.append("-shortest")
+                    if scene_cfg.container.lower() in (".mp4", ".m4v", ".mov"):
+                        repair_cmd.extend(["-movflags", "+faststart"])
                     repair_cmd.extend(clean_metadata_args(include_video=False))
                     repair_cmd.extend(["-map_chapters", "1"])
                     repair_cmd.append(repair_file)

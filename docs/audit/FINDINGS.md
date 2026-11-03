@@ -48,3 +48,37 @@
 | `F-044` | HIGH | `src/core/batch.py:646` | Stop requested right as concurrent worker thread enters | Worker cleanly cancels without starting zombie pipeline | Pipeline registered after `stop()` iterated active pipelines, running unmonitored | Unprotected pipeline registration check | RESOLVED | Check `self._stop_requested` under `self._lock` before registration | `tests/test_adversarial_swarm.py` |
 | `F-045` | HIGH | `src/core/video_pipeline.py:1310` | Secondary audio auto-repair pass on multi-track media | Preserve all audio tracks, user audio mode, and chapters | Dropped all secondary tracks (`-map 1:a:0`), forced 192k AAC, lost chapters | Hardcoded audio repair remux command | RESOLVED | Injected `-map 1:a?`, `job.audio_mode`, and `-map_chapters 1` | `tests/test_adversarial_swarm.py` |
 | `F-046` | MEDIUM | `src/ui/main_window.py:1641` | User clicks Stop during active worker execution | GUI remains immediately responsive | Synchronous `batch_manager.stop()` calling `taskkill` blocked Qt main thread | Synchronous stop call on GUI thread | RESOLVED | Offloaded `batch_manager.stop()` to daemon background thread | `tests/test_ui_functional.py` |
+### F-047: FFmpeg Encoding Crash on Silent/Subtitle-less Videos due to Unconditional `-map_chapters 1`
+- **Severity**: Critical (P0)
+- **Status**: FIXED
+- **Component**: `src/core/video_pipeline.py`
+- **Description**: In `_build_encode_cmd()`, `-map_chapters 1` was added unconditionally to preserve chapter markers. When upscaling silent video files or clips without subtitle streams, only input 0 (image sequence) exists. FFmpeg exited immediately with exit code 4294967274 (`[out#0/null] Invalid input file index 1 in chapter mapping`).
+- **Fix**: Derived `chapter_source_idx = audio_input_idx if audio_input_idx is not None else sub_input_idx` and conditionally emitted `-map_chapters` only when `chapter_source_idx is not None`.
+
+### F-048: Unhandled `concurrent.futures.CancelledError` on ThreadPoolExecutor Cancellation
+- **Severity**: High (P1)
+- **Status**: FIXED
+- **Component**: `src/core/batch.py`
+- **Description**: In multi-worker execution, when cancellation was requested, unstarted futures were cancelled via `future.cancel()`. As `concurrent.futures.wait()` returns cancelled futures in the `done` set, subsequent calls to `future.result()` raised unhandled `CancelledError`, terminating the batch loop abruptly.
+- **Fix**: Wrapped `future.result()` in `try ... except (concurrent.futures.CancelledError, Exception): pass`.
+
+### F-049: Ghost Progress Leak in Batch ETA Calculations (`active_progress`)
+- **Severity**: Medium (P2)
+- **Status**: FIXED
+- **Component**: `src/core/batch.py`
+- **Description**: When `process_single_item` encountered `self._stop_requested`, `completed_items[0]` incremented but `active_progress.pop(id(item), None)` was not invoked. The cancelled item's partial ratio remained in `active_progress`, corrupting subsequent batch completion percentage and ETA formatting.
+- **Fix**: Added explicit `active_progress.pop(id(item), None)` in cancellation branch.
+
+### F-050: Font Attachment Dropping in MKV Containers Without Subtitle Streams
+- **Severity**: Medium (P2)
+- **Status**: FIXED
+- **Component**: `src/core/video_pipeline.py`
+- **Description**: `sub_input_path` was initialized with `job.input_file if (meta.has_subtitles and not _preview_mode) else None`. For MKV files containing embedded attachment fonts (`has_attachments=True`) but no text subtitle streams, `sub_input_path` was `None`, resulting in font attachments being omitted from the re-multiplexed container.
+- **Fix**: Changed condition to `job.input_file if ((meta.has_subtitles or meta.has_attachments) and not _preview_mode) else None`.
+
+### F-051: Unrecognized Positional Arguments for CLI and Launcher Batch Drag-and-Drop
+- **Severity**: Medium (P2)
+- **Status**: FIXED
+- **Component**: `src/cli.py`
+- **Description**: Users dragging-and-dropping video files onto launcher scripts (`start_fast_4k_upscale.bat`, `start_photorealistic_upscale.bat`) or invoking `main.py <video_file>` encountered `argparse` errors: `error: unrecognized arguments: <filename>`.
+- **Fix**: Introduced `parser.add_argument("positional_source", nargs="?", default=None)` and transparently routed it to `args.source`. Updated launcher batch scripts with interactive prompting when executed without arguments.

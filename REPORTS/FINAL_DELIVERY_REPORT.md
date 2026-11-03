@@ -14,7 +14,7 @@ The autonomous multi-agent swarm was deployed across the Upscaler repository to 
 2. **Media Pipeline & FFmpeg/FFprobe Subsystem**: Full auxiliary audio stream preservation (`-map 0:a?`), lossless container routing (`audio.mka` for MKV), chapter integrity (`-map_chapters 1`), container-restricted streaming optimizations (`-movflags +faststart` strictly on MP4/MOV), and variable framerate (VFR) stabilization via deterministic Constant Frame Rate (`-fps_mode cfr`) injection.
 3. **Vulkan, VRAM & Neural Inference Optimization**: Real-time VRAM querying via `nvidia-smi`, dynamic tile sizing strictly quantized to multiples of 32 (prohibiting fractional U-Net stride artifacts), RealCUGAN syncgap mode (`-c 1`) seam elimination, and thread budgeting calibrated specifically for Intel Core i7-12650H hybrid architecture (6 Performance cores + 4 Efficient cores = 16 logical threads).
 4. **PyQt6 Concurrency & UI Responsiveness**: Replacement of hazardous `QThread.terminate()` calls with cooperative cancellation, unthrottled widget text starvation elimination (monotonic 100ms log throttling), and table auto-scroll jitter mitigation.
-5. **Adversarial Failure Injection & QA**: Implementation of a 22-test hardcore adversarial test harness (`tests/test_adversarial_swarm.py`) validating resilience against disk exhaustion (ENOSPC), dead/corrupted PID lease locks, 5,000-item queue stress, hostile filenames with emojis and URL percent-encoding, odd-resolution aspect calculations, and silent Vulkan black-frame detection.
+5. **Adversarial Failure Injection & QA**: Implementation of a 27-test hardcore adversarial test harness (`tests/test_adversarial_swarm.py`) validating resilience against disk exhaustion (ENOSPC), dead/corrupted PID lease locks, 5,000-item queue stress, hostile filenames with emojis and URL percent-encoding, odd-resolution aspect calculations, and silent Vulkan black-frame detection.
 
 All changes adhere strictly to the Source Media Immutability and Zero Orphan Subprocess contracts.
 
@@ -24,8 +24,8 @@ All changes adhere strictly to the Source Media Immutability and Zero Orphan Sub
 
 | Metric | Baseline Assessment | Final Hardened State | Delta / Improvement |
 | :--- | :--- | :--- | :--- |
-| **Total Automated Tests** | 411 tests | **433 tests** | +17 tests (+4.1%) |
-| **Test Pass Rate** | 100% (411/411) | **100% (433/433)** | Maintained 100% Pass Rate |
+| **Total Automated Tests** | 411 tests | **438 tests** | +22 tests (+5.3%) |
+| **Test Pass Rate** | 100% (411/411) | **100% (438/438)** | Maintained 100% Pass Rate |
 | **Full Suite Execution Time** | ~7.2s | **~7.7s** | +0.5s for 22 adversarial suites |
 | **Linter Warnings (`ruff`)** | 12 violations found | **0 violations (Clean)** | -100% violations |
 | **Type Checker (`mypy src`)** | 3 typing errors | **0 errors (29 source files)** | Complete type convergence |
@@ -132,7 +132,7 @@ pip install -r requirements-dev.txt
 
 ### 2. Full Verification Suite Execution
 ```powershell
-# Run the complete test suite (433 tests)
+# Run the complete test suite (438 tests)
 python -m pytest -q
 
 # Run strict linter inspection (0 violations expected)
@@ -177,4 +177,4 @@ python main.py --source "D:\Videos\Source" --output "D:\Videos\Upscaled" --prese
 | **Silent Black-Frame Detection**| Luminance threshold verification on frames| `tests/test_adversarial_swarm.py` | **PASSED** (22/22) |
 | **Massive Queue Scalability** | 5,000-item batch lock synchronization | `tests/test_adversarial_swarm.py` | **PASSED** (22/22) |
 | **UI Event-Loop Responsiveness**| Monotonic 100ms throttling on text updates| `tests/test_ui_efficiency.py` | **PASSED** (5/5) |
-| **Full Repository Test Suite** | 35 test files across unit, UI, and swarm | `python -m pytest -q` | **433 PASSED (100%)** |
+| **Full Repository Test Suite** | 35 test files across unit, UI, and swarm | `python -m pytest -q` | **438 PASSED (100%)** |

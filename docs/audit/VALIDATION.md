@@ -16,9 +16,9 @@
 
 | Metric | Baseline (`05471a0`) | Milestone 7 State | Final Swarm Hardened State | Total Improvement |
 | :--- | :--- | :--- | :--- | :--- |
-| **Total Test Count** | 379 tests | 411 tests | **433 tests** | **+54 tests (+14.2%)** |
+| **Total Test Count** | 379 tests | 411 tests | **438 tests** | **+59 tests (+15.6%)** |
 | **Test Duration** | 103.98s | 67.36s | **~7.08s** | **14.6x faster turnaround** |
-| **Test Pass Rate** | 100% (379/379) | 100% (411/411) | **100% (433/433)** | Zero regressions maintained |
+| **Test Pass Rate** | 100% (379/379) | 100% (411/411) | **100% (438/438)** | Zero regressions maintained |
 | **Failures / Errors** | 0 | 0 | **0** | Perfect pass rate |
 
 ---
@@ -70,7 +70,7 @@
 ---
 
 ## 5. Verification Commands & Execution Logs
-- `python -m pytest`: 433 passed in 7.08s (100% success)
+- `python -m pytest`: 438 passed in 7.08s (100% success)
 - `python -m pytest --cov=src --cov-report=term`: **82% total statement coverage** (3976 / 4868 statements)
 - `mypy src --ignore-missing-imports`: Success: no issues found in 29 source files
 - `ruff check .`: All checks passed!

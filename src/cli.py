@@ -26,6 +26,12 @@ def run_cli(argv: list[str] | None = None) -> int:
         description="AnimaScale — AI Video Upscaling up to 8K (Portrait and Landscape)"
     )
     parser.add_argument("--source", "-s", help="Source folder or video file path")
+    parser.add_argument(
+        "positional_source",
+        nargs="?",
+        default=None,
+        help="Source folder or video file path (positional argument for drag-and-drop or direct CLI usage)"
+    )
     parser.add_argument("--output", "-o", help="Output directory (default: '<source> (<resolution>)', 8K uses 4320p)")
     parser.add_argument("--preset", "-p", choices=list(ENHANCEMENT_PRESETS.keys()), default=None, help="Enhancement profile preset")
     parser.add_argument("--resolution", "-r", choices=list(RESOLUTION_TAGS), default=None, help="Target resolution; 8K is 7680x4320 landscape or 4320x7680 portrait at 16:9 / 9:16")
@@ -87,6 +93,9 @@ def run_cli(argv: list[str] | None = None) -> int:
             print(f"- {preset_id:<22} {preset.icon} {preset.name}")
             print(f"  {preset.description}")
         return 0
+
+    if not args.source and args.positional_source:
+        args.source = args.positional_source
 
     if not args.source and not (args.manifest and os.path.isfile(args.manifest)):
         parser.error("--source is required unless --doctor, --list-presets, or --manifest is used")

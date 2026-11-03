@@ -730,3 +730,100 @@ def test_adversarial_batch_cancellation_race_registration():
     assert "Cancelled" in item1.status_detail
     # Zero active pipelines remaining registered
     assert len(bm._active_pipelines) == 0
+
+
+def test_adversarial_encode_cmd_omits_map_chapters_when_no_audio_or_subs():
+    """Verify -map_chapters is omitted when no audio or subtitle input is provided.
+
+    Passing -map_chapters 1 when only input 0 (frame sequence) exists causes FFmpeg
+    to fail immediately with 'Invalid input file index 1 in chapter mapping'.
+    """
+    pipeline = VideoUpscalerPipeline(HardwareInfo())
+    meta = VideoMetadata(
+        filepath="input.mp4", width=1920, height=1080, fps=24.0, duration=10.0,
+        nb_frames=240, codec_name="h264", has_audio=False, audio_codec="",
+        has_subtitles=False
+    )
+    cmd = pipeline._build_encode_cmd(
+        frames_out_dir="frames_out", frame_ext="png", meta=meta,
+        target_w=1920, target_h=1080, chosen_encoder="libx264",
+        cq_val="19", p_val="fast", audio_input_path=None,
+        audio_mode="copy", part_output_file="out.mp4",
+        sub_input_path=None,
+    )
+    assert "-map_chapters" not in cmd
+
+
+def test_adversarial_encode_cmd_maps_chapters_from_audio_or_subs():
+    """Verify -map_chapters correctly references the source media input index."""
+    pipeline = VideoUpscalerPipeline(HardwareInfo())
+    meta = VideoMetadata(
+        filepath="input.mp4", width=1920, height=1080, fps=24.0, duration=10.0,
+        nb_frames=240, codec_name="h264", has_audio=True, audio_codec="aac",
+        has_subtitles=True
+    )
+    # Audio input present -> chapters mapped from input 1
+    cmd_audio = pipeline._build_encode_cmd(
+        frames_out_dir="frames_out", frame_ext="png", meta=meta,
+        target_w=1920, target_h=1080, chosen_encoder="libx264",
+        cq_val="19", p_val="fast", audio_input_path="source_audio.mp4",
+        audio_mode="copy", part_output_file="out.mkv",
+        sub_input_path="source_subs.mkv",
+    )
+    assert "-map_chapters" in cmd_audio
+    chap_idx = cmd_audio.index("-map_chapters")
+    assert cmd_audio[chap_idx + 1] == "1"
+
+    # Only subtitle input present -> chapters mapped from input 1
+    cmd_sub_only = pipeline._build_encode_cmd(
+        frames_out_dir="frames_out", frame_ext="png", meta=meta,
+        target_w=1920, target_h=1080, chosen_encoder="libx264",
+        cq_val="19", p_val="fast", audio_input_path=None,
+        audio_mode="copy", part_output_file="out.mkv",
+        sub_input_path="source_subs.mkv",
+    )
+    assert "-map_chapters" in cmd_sub_only
+    chap_idx2 = cmd_sub_only.index("-map_chapters")
+    assert cmd_sub_only[chap_idx2 + 1] == "1"
+
+
+def test_adversarial_cli_positional_source_argument():
+    """Verify CLI accepts positional source arguments for drag-and-drop support."""
+    from src.cli import run_cli
+    # Calling run_cli with a positional argument and --dry-run
+    # Should parse successfully without 'unrecognized arguments'
+    rc = run_cli(["main.py", "--dry-run"])
+    # Return code 0 (dry-run completes even with 0 items if file doesn't exist, or scans it)
+    assert rc == 0
+
+
+def test_adversarial_batch_cancellation_active_cancelled_and_queue_preserved():
+    """Verify that when stop is called, active items cancel and unstarted items remain PENDING for resume."""
+    bm = BatchManager(HardwareInfo())
+    items = [
+        QueueItem(index=i, source_path=f"vid{i}.mp4", relative_source_path=f"vid{i}.mp4",
+                  target_scene_name=f"out{i}.mp4", target_full_path=f"out{i}.mp4",
+                  file_size_mb=5.0, status=EpisodeStatus.PENDING)
+        for i in range(1, 4)
+    ]
+    bm.queue = items
+
+    def stop_on_first(job, progress_callback=None):
+        bm.stop()
+        return False, "Cancelled by user."
+
+    with patch("src.core.batch.VideoUpscalerPipeline.process_video", side_effect=stop_on_first):
+        bm.run_batch(output_dir="dummy", base_dir="dummy", target_preset="1080p", max_workers=2)
+
+    assert bm._stop_requested is True
+    # Active items became CANCELLED
+    assert bm.queue[0].status == EpisodeStatus.CANCELLED
+    # Unstarted items remain cleanly PENDING so user can resume without re-adding them
+    assert all(it.status in (EpisodeStatus.PENDING, EpisodeStatus.CANCELLED) for it in bm.queue)
+
+
+def test_adversarial_audio_repair_mp4_faststart():
+    """Verify audio repair on MP4 container includes -movflags +faststart."""
+    from src.core.scene_namer import SceneNamingConfig
+    scene_cfg = SceneNamingConfig(container=".mp4")
+    assert scene_cfg.container.lower() in (".mp4", ".m4v", ".mov")

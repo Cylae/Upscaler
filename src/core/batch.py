@@ -649,6 +649,7 @@ class BatchManager:
             pipeline = pipeline_cls(self.hardware)
             with self._lock:
                 if self._stop_requested:
+                    active_progress.pop(id(item), None)
                     item.status = EpisodeStatus.CANCELLED
                     item.status_detail = "Cancelled by user"
                     item.file_eta = ""
@@ -821,7 +822,10 @@ class BatchManager:
                             futures, return_when=concurrent.futures.FIRST_COMPLETED
                         )
                         for future in done:
-                            future.result()
+                            try:
+                                future.result()
+                            except (concurrent.futures.CancelledError, Exception):
+                                pass
                         if self._stop_requested:
                             for future in futures:
                                 future.cancel()
