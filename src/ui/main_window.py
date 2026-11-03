@@ -272,6 +272,8 @@ class UpscalerMainWindow(QMainWindow):
             ("H.265 (HEVC / NVENC)", "hevc_nvenc"), ("H.264 (NVENC)", "h264_nvenc"),
             ("H.265 (CPU / libx265)", "libx265"), ("H.264 (CPU / libx264)", "libx264"),
         ])
+        if not self.hardware.has_nvenc_hevc:
+            self.cb_codec.setCurrentIndex(2)
         self.cb_codec.setToolTip("Select the video encoder explicitly; CPU H.264 and H.265 are available.")
         video.addRow("Encoder", self.cb_codec)
         self.cb_model = combo([(spec.name, model_id) for model_id, spec in AVAILABLE_MODELS.items()])
@@ -560,6 +562,24 @@ class UpscalerMainWindow(QMainWindow):
         self.txt_custom_suffix.textChanged.connect(self.on_settings_changed)
         self.on_preset_changed()
         self.on_model_changed()
+        self._refresh_hardware_badges()
+
+    def _refresh_hardware_badges(self) -> None:
+        """Refreshes top status badges with detected GPU, VRAM, and neural execution providers."""
+        providers = []
+        if self.hardware.has_nvidia:
+            providers.append("CUDA")
+        if self.hardware.realesrgan_bin or self.hardware.realcugan_bin:
+            providers.append("Vulkan")
+        try:
+            import onnxruntime as ort
+            if "DmlExecutionProvider" in ort.get_available_providers():
+                providers.append("DirectML")
+        except Exception:
+            pass
+        prov_str = f" [{'/'.join(providers)}]" if providers else ""
+        self.lbl_gpu.setText(f"GPU: {self.hardware.gpu_name} ({self.hardware.gpu_vram_gb:g} GB){prov_str}")
+        self.lbl_encoder.setText("NVENC Available" if self.hardware.nvenc_available else "CPU / Fast Encoding")
 
     def on_model_changed(self):
         self._mark_custom_profile()
@@ -629,7 +649,12 @@ class UpscalerMainWindow(QMainWindow):
             self.cb_preset.setCurrentIndex(index)
 
     def _get_video_codec(self) -> str:
-        return self.cb_codec.currentData() or "hevc_nvenc"
+        codec = self.cb_codec.currentData() or "hevc_nvenc"
+        if codec == "hevc_nvenc" and not self.hardware.has_nvenc_hevc:
+            return "libx265"
+        if codec == "h264_nvenc" and not self.hardware.has_nvenc_h264:
+            return "libx264"
+        return codec
 
     @staticmethod
     def _editable_choice(control):
@@ -1586,6 +1611,14 @@ class UpscalerMainWindow(QMainWindow):
         if not self.batch_manager.queue:
             self.lbl_overall_status.setText("No episodes in queue.")
             return
+
+        # Ensure hardware binaries are refreshed if missing
+        if not self.hardware.realesrgan_bin or not self.hardware.realcugan_bin or self.hardware.gpu_name == "Unknown":
+            try:
+                self.hardware = get_hardware_info(force_refresh=True)
+            except TypeError:
+                self.hardware = get_hardware_info()
+            self._refresh_hardware_badges()
 
         out_dir = self.txt_output.text().strip()
         base_dir = self.txt_source.text().strip()

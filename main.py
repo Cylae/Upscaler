@@ -52,12 +52,14 @@ def main():
         return 0
 
     cli_triggers = {
-        "--cli", "--source", "-s", "--output", "-o", "--preset", "-p",
+        "--cli", "--source", "-s", "--input", "-i", "--output", "-o", "--preset", "-p",
         "--resolution", "-r", "--codec", "-c", "--model", "-m",
-        "--dry-run", "--export-diagnostics", "--list-presets",
-        "--manifest", "--retry-failed",
-        "--cq", "--nvenc-preset", "--tta", "--denoise", "--audio-mode",
-        "--tile-size", "--group", "-g", "--show-name", "--source-tag",
+        "--dry-run", "--export-diagnostics", "--list-presets", "--list-models",
+        "--diagnostics", "--manifest", "--retry-failed",
+        "--backend", "-b", "--scale", "--tile-size", "-t", "--overlap",
+        "--crf", "--cq", "--nvenc-preset", "--tta", "--denoise",
+        "--audio", "-a", "--audio-mode", "--recursive", "-r", "--preview",
+        "--group", "-g", "--show-name", "--source-tag",
         "--overwrite", "--limit", "-l", "--workers", "-w", "--threads", "-t",
         "--frame-format", "-f", "--yes", "-y"
     }

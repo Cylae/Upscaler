@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import re
 from dataclasses import dataclass
 
 # Ordered to preserve the existing desktop defaults and resolution choices.
@@ -7,8 +10,16 @@ RESOLUTION_LABELS = {
     "1080p": "1080p FHD (1920×1080)",
     "720p": "720p HD (1280×720)",
     "8k": "8K UHD (7680×4320 / Portrait)",
+    "ultrawide": "Ultrawide 21:9 (3440×1440 / 5120×2160)",
 }
-RESOLUTION_TAGS = {"8k": "4320p", "4k": "2160p", "1440p": "1440p", "1080p": "1080p", "720p": "720p"}
+RESOLUTION_TAGS = {
+    "8k": "4320p",
+    "4k": "2160p",
+    "1440p": "1440p",
+    "1080p": "1080p",
+    "720p": "720p",
+    "ultrawide": "1440p",
+}
 
 
 @dataclass(frozen=True)
@@ -31,6 +42,74 @@ class EnhancementPreset:
 
 
 ENHANCEMENT_PRESETS: dict[str, EnhancementPreset] = {
+    "anime_4k_master": EnhancementPreset(
+        id="anime_4k_master",
+        name="Anime 4K Master",
+        icon="🎬",
+        description="Pristine vector outlines, clean color fills, high NVENC compression, and zero artifacting.",
+        recommended_for="Best balance of visual quality, pristine lines, and speed for 2D animation and cartoons.",
+        target_preset="4k",
+        video_codec="hevc_nvenc",
+        model_id="auto",
+        cq_level=19,
+        nvenc_preset="p7",
+        enable_tta=False,
+        denoise_level=-1,
+        audio_mode="copy",
+        workers=2,
+        frame_format="jpg",
+    ),
+    "photo_realistic_4k": EnhancementPreset(
+        id="photo_realistic_4k",
+        name="Photo Realistic 4K",
+        icon="📷",
+        description="General Real-ESRGAN x4, lossless PNG intermediates, and HEVC CQ 18 for photorealistic footage.",
+        recommended_for="Live-action footage, photorealistic video, and 3D CGI sequences.",
+        target_preset="4k",
+        video_codec="hevc_nvenc",
+        model_id="realesrgan-x4plus",
+        cq_level=18,
+        nvenc_preset="p7",
+        enable_tta=False,
+        denoise_level=-1,
+        audio_mode="copy",
+        workers=1,
+        frame_format="png",
+    ),
+    "balanced_fast": EnhancementPreset(
+        id="balanced_fast",
+        name="Balanced Fast (40+ fps)",
+        icon="🚀",
+        description="High-speed turnaround with Real-ESRGAN AnimeVideo V3 and maximum-speed NVENC P3 encoding.",
+        recommended_for="Fast previewing or rapid batch processing of large collections.",
+        target_preset="4k",
+        video_codec="hevc_nvenc",
+        model_id="realesr-animevideov3",
+        cq_level=21,
+        nvenc_preset="p3",
+        enable_tta=False,
+        denoise_level=-1,
+        audio_mode="copy",
+        workers=2,
+        frame_format="jpg",
+    ),
+    "ultrawide": EnhancementPreset(
+        id="ultrawide",
+        name="Ultrawide 21:9 Master",
+        icon="🖥️",
+        description="Aspect ratio preserved for 21:9 and 32:9 ultrawide cinema formats (3440x1440p / 5120x2160p).",
+        recommended_for="Cinema widescreen and ultrawide monitor media.",
+        target_preset="1440p",
+        video_codec="hevc_nvenc",
+        model_id="auto",
+        cq_level=19,
+        nvenc_preset="p7",
+        enable_tta=False,
+        denoise_level=-1,
+        audio_mode="copy",
+        workers=2,
+        frame_format="jpg",
+    ),
     "cartoon_4k_master": EnhancementPreset(
         id="cartoon_4k_master",
         name="Cartoon 4K Master (Recommended)",
@@ -46,7 +125,7 @@ ENHANCEMENT_PRESETS: dict[str, EnhancementPreset] = {
         denoise_level=-1,
         audio_mode="copy",
         workers=2,
-        frame_format="jpg"
+        frame_format="jpg",
     ),
     "fast_draft": EnhancementPreset(
         id="fast_draft",
@@ -63,7 +142,7 @@ ENHANCEMENT_PRESETS: dict[str, EnhancementPreset] = {
         denoise_level=-1,
         audio_mode="copy",
         workers=2,
-        frame_format="jpg"
+        frame_format="jpg",
     ),
     "realistic_8k": EnhancementPreset(
         id="realistic_8k",
@@ -80,7 +159,7 @@ ENHANCEMENT_PRESETS: dict[str, EnhancementPreset] = {
         denoise_level=-1,
         audio_mode="copy",
         workers=1,
-        frame_format="png"
+        frame_format="png",
     ),
     "archival": EnhancementPreset(
         id="archival",
@@ -97,7 +176,7 @@ ENHANCEMENT_PRESETS: dict[str, EnhancementPreset] = {
         denoise_level=-1,
         audio_mode="copy",
         workers=1,
-        frame_format="png"
+        frame_format="png",
     ),
     "lightweight_1080p": EnhancementPreset(
         id="lightweight_1080p",
@@ -114,7 +193,7 @@ ENHANCEMENT_PRESETS: dict[str, EnhancementPreset] = {
         denoise_level=-1,
         audio_mode="copy",
         workers=3,
-        frame_format="jpg"
+        frame_format="jpg",
     ),
     "clean_denoise": EnhancementPreset(
         id="clean_denoise",
@@ -131,7 +210,7 @@ ENHANCEMENT_PRESETS: dict[str, EnhancementPreset] = {
         denoise_level=2,
         audio_mode="copy",
         workers=2,
-        frame_format="jpg"
+        frame_format="jpg",
     ),
     "custom": EnhancementPreset(
         id="custom",
@@ -148,11 +227,37 @@ ENHANCEMENT_PRESETS: dict[str, EnhancementPreset] = {
         denoise_level=-1,
         audio_mode="copy",
         workers=2,
-        frame_format="jpg"
-    )
+        frame_format="jpg",
+    ),
 }
 
 
 def get_preset(preset_id: str) -> EnhancementPreset:
     """Returns the requested preset or defaults to cartoon_4k_master."""
-    return ENHANCEMENT_PRESETS.get(preset_id, ENHANCEMENT_PRESETS["cartoon_4k_master"])
+    if not preset_id:
+        return ENHANCEMENT_PRESETS["cartoon_4k_master"]
+    if preset_id in ENHANCEMENT_PRESETS:
+        return ENHANCEMENT_PRESETS[preset_id]
+
+    norm = re.sub(r"[\s\-_]+", "", preset_id.lower())
+    for pid, p in ENHANCEMENT_PRESETS.items():
+        if re.sub(r"[\s\-_]+", "", pid.lower()) == norm:
+            return p
+        if re.sub(r"[\s\-_]+", "", p.name.lower()) == norm:
+            return p
+
+    alias_map = {
+        "anime": "anime_4k_master",
+        "anime4k": "anime_4k_master",
+        "photo": "photo_realistic_4k",
+        "photorealistic": "photo_realistic_4k",
+        "fast": "balanced_fast",
+        "draft": "fast_draft",
+        "uw": "ultrawide",
+        "wide": "ultrawide",
+        "cartoon": "cartoon_4k_master",
+    }
+    if norm in alias_map and alias_map[norm] in ENHANCEMENT_PRESETS:
+        return ENHANCEMENT_PRESETS[alias_map[norm]]
+
+    return ENHANCEMENT_PRESETS["cartoon_4k_master"]

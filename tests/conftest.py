@@ -2,6 +2,11 @@
 
 import os
 
+try:
+    import onnxruntime  # noqa: F401
+except (ImportError, Exception):
+    pass
+
 # This must be set before test modules import QApplication.
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 

@@ -86,41 +86,80 @@ def detect_ffmpeg() -> tuple[str | None, str | None, str, bool, bool]:
 
 
 def detect_fallback_gpu() -> tuple[str, float, bool]:
-    """Queries secondary / integrated / non-NVIDIA GPUs on Windows (WMI) and other OSs."""
+    """Queries secondary / integrated / non-NVIDIA GPUs on Windows (Registry/WMI/DirectML) and other OSs."""
     gpu_name = "Unknown"
     gpu_vram = 0.0
     has_nvidia = False
 
     if os.name == "nt":
+        # 1. High-speed sub-millisecond Windows Registry enumeration (zero subprocesses, immune to timeouts)
+        try:
+            import winreg
+            key_path = r"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}"
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, key_path) as k:
+                for i in range(12):
+                    try:
+                        subkey_name = winreg.EnumKey(k, i)
+                        with winreg.OpenKey(k, subkey_name) as subk:
+                            try:
+                                desc = str(winreg.QueryValueEx(subk, "DriverDesc")[0]).strip()
+                                low_desc = desc.lower()
+                                if desc and not any(v in low_desc for v in ("basic render", "remote", "rdp", "virtual", "vga")):
+                                    gpu_name = desc
+                                    if any(nv in low_desc for nv in ("geforce", "rtx", "gtx", "quadro", "tesla", "nvidia")):
+                                        has_nvidia = True
+                                    if any(igpu in low_desc for igpu in ("intel", "iris", "uhd", "radeon", "vega", "arc")):
+                                        gpu_vram = 2.0
+                                    break
+                            except FileNotFoundError:
+                                pass
+                    except OSError:
+                        break
+        except Exception:
+            pass
+
+        # 2. Query WMI via PowerShell for exact hardware AdapterRAM if available
         try:
             cmd = [
                 "powershell", "-NoProfile", "-NonInteractive", "-Command",
                 "Get-CimInstance Win32_VideoController | Select-Object Name, AdapterRAM | ConvertTo-Json -Compress"
             ]
-            raw = subprocess.check_output(cmd, text=True, errors="ignore", timeout=4).strip()
+            raw = subprocess.check_output(cmd, text=True, errors="ignore", timeout=8).strip()
             if raw:
                 import json
                 data = json.loads(raw)
                 if isinstance(data, list):
                     physical = [
                         d for d in data
-                        if not any(v in d.get("Name", "").lower() for v in ("basic render", "remote", "rdp", "virtual"))
+                        if not any(v in d.get("Name", "").lower() for v in ("basic render", "remote", "rdp", "virtual", "vga"))
                     ]
                     data = physical[0] if physical else data[0]
                 if isinstance(data, dict):
-                    name = data.get("Name", "").strip() or "Unknown"
+                    name = data.get("Name", "").strip()
+                    if name and gpu_name == "Unknown":
+                        gpu_name = name
                     raw_ram = data.get("AdapterRAM", 0) or 0
                     if raw_ram < 0:
                         raw_ram = raw_ram & 0xFFFFFFFF
                     ram_gb = round(raw_ram / (1024**3), 1)
-                    if ram_gb == 0.0 and any(igpu in name.lower() for igpu in ("intel", "iris", "uhd", "radeon", "vega")):
-                        ram_gb = 2.0
-                    gpu_name = name
-                    gpu_vram = ram_gb
-                    if any(nv in name.lower() for nv in ("geforce", "rtx", "gtx", "quadro", "tesla", "nvidia")):
+                    if ram_gb > 0:
+                        gpu_vram = ram_gb
+                    elif gpu_vram == 0.0 and any(igpu in gpu_name.lower() for igpu in ("intel", "iris", "uhd", "radeon", "vega", "arc")):
+                        gpu_vram = 2.0
+                    if any(nv in gpu_name.lower() for nv in ("geforce", "rtx", "gtx", "quadro", "tesla", "nvidia")):
                         has_nvidia = True
         except Exception:
             pass
+
+        # 3. DirectML provider check as final hardware verification
+        if gpu_name == "Unknown":
+            try:
+                import onnxruntime as ort
+                if "DmlExecutionProvider" in ort.get_available_providers():
+                    gpu_name = "DirectML Accelerated GPU"
+                    gpu_vram = 2.0
+            except Exception:
+                pass
 
     return gpu_name, gpu_vram, has_nvidia
 
