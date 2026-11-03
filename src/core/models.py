@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 import os
 from dataclasses import dataclass
+from typing import Any
 from enum import Enum
 from fractions import Fraction
 
@@ -390,14 +391,16 @@ def is_heavy_model(model: AIModelSpec | str | None = None) -> bool:
 def auto_tile_size(
     gpu_vram_gb: float = 0.0,
     model: AIModelSpec | str | None = None,
-    *args,
-    **kwargs
+    *args: Any,
+    **kwargs: Any
 ) -> int:
     """Computes optimal tile_size for ncnn-vulkan upscalers based on available GPU VRAM.
 
-    Larger tiles reduce kernel-launch overhead but require proportionally more VRAM.
-    Heavy models (RRDBNet / RealCUGAN) automatically scale down tile size to prevent
-    GPU VRAM exhaustion and silent Vulkan crashes.
+    Enforces:
+    1. Multiples of 32 for U-Net / CNN convolutional stride alignment.
+    2. Prevention of tile 0 (no tiling) on high-resolution inputs (4K/8K) to prevent
+       VK_ERROR_OUT_OF_DEVICE_MEMORY.
+    3. Multi-worker VRAM budget awareness.
     """
     effective_vram = gpu_vram_gb
     if "vram_gb" in kwargs:
@@ -408,34 +411,43 @@ def auto_tile_size(
         effective_vram = args[0]
 
     chosen_model = model or kwargs.get("model")
+    frame_w = kwargs.get("frame_width", kwargs.get("input_width", 0))
+    frame_h = kwargs.get("frame_height", kwargs.get("input_height", 0))
+    workers = max(1, kwargs.get("workers", 1))
 
     try:
         val = float(effective_vram)
     except (TypeError, ValueError):
         val = 0.0
 
+    val_per_worker = val / workers
+    is_high_res = (frame_w > 1920 or frame_h > 1080)
+
     if is_heavy_model(chosen_model):
-        if val >= 16.0:
+        if val_per_worker >= 16.0:
+            tile = 400
+        elif val_per_worker >= 10.0:
+            tile = 300
+        elif val_per_worker >= 6.0:
+            tile = 200  # Multiple of 32/8; safe and performant for 6GB-8GB GPUs
+        elif val_per_worker >= 4.0:
+            tile = 128  # Multiple of 32 (replaces non-stride-aligned 100)
+        else:
+            tile = 64
+        return tile
+    else:
+        if val_per_worker >= 10.0 and not is_high_res and workers == 1:
+            return 0    # No tiling for 1080p on single-worker 10GB+ GPUs
+        elif val_per_worker >= 10.0:
+            return 384  # High-res or multi-worker safely tiled
+        elif val_per_worker >= 6.0:
             return 400
-        elif val >= 10.0:
-            return 300
-        elif val >= 6.0:
-            return 200  # Safe and highly performant for 6GB-8GB GPUs (e.g. RTX 3070)
-        elif val >= 4.0:
-            return 100
+        elif val_per_worker >= 4.0:
+            return 200
+        elif val_per_worker >= 2.0:
+            return 128  # Multiple of 32 (replaces non-stride-aligned 100)
         else:
             return 64
-    else:
-        if val >= 10.0:
-            return 0    # No tiling needed — entire frame fits directly in VRAM on 10GB+ GPUs
-        elif val >= 6.0:
-            return 400  # Large tiles, minimal overhead
-        elif val >= 4.0:
-            return 200  # Medium tiles
-        elif val >= 2.0:
-            return 100  # Small tiles for low-VRAM GPUs
-        else:
-            return 64   # Conservative fallback
 
 
 def get_optimal_thread_spec(
@@ -444,10 +456,10 @@ def get_optimal_thread_spec(
     vram_gb: float | None = None,
     cpu_cores: int | None = None,
     model: AIModelSpec | str | None = None,
-    *args,
-    **kwargs
+    *args: Any,
+    **kwargs: Any
 ) -> str:
-    """Calculates optimal load:proc:save thread count based on CPU cores and GPU VRAM."""
+    """Calculates optimal load:proc:save thread count balanced for Intel Hybrid P+E CPUs."""
     if isinstance(threads_param, int) and isinstance(gpu_vram_gb, (int, float)):
         # Called as (cpu_cores, vram_gb)
         cpu_count = threads_param
@@ -460,40 +472,35 @@ def get_optimal_thread_spec(
     if threads_param and threads_param != "auto":
         return str(threads_param)
 
+    active_workers = max(1, kwargs.get("workers", 1))
     chosen_model = model or kwargs.get("model")
     heavy = is_heavy_model(chosen_model)
 
-    # Determine proc threads based on available VRAM and model architecture
+    # Proc threads budgeted per worker against VRAM
+    vram_per_worker = effective_vram / active_workers
     if heavy:
-        if effective_vram >= 16.0:
+        if vram_per_worker >= 16.0:
             proc = 6
-        elif effective_vram >= 10.0:
+        elif vram_per_worker >= 10.0:
             proc = 4
-        elif effective_vram >= 6.0:
-            proc = 4  # 4 proc threads with tile 200 fits comfortably within 8GB VRAM
+        elif vram_per_worker >= 6.0:
+            proc = max(2, 4 // active_workers)
         else:
             proc = 2
     else:
-        if effective_vram >= 10.0:
-            proc = 8
-        elif effective_vram >= 6.0:
-            proc = 6
-        elif effective_vram >= 4.0:
+        if vram_per_worker >= 10.0:
+            proc = max(4, 8 // active_workers)
+        elif vram_per_worker >= 6.0:
+            proc = max(2, 6 // active_workers)
+        elif vram_per_worker >= 4.0:
             proc = 4
         else:
-            proc = 4
+            proc = 2
 
-    # Determine load/save threads based on CPU core count (tuned for hybrid P+E CPUs e.g. i7-12650H)
-    if cpu_count >= 32:
-        load_save = 8
-    elif cpu_count >= 16:
-        load_save = 4
-    elif cpu_count >= 8:
-        load_save = 3
-    elif cpu_count >= 4:
-        load_save = 2
-    else:
-        load_save = 1
+    # Load/save threads balanced for Intel Hybrid P+E CPUs (e.g. i7-12650H with 16 threads)
+    usable_cpu = max(2, cpu_count - 2)
+    threads_per_worker = max(2, usable_cpu // active_workers)
+    load_save = max(1, min(4, threads_per_worker // 2))
 
     return f"{load_save}:{proc}:{load_save}"
 

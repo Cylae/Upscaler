@@ -229,22 +229,7 @@ class VideoUpscalerPipeline:
         with self._process_lock:
             processes = list(self._active_processes)
         for proc in processes:
-            try:
-                if proc.poll() is None:
-                    if os.name == "nt" and proc.pid:
-                        try:
-                            subprocess.run(
-                                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                                stdout=subprocess.DEVNULL,
-                                stderr=subprocess.DEVNULL,
-                                timeout=3,
-                                check=False,
-                            )
-                        except Exception:
-                            pass
-                    proc.kill()
-            except Exception:
-                pass
+            safe_kill_process_tree(proc)
 
     def _start_process(self, cmd: list, **popen_kwargs) -> subprocess.Popen:
         """Starts and registers a child process so cancellation reaches every stage."""
@@ -254,6 +239,9 @@ class VideoUpscalerPipeline:
             creationflags = popen_kwargs.get("creationflags", 0)
             creationflags |= subprocess.CREATE_NEW_PROCESS_GROUP
             popen_kwargs["creationflags"] = creationflags
+        else:
+            if "start_new_session" not in popen_kwargs and "preexec_fn" not in popen_kwargs:
+                popen_kwargs["start_new_session"] = True
         with self._process_lock:
             # Cancellation must see either no child or an already registered one.
             if self._is_cancelled:
@@ -277,25 +265,7 @@ class VideoUpscalerPipeline:
                 return proc.returncode
             except subprocess.TimeoutExpired:
                 if self._is_cancelled:
-                    try:
-                        if os.name == "nt" and proc.pid:
-                            try:
-                                subprocess.run(
-                                    ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
-                                    stdout=subprocess.DEVNULL,
-                                    stderr=subprocess.DEVNULL,
-                                    timeout=3,
-                                check=False,
-                                )
-                            except Exception:
-                                pass
-                        proc.kill()
-                    except Exception:
-                        pass
-                    try:
-                        proc.wait(timeout=2.0)
-                    except subprocess.TimeoutExpired:
-                        pass
+                    safe_kill_process_tree(proc)
                     return -1
 
     def _run_tracked(self, cmd: list, **popen_kwargs) -> int:
@@ -428,12 +398,14 @@ class VideoUpscalerPipeline:
           -filter_complex_threads 0 — same for complex filter graphs
         """
         common_input_flags = [
-            "-fflags", "+fastseek",
             "-probesize", "32M",
             "-analyzeduration", "10M",
         ]
+        if start_offset_s <= 0:
+            common_input_flags.insert(0, "+fastseek")
+            common_input_flags.insert(0, "-fflags")
 
-        # Pre-input seek (fast keyframe seek — accurate enough for preview)
+        # Pre-input seek (accurate frame seek in preview mode to align audio/video)
         seek_flags = []
         if start_offset_s > 0:
             seek_flags = ["-ss", f"{start_offset_s:.3f}"]
@@ -448,6 +420,7 @@ class VideoUpscalerPipeline:
                 *seek_flags,
                 "-i", input_file,
                 "-map", "0:V:0", "-an", "-sn",
+                "-fps_mode", "cfr",
                 "-vf", f"hwdownload,format=nv12,{_square_pixel_filter(meta)}",
                 "-threads", "0",
                 "-filter_threads", "0",
@@ -461,6 +434,7 @@ class VideoUpscalerPipeline:
                 *seek_flags,
                 "-i", input_file,
                 "-map", "0:V:0", "-an", "-sn",
+                "-fps_mode", "cfr",
                 "-vf", _square_pixel_filter(meta),
                 "-filter_threads", "0",
                 "-filter_complex_threads", "0",
@@ -514,7 +488,14 @@ class VideoUpscalerPipeline:
                 return False
             parts = val.split("/", 1)
             try:
-                return float(parts[0]) > 0 and float(parts[1]) > 0
+                num = float(parts[0])
+                den = float(parts[1])
+                if den <= 0 or num <= 0:
+                    return False
+                r_val = num / den
+                if not (1.0 <= r_val <= 144.0):
+                    return False
+                return not (meta.fps > 0 and abs(r_val - meta.fps) > 0.5)
             except (ValueError, ZeroDivisionError):
                 return False
         fps_arg = meta.r_frame_rate if _valid_rational_fps(meta.r_frame_rate) else (str(meta.fps) if meta.fps > 0 else "24")
@@ -533,7 +514,7 @@ class VideoUpscalerPipeline:
             cmd.extend(["-i", audio_input_path])
             if audio_duration_s is not None:
                 cmd.extend(["-t", f"{audio_duration_s:.3f}"])
-            cmd.extend(["-map", "0:v:0", "-map", "1:a:0"])
+            cmd.extend(["-map", "0:v:0", "-map", "1:a?"])
         else:
             cmd.extend(["-map", "0:v:0"])
 
@@ -617,11 +598,14 @@ class VideoUpscalerPipeline:
                 cmd.extend(["-c:a", "copy"])
             cmd.append("-shortest")
 
-        # movflags: faststart puts moov atom at file head for streaming-friendly output
-        cmd.extend(["-movflags", "+faststart"])
+        # movflags: faststart for MP4/MOV only (invalid for MKV)
+        is_mp4 = part_output_file.lower().endswith((".mp4", ".m4v", ".mov"))
+        if is_mp4:
+            cmd.extend(["-movflags", "+faststart"])
 
-        # Strip all metadata
+        # Preserve chapters and clean metadata
         cmd.extend(clean_metadata_args(include_video=True))
+        cmd.extend(["-map_chapters", "1"])
 
         cmd.append(part_output_file)
         return cmd
@@ -785,7 +769,7 @@ class VideoUpscalerPipeline:
         work_dir = os.path.join(root_temp, job_id)
         frames_in_dir = os.path.join(work_dir, "frames_in")
         frames_out_dir = os.path.join(work_dir, "frames_out")
-        audio_file = os.path.join(work_dir, "audio.m4a")
+        audio_file = os.path.join(work_dir, "audio.mka" if scene_cfg.container.lower() == ".mkv" else "audio.m4a")
         part_output_file = os.path.join(work_dir, "output_part" + scene_cfg.container)
 
         os.makedirs(frames_in_dir, exist_ok=True)
@@ -841,7 +825,7 @@ class VideoUpscalerPipeline:
                 audio_cmd = [ffmpeg_bin, "-y"]
                 if _preview_start_s > 0:
                     audio_cmd.extend(["-ss", f"{_preview_start_s:.3f}"])
-                audio_cmd.extend(["-i", job.input_file, "-vn", "-map", "0:a:0"])
+                audio_cmd.extend(["-i", job.input_file, "-vn", "-map", "0:a?"])
                 if _preview_dur_s is not None:
                     audio_cmd.extend(["-t", f"{_preview_dur_s:.3f}"])
                 audio_cmd.extend(["-c:a", "copy", audio_file])
@@ -868,7 +852,7 @@ class VideoUpscalerPipeline:
                 audio_cmd = [ffmpeg_bin, "-y"]
                 if _preview_start_s > 0:
                     audio_cmd.extend(["-ss", f"{_preview_start_s:.3f}"])
-                audio_cmd.extend(["-i", job.input_file, "-vn", "-map", "0:a:0"])
+                audio_cmd.extend(["-i", job.input_file, "-vn", "-map", "0:a?"])
                 if _preview_dur_s is not None:
                     audio_cmd.extend(["-t", f"{_preview_dur_s:.3f}"])
                 audio_cmd.extend(["-c:a", "aac", "-b:a", "192k", audio_file])
@@ -1070,6 +1054,7 @@ class VideoUpscalerPipeline:
                         log_cmd(f"[REALCUGAN] Requested denoise level unavailable; adjusted to {effective_denoise}.")
                         report(0.20, f"RealCUGAN denoise adjusted to {effective_denoise}")
 
+                    syncgap_mode = "1" if effective_tile_size > 0 else "3"
                     ai_cmd = [
                         bin_path,
                         "-i", frames_in_dir,
@@ -1078,6 +1063,7 @@ class VideoUpscalerPipeline:
                         "-s", str(chosen_scale),
                         "-j", thread_spec,
                         "-f", frame_ext,
+                        "-c", syncgap_mode,
                         "-v"
                     ]
                     if effective_tile_size > 0:

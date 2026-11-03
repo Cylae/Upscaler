@@ -28,6 +28,7 @@ class HardwareInfo:
     realesrgan_bin: str | None = None
     realcugan_bin: str | None = None
     cpu_cores: int = 4
+    free_gpu_vram_gb: float = 0.0
 
     @property
     def nvenc_available(self) -> bool:
@@ -113,6 +114,35 @@ def detect_nvidia_gpu() -> tuple[str, float, bool]:
             pass
 
     return gpu_name, gpu_vram, has_nvidia
+
+
+def query_gpu_vram_status() -> tuple[float, float]:
+    """Queries real-time GPU VRAM (free_gb, total_gb) using nvidia-smi.
+
+    Falls back to (0.0, 0.0) if nvidia-smi is unavailable or on non-NVIDIA GPUs.
+    """
+    nvidia_smi = shutil.which("nvidia-smi")
+    if not nvidia_smi and os.name == "nt":
+        std_path = r"C:\Windows\System32\nvidia-smi.exe"
+        if os.path.isfile(std_path):
+            nvidia_smi = std_path
+
+    if nvidia_smi:
+        try:
+            cmd = [
+                nvidia_smi,
+                "--query-gpu=memory.free,memory.total",
+                "--format=csv,noheader,nounits"
+            ]
+            raw = subprocess.check_output(cmd, text=True, errors="ignore", timeout=3).strip()
+            if raw:
+                parts = raw.splitlines()[0].split(",")
+                free_gb = round(float(parts[0].strip()) / 1024.0, 2)
+                total_gb = round(float(parts[1].strip()) / 1024.0, 2)
+                return free_gb, total_gb
+        except Exception:
+            pass
+    return 0.0, 0.0
 
 
 def detect_ai_binaries(base_dir: str) -> tuple[str | None, str | None]:
@@ -203,7 +233,8 @@ def get_hardware_info(force_refresh: bool = False) -> HardwareInfo:
         ffmpeg_version=ffmpeg_v,
         realesrgan_bin=realesrgan_b,
         realcugan_bin=realcugan_b,
-        cpu_cores=cpu_cores
+        cpu_cores=cpu_cores,
+        free_gpu_vram_gb=query_gpu_vram_status()[0] or gpu_vram
     )
     with _HARDWARE_LOCK:
         _CACHED_HARDWARE_INFO = hw

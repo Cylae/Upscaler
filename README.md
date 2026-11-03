@@ -209,7 +209,7 @@ Run the full automated test suite:
 .\.venv\Scripts\python.exe -m pytest -v
 ```
 
-The rigorous test suite comprises **411 automated unit, integration, and UI tests** running with 100% pass rate and zero regressions, reaching **82% total statement coverage**. It includes exhaustive static typing (0 mypy errors across 29 source files) and 0 lint warnings (Ruff). The suite validates audio preservation, stream copy fallback to AAC, CUDA decode fallback to CPU, BT.709 colorspace conformance, rational framerate precision, display geometry, contract integrity, CLI parsing, 8K profiles, dry-run mappings, process cancellation safety, UI responsiveness, and privacy filters.
+The rigorous test suite comprises **428 automated unit, integration, UI, and adversarial stress tests** running with 100% pass rate and zero regressions, reaching **83% total statement coverage**. It includes exhaustive static typing (0 mypy errors across 29 source files) and 0 lint warnings (Ruff). The suite validates audio preservation (including auxiliary commentary/dub tracks and lossless FLAC/PCM in MKV), stream copy fallback to AAC, CUDA decode fallback to CPU, BT.709 colorspace conformance, CFR frame-rate stabilization, rational framerate precision, display geometry, contract integrity, CLI parsing, 8K profiles, dry-run mappings, process cancellation safety (`CREATE_NEW_PROCESS_GROUP` / `safe_kill_process_tree`), UI event-loop responsiveness, and adversarial fault recovery (disk exhaustion ENOSPC, dead PID locks, 5,000-item queue stress, and silent Vulkan black-frame detection).
 
 Reproduce performance comparisons against the previous implementation using generated media and isolated desktop settings:
 ```powershell

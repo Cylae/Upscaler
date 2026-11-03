@@ -130,7 +130,12 @@ def cleanup_stale_temp_directories(
                                 else:
                                     dead_owner = True
                         except Exception:
-                            pass
+                            # A corrupted or 0-byte lock file older than 5 minutes indicates an abandoned crash
+                            try:
+                                if time.time() - os.path.getmtime(lock_file) > 300:
+                                    dead_owner = True
+                            except Exception:
+                                dead_owner = True
 
                     # 3. Check modification age (clean immediately if owner process is dead)
                     try:

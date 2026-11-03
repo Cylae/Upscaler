@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from collections import Counter
 
 from PyQt6.QtCore import QEvent, QSettings, Qt, QTimer
@@ -106,6 +107,7 @@ class UpscalerMainWindow(QMainWindow):
         self._current_filter_mode = "all"
         self._log_buffer: list = []
         self._last_cli_cmd: str = ""
+        self._last_log_btn_time: float = 0.0
         self._log_viewer: LogViewerDialog | None = None
         self._hint_worker: ModelHintWorker | None = None
         self._frame_worker: FramePreviewWorker | None = None
@@ -704,7 +706,10 @@ class UpscalerMainWindow(QMainWindow):
             del self._log_buffer[:-5000]
 
         count = len(self._log_buffer)
-        self.btn_open_logs.setText(f"Logs ({count})")
+        now_mono = time.monotonic()
+        if (now_mono - self._last_log_btn_time >= 0.1) or count <= 1:
+            self._last_log_btn_time = now_mono
+            self.btn_open_logs.setText(f"Logs ({count})")
 
         if self._log_viewer and self._log_viewer.isVisible():
             self._log_viewer.append_line(timestamped, store=False)
@@ -1159,16 +1164,19 @@ class UpscalerMainWindow(QMainWindow):
                     it_model.setToolTip(self._get_model_tooltip_for_item(q_item))
 
     def play_file(self, filepath: str):
-        if os.path.exists(filepath):
+        allowed_exts = {".mp4", ".mkv", ".avi", ".mov", ".m4v", ".webm", ".flv", ".ts", ".wmv"}
+        if os.path.exists(filepath) and os.path.splitext(filepath)[1].lower() in allowed_exts:
             try:
                 os.startfile(filepath)
             except Exception as e:
                 self.lbl_overall_status.setText(f"Could not open file: {e}")
+        elif os.path.exists(filepath):
+            self.lbl_overall_status.setText("Security: Refusing to open non-media file type.")
 
     def reveal_file(self, filepath: str):
         if os.path.exists(filepath):
             try:
-                subprocess.Popen(f'explorer /select,"{os.path.normpath(filepath)}"')
+                subprocess.Popen(["explorer", f"/select,{os.path.normpath(filepath)}"])
             except Exception:
                 os.startfile(os.path.dirname(filepath))
 
@@ -1246,8 +1254,8 @@ class UpscalerMainWindow(QMainWindow):
             self.btn_scan.setEnabled(False)
 
         if self._scan_worker and self._scan_worker.isRunning():
-            self._scan_worker.terminate()
-            self._scan_worker.wait(500)
+            self._scan_worker.cancel()
+            self._scan_worker.wait(1000)
 
         self._scan_worker = ScanWorker(self.batch_manager, src, out, cfg, preserve_folders)
         self._scan_worker.scan_complete.connect(self._on_scan_complete)
@@ -1275,9 +1283,7 @@ class UpscalerMainWindow(QMainWindow):
         self.update_scene_preview()
         self._update_model_column_in_table()
 
-    def _do_settings_changed(self):
-        """Retained for backward-compatibility; delegates to update_scene_preview only."""
-        self.update_scene_preview()
+
 
     def on_preflight_clicked(self):
         if not self.batch_manager.queue:
@@ -1668,7 +1674,7 @@ class UpscalerMainWindow(QMainWindow):
             if it_detail:
                 it_detail.setText(item.status_detail)
 
-            if item.status == EpisodeStatus.PROCESSING and it_status:
+            if status_changed and item.status == EpisodeStatus.PROCESSING and it_status:
                 self.table.scrollToItem(it_status)
             if status_changed or self.txt_filter.text().strip():
                 self._apply_row_filter(row, self.txt_filter.text().lower().strip(), self._current_filter_mode)
@@ -1721,9 +1727,12 @@ class UpscalerMainWindow(QMainWindow):
                 event.ignore()
                 return
 
+        if hasattr(self, "_hint_worker") and self._hint_worker and self._hint_worker.isRunning():
+            self._hint_worker.wait(1000)
+
         if hasattr(self, "_scan_worker") and self._scan_worker and self._scan_worker.isRunning():
-            self._scan_worker.terminate()
-            self._scan_worker.wait(500)
+            self._scan_worker.cancel()
+            self._scan_worker.wait(1000)
 
         if hasattr(self, "worker") and self.worker and self.worker.isRunning():
             self.worker.wait(1500)

@@ -12,33 +12,38 @@ import subprocess
 import threading
 
 
-def safe_kill_process_tree(proc: subprocess.Popen) -> None:
-    """Terminates an entire subprocess tree safely and completely."""
+def safe_kill_process_tree(proc: subprocess.Popen, timeout: float = 3.0) -> None:
+    """Terminates an entire subprocess tree safely and completely, waiting for file locks to release."""
     if proc.poll() is not None:
         return
-    if os.name == "nt" and proc.pid:
+    pid = getattr(proc, "pid", None)
+    if os.name == "nt" and pid:
         try:
             subprocess.run(
-                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                timeout=3,
+                timeout=timeout,
                 check=False,
             )
         except Exception:
             pass
-    elif proc.pid and hasattr(os, "killpg") and hasattr(os, "getpgid"):
+    elif hasattr(os, "killpg") and hasattr(os, "getpgid") and pid:
         try:
-            getpgid = getattr(os, "getpgid", None)
-            killpg = getattr(os, "killpg", None)
+            getpgid = getattr(os, "getpgid")
+            killpg = getattr(os, "killpg")
+            pgid = getpgid(pid)
             sigkill = getattr(signal, "SIGKILL", getattr(signal, "SIGTERM", 15))
-            if callable(getpgid) and callable(killpg):
-                killpg(getpgid(proc.pid), sigkill)
+            killpg(pgid, sigkill)
         except Exception:
             pass
     try:
         proc.kill()
     except Exception:
+        pass
+    try:
+        proc.wait(timeout=timeout)
+    except (subprocess.TimeoutExpired, OSError, TypeError):
         pass
 
 

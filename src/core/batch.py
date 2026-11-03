@@ -88,7 +88,8 @@ class BatchManager:
         folder_path: str,
         output_dir: str,
         scene_config: SceneNamingConfig | None = None,
-        preserve_folders: bool = True
+        preserve_folders: bool = True,
+        cancel_check: Callable[[], bool] | None = None
     ) -> list[QueueItem]:
         """Scans a directory recursively for supported video files and builds the batch queue."""
         self.queue.clear()
@@ -117,6 +118,8 @@ class BatchManager:
                         found_files.append(os.path.join(root, f))
 
         for idx, fpath in enumerate(found_files, start=1):
+            if cancel_check and cancel_check():
+                return self.queue
             rel_path = os.path.relpath(fpath, base_dir)
             rel_out = get_scene_relative_output_path(fpath, base_dir, cfg, preserve_folders=preserve_folders)
             target_name = os.path.basename(rel_out)
@@ -170,61 +173,62 @@ class BatchManager:
         """Appends individual files to the queue without clearing existing items."""
         cfg = scene_config or SceneNamingConfig()
         valid_exts = {".mp4", ".mkv", ".avi", ".mov", ".m4v", ".webm", ".flv", ".ts", ".wmv"}
-        existing_sources = {it.source_path for it in self.queue}
 
-        start_idx = len(self.queue) + 1
-        for fpath in file_paths:
-            if fpath in existing_sources or not os.path.isfile(fpath):
-                continue
-            if os.path.splitext(fpath)[1].lower() not in valid_exts:
-                continue
+        with self._lock:
+            existing_sources = {it.source_path for it in self.queue}
+            start_idx = len(self.queue) + 1
+            for fpath in file_paths:
+                if fpath in existing_sources or not os.path.isfile(fpath):
+                    continue
+                if os.path.splitext(fpath)[1].lower() not in valid_exts:
+                    continue
 
-            base_dir = os.path.dirname(fpath)
-            rel_path = os.path.basename(fpath)
-            rel_out = get_scene_relative_output_path(fpath, base_dir, cfg, preserve_folders=preserve_folders)
-            target_name = os.path.basename(rel_out)
-            target_full = os.path.join(output_dir, rel_out)
+                base_dir = os.path.dirname(fpath)
+                rel_path = os.path.basename(fpath)
+                rel_out = get_scene_relative_output_path(fpath, base_dir, cfg, preserve_folders=preserve_folders)
+                target_name = os.path.basename(rel_out)
+                target_full = os.path.join(output_dir, rel_out)
 
-            try:
-                size_mb = round(os.stat(fpath).st_size / (1024**2), 1)
-            except OSError:
-                size_mb = 0.0
-
-            status = EpisodeStatus.PENDING
-            status_detail = "Ready"
-            out_size_mb = 0.0
-            expect_audio = False
-            expected_dur = None
-            output_exists = os.path.isfile(target_full)
-            if output_exists:
                 try:
-                    src_meta = probe_video(fpath, self.hardware.ffprobe_path)
-                    expect_audio = src_meta.has_audio
-                    expected_dur = src_meta.duration
-                except Exception:
-                    expect_audio = False
-            if output_exists and is_file_complete_and_valid(target_full, expect_audio=expect_audio, expected_duration=expected_dur):
-                status = EpisodeStatus.SKIPPED
-                status_detail = "Already present (will be skipped)"
-                out_size_mb = round(os.path.getsize(target_full) / (1024**2), 1)
+                    size_mb = round(os.stat(fpath).st_size / (1024**2), 1)
+                except OSError:
+                    size_mb = 0.0
 
-            item = QueueItem(
-                index=start_idx,
-                source_path=fpath,
-                relative_source_path=rel_path,
-                target_scene_name=target_name,
-                target_full_path=target_full,
-                file_size_mb=size_mb,
-                output_size_mb=out_size_mb,
-                status=status,
-                status_detail=status_detail,
-            )
-            self.queue.append(item)
-            existing_sources.add(fpath)
-            start_idx += 1
+                status = EpisodeStatus.PENDING
+                status_detail = "Ready"
+                out_size_mb = 0.0
+                expect_audio = False
+                expected_dur = None
+                output_exists = os.path.isfile(target_full)
+                if output_exists:
+                    try:
+                        src_meta = probe_video(fpath, self.hardware.ffprobe_path)
+                        expect_audio = src_meta.has_audio
+                        expected_dur = src_meta.duration
+                    except Exception:
+                        expect_audio = False
+                if output_exists and is_file_complete_and_valid(target_full, expect_audio=expect_audio, expected_duration=expected_dur):
+                    status = EpisodeStatus.SKIPPED
+                    status_detail = "Already present (will be skipped)"
+                    out_size_mb = round(os.path.getsize(target_full) / (1024**2), 1)
 
-        self.reindex_queue()
-        return self.queue
+                item = QueueItem(
+                    index=start_idx,
+                    source_path=fpath,
+                    relative_source_path=rel_path,
+                    target_scene_name=target_name,
+                    target_full_path=target_full,
+                    file_size_mb=size_mb,
+                    output_size_mb=out_size_mb,
+                    status=status,
+                    status_detail=status_detail,
+                )
+                self.queue.append(item)
+                existing_sources.add(fpath)
+                start_idx += 1
+
+            self.reindex_queue()
+            return self.queue
 
     def refresh_output_plan(
         self,
@@ -322,12 +326,14 @@ class BatchManager:
 
     def remove_items_by_indices(self, indices: set[int]):
         """Removes queue items whose indices are in the set and reindexes."""
-        self.queue = [it for it in self.queue if it.index not in indices]
-        self.reindex_queue()
+        with self._lock:
+            self.queue = [it for it in self.queue if it.index not in indices]
+            self.reindex_queue()
 
     def clear_queue(self):
         """Clears all items in queue."""
-        self.queue.clear()
+        with self._lock:
+            self.queue.clear()
 
     def retry_failed_items(self) -> int:
         """Resets failed or cancelled items back to PENDING so they can be re-run."""

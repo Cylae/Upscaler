@@ -65,6 +65,9 @@ def validate_encoded_video(
     expected_height: int,
     expect_audio: bool = False,
     metadata: VideoMetadata | None = None,
+    expected_duration: float | None = None,
+    duration_tolerance_s: float = 2.0,
+    duration_tolerance_ratio: float = 0.02,
 ) -> tuple[bool, str]:
     """Validates that FFmpeg produced a playable video with valid dimensions and streams."""
     if not os.path.isfile(filepath) or os.path.getsize(filepath) == 0:
@@ -87,6 +90,10 @@ def validate_encoded_video(
         return False, "Final output contains no video frames."
     if expect_audio and not meta.has_audio:
         return False, "Final output is missing its expected audio stream."
+    if expected_duration is not None and expected_duration > 1.0:
+        allowed_diff = max(duration_tolerance_s, expected_duration * duration_tolerance_ratio)
+        if abs(meta.duration - expected_duration) > allowed_diff:
+            return False, f"Final output duration {meta.duration:.2f}s diverges from expected {expected_duration:.2f}s."
     return True, ""
 
 

@@ -214,7 +214,8 @@ def format_clean_name(
     ext = container if (container and container.startswith(".")) else f".{container or orig_ext.lstrip('.') or 'mp4'}"
 
     if custom_suffix:
-        tag = custom_suffix if custom_suffix.startswith("_") else f"_{custom_suffix}"
+        safe_suffix = re.sub(r'[\/\:]|\.{2,}', '', custom_suffix).strip()
+        tag = safe_suffix if safe_suffix.startswith("_") else f"_{safe_suffix}"
     else:
         r_low = resolution_tag.strip().lower()
         if r_low in ("4320p", "8k"):
@@ -233,7 +234,9 @@ def format_clean_name(
             res = resolution_tag.strip()
         tag = f"_{res}" if res else "_4K"
 
-    clean_filename = f"{clean_stem}{tag}{ext}"
+    safe_clean_stem = re.sub(r'[\/\:]|\.{2,}', '', clean_stem).strip()
+    safe_ext = "." + re.sub(r'[\/\:]|\.{2,}', '', ext).lstrip(".")
+    clean_filename = f"{safe_clean_stem}{tag}{safe_ext}"
     if find_forbidden_output_markers(clean_filename):
         clean_filename = clean_scene_text(clean_stem) + f"{tag}{ext}"
     return clean_filename

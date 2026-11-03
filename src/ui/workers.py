@@ -94,6 +94,10 @@ class ScanWorker(QThread):
         self.output_dir = output_dir
         self.scene_config = scene_config
         self.preserve_folders = preserve_folders
+        self._is_cancelled = False
+
+    def cancel(self) -> None:
+        self._is_cancelled = True
 
     def run(self):
         try:
@@ -101,11 +105,14 @@ class ScanWorker(QThread):
                 self.folder_path,
                 self.output_dir,
                 self.scene_config,
-                preserve_folders=self.preserve_folders
+                preserve_folders=self.preserve_folders,
+                cancel_check=lambda: self._is_cancelled
             )
-            self.scan_complete.emit(queue)
+            if not self._is_cancelled:
+                self.scan_complete.emit(queue)
         except Exception as exc:
-            self.scan_error.emit(str(exc))
+            if not self._is_cancelled:
+                self.scan_error.emit(str(exc))
 
 
 class UpscaleWorker(QThread):
