@@ -46,10 +46,10 @@ from src.core.video_pipeline import (
     _square_pixel_filter,
 )
 
+
 # ==============================================================================
 # GROUP 1: DISK SPACE EXHAUSTION (ENOSPC / WinError 112)
 # ==============================================================================
-
 
 def test_adversarial_disk_full_during_frame_extraction(tmp_path):
     """Simulate disk space exhaustion during FFmpeg frame extraction."""
@@ -78,10 +78,9 @@ def test_adversarial_disk_full_during_frame_extraction(tmp_path):
         target_preset="1080p",
     )
 
-    with (
-        patch("src.core.video_pipeline.probe_video", return_value=meta),
-        patch.object(pipeline, "_start_process") as mock_start,
-    ):
+    with patch("src.core.video_pipeline.probe_video", return_value=meta), \
+         patch.object(pipeline, "_start_process") as mock_start:
+
         mock_proc = MagicMock()
         mock_proc.communicate.return_value = ("", "No space left on device")
         mock_proc.returncode = 1
@@ -149,11 +148,10 @@ def test_adversarial_disk_full_during_ai_upscale(tmp_path, monkeypatch):
     fake_bin = tmp_path / "realesrgan-ncnn-vulkan.exe"
     fake_bin.write_bytes(b"")
 
-    with (
-        patch("src.core.video_pipeline.probe_video", return_value=meta),
-        patch("src.core.video_pipeline.resolve_ai_binary", return_value=str(fake_bin)),
-        patch.object(pipeline, "_start_process", side_effect=fake_start_process),
-    ):
+    with patch("src.core.video_pipeline.probe_video", return_value=meta), \
+         patch("src.core.video_pipeline.resolve_ai_binary", return_value=str(fake_bin)), \
+         patch.object(pipeline, "_start_process", side_effect=fake_start_process):
+
         success, msg = pipeline.process_video(job)
         assert success is False
         assert "Upscaling engine failed" in msg
@@ -168,15 +166,13 @@ def test_adversarial_disk_full_during_cross_device_atomic_move(tmp_path):
     dst_file = tmp_path / "target_volume" / "final.mp4"
 
     call_count = [0]
-
     def failing_copy(src, dst):
         call_count[0] += 1
         raise OSError(28, "No space left on device")
 
-    with (
-        patch("os.replace", side_effect=OSError(18, "Cross-device link")),
-        patch("shutil.copy2", side_effect=failing_copy),
-    ):
+    with patch("os.replace", side_effect=OSError(18, "Cross-device link")), \
+         patch("shutil.copy2", side_effect=failing_copy):
+
         with pytest.raises(OSError, match="No space left on device"):
             safe_atomic_move(str(src_file), str(dst_file))
 
@@ -193,7 +189,6 @@ def test_adversarial_disk_full_during_cross_device_atomic_move(tmp_path):
 # ==============================================================================
 # GROUP 2: CRASH, TASKKILL & POWER-CUT RECOVERY
 # ==============================================================================
-
 
 def test_adversarial_sigkill_recovery_with_abandoned_locks(tmp_path):
     """Simulate recovery after SIGKILL/taskkill leaving abandoned PID locks."""
@@ -238,15 +233,11 @@ def test_adversarial_recovery_corrupted_or_zero_byte_lock_file(tmp_path):
 # GROUP 3: CORRUPTED INPUT MEDIA & MALFORMED STREAM MATRIX
 # ==============================================================================
 
-
-@pytest.mark.parametrize(
-    "corrupt_type,content",
-    [
-        ("zero_byte", b""),
-        ("random_fuzzed_garbage", os.urandom(4096)),
-        ("fake_header_text", b"RIFF\x00\x00\x00\x00THIS IS NOT A VALID VIDEO CONTAINER"),
-    ],
-)
+@pytest.mark.parametrize("corrupt_type,content", [
+    ("zero_byte", b""),
+    ("random_fuzzed_garbage", os.urandom(4096)),
+    ("fake_header_text", b"RIFF\x00\x00\x00\x00THIS IS NOT A VALID VIDEO CONTAINER"),
+])
 def test_adversarial_corrupted_media_matrix(tmp_path, corrupt_type, content):
     """Ensure 0-byte and severely corrupted media inputs are safely rejected."""
     bad_file = tmp_path / f"corrupt_{corrupt_type}.mp4"
@@ -275,11 +266,10 @@ def test_adversarial_truncated_video_stream_detection(tmp_path):
         has_subtitles=False,
     )
 
-    with (
-        patch("os.path.isfile", return_value=True),
-        patch("os.path.getsize", return_value=500_000),
-        patch("src.core.validator._resolve_probe_video") as mock_res,
-    ):
+    with patch("os.path.isfile", return_value=True), \
+         patch("os.path.getsize", return_value=500_000), \
+         patch("src.core.validator._resolve_probe_video") as mock_res:
+
         mock_res.return_value = lambda path: meta_truncated
 
         assert is_file_complete_and_valid(dummy_path, expected_width=3840, expected_height=2160) is False
@@ -294,40 +284,20 @@ def test_adversarial_vfr_timestamp_jitter_and_fractional_fps():
     pipeline = VideoUpscalerPipeline(HardwareInfo())
 
     meta_120 = VideoMetadata(
-        filepath="dummy.mp4",
-        width=1920,
-        height=1080,
-        fps=119.88,
-        duration=10.0,
-        nb_frames=1200,
-        codec_name="h264",
-        has_audio=False,
-        audio_codec="",
-        has_subtitles=False,
-        r_frame_rate="120000/1001",
+        filepath="dummy.mp4", width=1920, height=1080, fps=119.88,
+        duration=10.0, nb_frames=1200, codec_name="h264", has_audio=False,
+        audio_codec="", has_subtitles=False, r_frame_rate="120000/1001",
     )
-    cmd = pipeline._build_encode_cmd(
-        "in", "png", meta_120, 3840, 2160, "hevc_nvenc", "19", "p7", None, "copy", "out.mp4"
-    )
+    cmd = pipeline._build_encode_cmd("in", "png", meta_120, 3840, 2160, "hevc_nvenc", "19", "p7", None, "copy", "out.mp4")
     r_idx = cmd.index("-r")
     assert cmd[r_idx + 1] == "120000/1001"
 
     meta_deg = VideoMetadata(
-        filepath="dummy.mp4",
-        width=1920,
-        height=1080,
-        fps=29.97,
-        duration=10.0,
-        nb_frames=300,
-        codec_name="h264",
-        has_audio=False,
-        audio_codec="",
-        has_subtitles=False,
-        r_frame_rate="0/0",
+        filepath="dummy.mp4", width=1920, height=1080, fps=29.97,
+        duration=10.0, nb_frames=300, codec_name="h264", has_audio=False,
+        audio_codec="", has_subtitles=False, r_frame_rate="0/0",
     )
-    cmd2 = pipeline._build_encode_cmd(
-        "in", "png", meta_deg, 3840, 2160, "hevc_nvenc", "19", "p7", None, "copy", "out.mp4"
-    )
+    cmd2 = pipeline._build_encode_cmd("in", "png", meta_deg, 3840, 2160, "hevc_nvenc", "19", "p7", None, "copy", "out.mp4")
     r_idx2 = cmd2.index("-r")
     assert cmd2[r_idx2 + 1] in ("29.97", "29.970000", "24")
 
@@ -343,17 +313,9 @@ def test_adversarial_odd_dimensions_and_anamorphic_sar():
     assert target_w >= 2 and target_h >= 2
 
     meta = VideoMetadata(
-        filepath="dummy.mp4",
-        width=719,
-        height=479,
-        fps=23.976,
-        duration=10.0,
-        nb_frames=240,
-        codec_name="h264",
-        has_audio=False,
-        audio_codec="",
-        has_subtitles=False,
-        sample_aspect_ratio="32:27",
+        filepath="dummy.mp4", width=719, height=479, fps=23.976, duration=10.0,
+        nb_frames=240, codec_name="h264", has_audio=False, audio_codec="",
+        has_subtitles=False, sample_aspect_ratio="32:27"
     )
     flt = _square_pixel_filter(meta)
     assert "scale=" in flt
@@ -367,23 +329,20 @@ def test_adversarial_odd_dimensions_and_anamorphic_sar():
 # GROUP 4: MASSIVE BATCH STRESS & FILENAME PATHOLOGICAL CASES
 # ==============================================================================
 
-
 def test_adversarial_massive_queue_stress_5000_items(tmp_path):
     """Stress-test BatchManager with 5,000 files in queue for sub-second scaling."""
     bm = BatchManager()
     items = []
     for i in range(1, 5001):
-        items.append(
-            QueueItem(
-                index=i,
-                source_path=f"C:/Library/Show/Season 01/Episode_{i:04d}.mkv",
-                relative_source_path=f"Season 01/Episode_{i:04d}.mkv",
-                target_scene_name=f"Show.S01E{i:04d}.4K.mkv",
-                target_full_path=f"C:/Output/Show.S01E{i:04d}.4K.mkv",
-                file_size_mb=250.0,
-                status=EpisodeStatus.PENDING if i % 10 != 0 else EpisodeStatus.FAILED,
-            )
-        )
+        items.append(QueueItem(
+            index=i,
+            source_path=f"C:/Library/Show/Season 01/Episode_{i:04d}.mkv",
+            relative_source_path=f"Season 01/Episode_{i:04d}.mkv",
+            target_scene_name=f"Show.S01E{i:04d}.4K.mkv",
+            target_full_path=f"C:/Output/Show.S01E{i:04d}.4K.mkv",
+            file_size_mb=250.0,
+            status=EpisodeStatus.PENDING if i % 10 != 0 else EpisodeStatus.FAILED,
+        ))
     bm.queue = items
 
     t0 = time.monotonic()
@@ -433,37 +392,31 @@ def test_adversarial_pathological_filenames_and_deep_paths(tmp_path):
 # GROUP 5: CONCURRENCY CONFLICTS & THREAD INVARIANTS
 # ==============================================================================
 
-
 def test_adversarial_queue_mutation_during_worker_execution(tmp_path):
     """Verify user mutating the queue while workers are executing does not crash batch."""
     bm = BatchManager()
     items = []
     for i in range(1, 7):
-        items.append(
-            QueueItem(
-                index=i,
-                source_path=f"C:/fake/vid_{i}.mp4",
-                relative_source_path=f"vid_{i}.mp4",
-                target_scene_name=f"vid_{i}.mp4",
-                target_full_path=str(tmp_path / f"out_{i}.mp4"),
-                file_size_mb=10.0,
-            )
-        )
+        items.append(QueueItem(
+            index=i,
+            source_path=f"C:/fake/vid_{i}.mp4",
+            relative_source_path=f"vid_{i}.mp4",
+            target_scene_name=f"vid_{i}.mp4",
+            target_full_path=str(tmp_path / f"out_{i}.mp4"),
+            file_size_mb=10.0,
+        ))
     bm.queue = items
 
     class MockWorkerPipeline:
         def __init__(self, _hardware):
             self._is_cancelled = False
-
         def process_video(self, job, progress_callback=None):
             time.sleep(0.04)
             return True, "Done"
-
         def cancel(self):
             self._is_cancelled = True
 
     errors = []
-
     def mutator_thread():
         time.sleep(0.02)
         try:
@@ -474,10 +427,8 @@ def test_adversarial_queue_mutation_during_worker_execution(tmp_path):
 
     t_mut = threading.Thread(target=mutator_thread)
 
-    with (
-        patch("src.core.batch.VideoUpscalerPipeline", MockWorkerPipeline),
-        patch("src.core.batch_manager.VideoUpscalerPipeline", MockWorkerPipeline),
-    ):
+    with patch("src.core.batch.VideoUpscalerPipeline", MockWorkerPipeline), \
+         patch("src.core.batch_manager.VideoUpscalerPipeline", MockWorkerPipeline):
         t_mut.start()
         bm.run_batch(str(tmp_path), "C:/fake", max_workers=2)
         t_mut.join()
@@ -501,25 +452,20 @@ def test_adversarial_concurrent_workers_same_output_path_isolation(tmp_path):
     class InspectingPipeline:
         def __init__(self, _hardware):
             pass
-
         def process_video(self, job, progress_callback=None):
             root_temp = os.path.join(job.output_dir, ".temp_upscaler")
             import uuid
-
             job_id = f"job_{uuid.uuid4().hex}"
             work_dir = os.path.join(root_temp, job_id)
             with work_dirs_lock:
                 work_dirs_used.add(work_dir)
             time.sleep(0.03)
             return True, target_out
-
         def cancel(self):
             pass
 
-    with (
-        patch("src.core.batch.VideoUpscalerPipeline", InspectingPipeline),
-        patch("src.core.batch_manager.VideoUpscalerPipeline", InspectingPipeline),
-    ):
+    with patch("src.core.batch.VideoUpscalerPipeline", InspectingPipeline), \
+         patch("src.core.batch_manager.VideoUpscalerPipeline", InspectingPipeline):
         bm.run_batch(str(tmp_path), "C:/in", max_workers=2)
 
     assert len(work_dirs_used) == 2
@@ -529,7 +475,6 @@ def test_adversarial_concurrent_workers_same_output_path_isolation(tmp_path):
 # GROUP 6: BROKEN / HOSTILE AI ENGINES
 # ==============================================================================
 
-
 def test_adversarial_corrupted_zero_byte_engine_binary(tmp_path):
     """Verify corrupted/non-executable engine binary fails gracefully without crashing."""
     dummy_input = tmp_path / "source.mp4"
@@ -538,16 +483,8 @@ def test_adversarial_corrupted_zero_byte_engine_binary(tmp_path):
     out_dir.mkdir()
 
     meta = VideoMetadata(
-        filepath=str(dummy_input),
-        width=1280,
-        height=720,
-        fps=24.0,
-        duration=10.0,
-        nb_frames=10,
-        codec_name="h264",
-        has_audio=False,
-        audio_codec="",
-        has_subtitles=False,
+        filepath=str(dummy_input), width=1280, height=720, fps=24.0, duration=10.0,
+        nb_frames=10, codec_name="h264", has_audio=False, audio_codec="", has_subtitles=False
     )
 
     bm = BatchManager()
@@ -557,11 +494,10 @@ def test_adversarial_corrupted_zero_byte_engine_binary(tmp_path):
     def explode_popen(*args, **kwargs):
         raise OSError(193, "%1 is not a valid Win32 application")
 
-    with (
-        patch("src.core.video_pipeline.probe_video", return_value=meta),
-        patch("src.core.video_pipeline.resolve_ai_binary", return_value="bad_engine.exe"),
-        patch("subprocess.Popen", side_effect=explode_popen),
-    ):
+    with patch("src.core.video_pipeline.probe_video", return_value=meta), \
+         patch("src.core.video_pipeline.resolve_ai_binary", return_value="bad_engine.exe"), \
+         patch("subprocess.Popen", side_effect=explode_popen):
+
         bm.run_batch(str(out_dir), str(tmp_path), max_workers=1)
 
         assert bm.is_running is False
@@ -578,16 +514,8 @@ def test_adversarial_engine_silent_oom_black_frame_corruption(tmp_path):
     out_dir.mkdir()
 
     meta = VideoMetadata(
-        filepath=str(dummy_input),
-        width=1280,
-        height=720,
-        fps=24.0,
-        duration=5.0,
-        nb_frames=5,
-        codec_name="h264",
-        has_audio=False,
-        audio_codec="",
-        has_subtitles=False,
+        filepath=str(dummy_input), width=1280, height=720, fps=24.0, duration=5.0,
+        nb_frames=5, codec_name="h264", has_audio=False, audio_codec="", has_subtitles=False
     )
 
     pipeline = VideoUpscalerPipeline(HardwareInfo())
@@ -632,12 +560,11 @@ def test_adversarial_engine_silent_oom_black_frame_corruption(tmp_path):
     fake_bin = tmp_path / "realesrgan-ncnn-vulkan.exe"
     fake_bin.write_bytes(b"")
 
-    with (
-        patch("src.core.video_pipeline.probe_video", return_value=meta),
-        patch("src.core.video_pipeline.resolve_ai_binary", return_value=str(fake_bin)),
-        patch.object(pipeline, "_start_process", side_effect=fake_start_process),
-        patch("PIL.Image.open", side_effect=mock_image_open),
-    ):
+    with patch("src.core.video_pipeline.probe_video", return_value=meta), \
+         patch("src.core.video_pipeline.resolve_ai_binary", return_value=str(fake_bin)), \
+         patch.object(pipeline, "_start_process", side_effect=fake_start_process), \
+         patch("PIL.Image.open", side_effect=mock_image_open):
+
         success, msg = pipeline.process_video(job)
         assert success is False
         assert "blank/black output frames detected" in msg
