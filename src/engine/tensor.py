@@ -205,18 +205,26 @@ def image_to_tensor(
         dest_chw = tensor[0] if tensor.ndim == 4 else tensor
 
         if normalization == Normalization.ZERO_TO_ONE:
-            # Fast vectorized FP32 multiply instead of division
-            # Convert to float and transpose: (H, W, C) -> (C, H, W)
-            scaled = arr.astype(target_dtype, copy=False) * _INV_255_FP32
-            np.copyto(dest_chw, np.transpose(scaled, (2, 0, 1)))
+            if arr.dtype == np.uint8:
+                np.copyto(dest_chw, np.transpose(arr, (2, 0, 1)))
+                dest_chw *= _INV_255_FP32
+            else:
+                arr_f = np.nan_to_num(arr.astype(target_dtype, copy=False), nan=0.0, posinf=1.0, neginf=0.0)
+                np.copyto(dest_chw, np.transpose(arr_f * _INV_255_FP32, (2, 0, 1)))
 
         elif normalization == Normalization.MINUS_ONE_TO_ONE:
-            # (x / 127.5) - 1.0 == x * _INV_127_5_FP32 - 1.0
-            scaled = arr.astype(target_dtype, copy=False) * _INV_127_5_FP32 - np.float32(1.0)
-            np.copyto(dest_chw, np.transpose(scaled, (2, 0, 1)))
+            if arr.dtype == np.uint8:
+                np.copyto(dest_chw, np.transpose(arr, (2, 0, 1)))
+                dest_chw *= _INV_127_5_FP32
+                dest_chw -= np.float32(1.0)
+            else:
+                arr_f = np.nan_to_num(arr.astype(target_dtype, copy=False), nan=0.0, posinf=1.0, neginf=-1.0)
+                scaled = arr_f * _INV_127_5_FP32 - np.float32(1.0)
+                np.copyto(dest_chw, np.transpose(scaled, (2, 0, 1)))
 
         elif normalization == Normalization.IMAGENET:
-            scaled = arr.astype(target_dtype, copy=False) * _INV_255_FP32
+            arr_f = np.nan_to_num(arr.astype(target_dtype, copy=False), nan=0.0, posinf=255.0, neginf=0.0)
+            scaled = arr_f * _INV_255_FP32
             transposed = np.transpose(scaled, (2, 0, 1))
             norm = (transposed - _IMAGENET_MEAN.astype(target_dtype)) / _IMAGENET_STD.astype(target_dtype)
             np.copyto(dest_chw, norm)
@@ -230,12 +238,22 @@ def image_to_tensor(
         dest_hwc = tensor[0] if tensor.ndim == 4 else tensor
 
         if normalization == Normalization.ZERO_TO_ONE:
-            scaled = arr.astype(target_dtype, copy=False) * _INV_255_FP32
-            np.copyto(dest_hwc, scaled)
+            if arr.dtype == np.uint8:
+                np.copyto(dest_hwc, arr)
+                dest_hwc *= _INV_255_FP32
+            else:
+                arr_f = np.nan_to_num(arr.astype(target_dtype, copy=False), nan=0.0, posinf=1.0, neginf=0.0)
+                np.copyto(dest_hwc, arr_f * _INV_255_FP32)
 
         elif normalization == Normalization.MINUS_ONE_TO_ONE:
-            scaled = arr.astype(target_dtype, copy=False) * _INV_127_5_FP32 - np.float32(1.0)
-            np.copyto(dest_hwc, scaled)
+            if arr.dtype == np.uint8:
+                np.copyto(dest_hwc, arr)
+                dest_hwc *= _INV_127_5_FP32
+                dest_hwc -= np.float32(1.0)
+            else:
+                arr_f = np.nan_to_num(arr.astype(target_dtype, copy=False), nan=0.0, posinf=1.0, neginf=-1.0)
+                scaled = arr_f * _INV_127_5_FP32 - np.float32(1.0)
+                np.copyto(dest_hwc, scaled)
 
         elif normalization == Normalization.IMAGENET:
             scaled = arr.astype(target_dtype, copy=False) * _INV_255_FP32
@@ -300,6 +318,9 @@ def tensor_to_image(
             raise ValueError(f"Expected 3D (H, W, C) tensor after batch extraction, got ndim={arr.ndim}")
 
     arr_float = arr.astype(np.float32, copy=False)
+    # Sanitize floating point NaN/Inf values to prevent numerical corruption
+    if not np.all(np.isfinite(arr_float)):
+        arr_float = np.nan_to_num(arr_float, nan=0.0, posinf=1.0, neginf=0.0)
 
     # Denormalize
     if normalization == Normalization.ZERO_TO_ONE:
@@ -316,6 +337,10 @@ def tensor_to_image(
         denorm = arr_float
     else:
         denorm = arr_float
+
+    # Sanitize again after denormalization before integer offset and casting
+    if not np.all(np.isfinite(denorm)):
+        denorm = np.nan_to_num(denorm, nan=0.0, posinf=255.0, neginf=0.0)
 
     # Clamp and round with half-integer offset for unbiased discretization
     denorm = np.clip(denorm + np.float32(0.5), 0.0, 255.0) if clamp else denorm + np.float32(0.5)

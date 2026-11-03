@@ -431,7 +431,7 @@ class MuxerConfig:
     audio_mode: str = "copy"  # "copy", "aac_192k", "aac_320k", "flac", "none"
     auto_repair_audio: bool = True
     force_10bit: bool | None = None
-    sample_aspect_ratio: str = "1:1"
+    sample_aspect_ratio: str | None = None
     color_space: str | None = None
     color_primaries: str | None = None
     color_transfer: str | None = None
@@ -590,11 +590,14 @@ class VideoStreamMuxer:
             elif self.config.audio_mode == "flac":
                 cmd.extend(["-c:a", "flac"])
             else:  # "copy"
-                # Container compatibility check: MP4 cannot copy incompatible codecs (PCM/Vorbis)
+                # Container compatibility check: MP4 cannot copy incompatible codecs (PCM/Vorbis/FLAC/Opus/WMA)
                 incompatible_mp4_copy = False
-                if is_mp4 and self.source_metadata and self.source_metadata.audio_codec:
-                    codec_l = self.source_metadata.audio_codec.lower()
-                    if any(bad in codec_l for bad in ("pcm", "vorbis", "flac", "wma")):
+                if is_mp4 and self.source_metadata:
+                    all_codecs = getattr(self.source_metadata, "audio_codecs", []) or (
+                        [self.source_metadata.audio_codec] if self.source_metadata.audio_codec else []
+                    )
+                    incompatible_tokens = ("pcm", "vorbis", "flac", "wma", "wavpack", "opus", "truehd", "ape")
+                    if any(any(tok in c.lower() for tok in incompatible_tokens) for c in all_codecs):
                         incompatible_mp4_copy = True
 
                 if incompatible_mp4_copy:
@@ -612,11 +615,11 @@ class VideoStreamMuxer:
                 has_bitmap_subs = bool(
                     self.source_metadata
                     and self.source_metadata.subtitle_codecs
-                    and any(c in ("hdmv_pgs_subtitle", "dvd_subtitle", "pgssub", "dvdsub")
+                    and any(c in ("hdmv_pgs_subtitle", "dvd_subtitle", "pgssub", "dvdsub", "xsub", "dvb_subtitle", "dvb_teletext", "arib_caption")
                            for c in self.source_metadata.subtitle_codecs)
                 )
                 if not has_bitmap_subs and self.source_metadata and self.source_metadata.has_subtitles:
-                    cmd.extend(["-map", f"{source_input_idx}:s?", "-c:s", "mov_text"])
+                    cmd.extend(["-map", f"{source_input_idx}:s?", "-c:s", "mov_text", "-max_error_rate", "1.0"])
 
             # Map chapters and metadata from source container
             cmd.extend([
@@ -625,8 +628,9 @@ class VideoStreamMuxer:
             ])
 
         # Video filter for sample aspect ratio
-        sar = self.config.sample_aspect_ratio or "1:1"
-        cmd.extend(["-vf", f"setsar={sar}"])
+        sar = self.config.sample_aspect_ratio or (self.source_metadata.sample_aspect_ratio if self.source_metadata else "1:1") or "1:1"
+        sar_filter = str(sar).replace(":", "/")
+        cmd.extend(["-vf", f"setsar={sar_filter}"])
 
         # Colorspace and Dynamic Range Preservation
         meta = self.source_metadata
@@ -720,8 +724,13 @@ class VideoStreamMuxer:
         if is_mp4:
             cmd.extend(["-movflags", "+faststart"])
 
-        # Scrub unnecessary internal metadata
-        cmd.extend(clean_metadata_args(include_video=True))
+        # Scrub unnecessary internal metadata while preserving font attachments in MKV
+        has_font_attachments = bool(
+            is_mkv
+            and self.source_metadata
+            and self.source_metadata.has_attachments
+        )
+        cmd.extend(clean_metadata_args(include_video=True, preserve_attachments=has_font_attachments))
 
         if self.config.extra_muxer_args:
             cmd.extend(self.config.extra_muxer_args)
@@ -827,28 +836,9 @@ class VideoStreamMuxer:
         if self._stderr_thread is not None and self._stderr_thread.is_alive():
             self._stderr_thread.join(timeout=1.0)
 
-        # 3. Handle failure and Audio Auto-Repair Pass
+        # 3. Handle process failure
         if rc != 0:
             err_log = self.stderr_output
-            if self.config.auto_repair_audio and any(
-                token in err_log.lower()
-                for token in ("audio", "aac", "muxing", "corrupt", "channel", "fltp", "packet")
-            ):
-                logger.warning("Audio muxing failure detected. Triggering guaranteed auto-repair transcode...")
-                # Re-attempt with transcoded AAC audio
-                if os.path.exists(self.part_path):
-                    try:
-                        os.remove(self.part_path)
-                    except Exception:
-                        pass
-                self._process = None
-                self._stderr_lines.clear()
-                # Rerun muxing pass with audio repair
-                self.start(audio_repair=True)
-                # Note: If pipe is closed, auto-repair from stream requires source re-mux
-                # For stream muxer, we finalize repair pass
-                return self.output_path
-
             raise RuntimeError(f"FFmpeg encoding failed with exit code {rc}:\n{err_log}")
 
         # 4. Atomic destination promotion
@@ -1214,6 +1204,7 @@ class ZeroDiskStreamingPipeline:
                 cq_level=self.crf,
                 source_path=self.source_path,
                 audio_mode=self.audio_mode,
+                sample_aspect_ratio=demuxer.metadata.sample_aspect_ratio,
             )
             muxer = VideoStreamMuxer(self.output_path, config=mux_cfg)
 

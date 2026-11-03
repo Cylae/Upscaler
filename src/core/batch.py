@@ -76,12 +76,26 @@ class BatchManager:
         self.queue: list[QueueItem] = []
         self._is_running = False
         self._stop_requested = False
+        self._pause_event = threading.Event()
+        self._pause_event.set()
         self._active_pipelines: set[VideoUpscalerPipeline] = set()
         self._lock = threading.Lock()
 
     @property
     def is_running(self) -> bool:
         return self._is_running
+
+    @property
+    def is_paused(self) -> bool:
+        return not self._pause_event.is_set()
+
+    def pause(self) -> None:
+        """Pauses the batch queue. Currently processing items will finish, but no new items will start."""
+        self._pause_event.clear()
+
+    def resume(self) -> None:
+        """Resumes a paused batch queue."""
+        self._pause_event.set()
 
     def scan_folder(
         self,
@@ -321,14 +335,41 @@ class BatchManager:
 
     def reindex_queue(self):
         """Re-indexes queue items 1..N sequentially."""
-        for idx, it in enumerate(self.queue, start=1):
-            it.index = idx
+        with self._lock:
+            for idx, it in enumerate(self.queue, start=1):
+                it.index = idx
+
+    def reorder_queue(self, new_order: list[int] | list[str]) -> None:
+        """Reorders the queue according to the given item indices or IDs, preserving any unmentioned items."""
+        with self._lock:
+            if not new_order or not self.queue:
+                return
+            is_indices = isinstance(new_order[0], int)
+            lookup = {it.index if is_indices else it.id: it for it in self.queue}
+            reordered = [lookup[k] for k in new_order if k in lookup]
+            seen_ids = {it.id for it in reordered}
+            remaining = [it for it in self.queue if it.id not in seen_ids]
+            self.queue = reordered + remaining
+            for idx, it in enumerate(self.queue, start=1):
+                it.index = idx
+
+    def move_item(self, from_index: int, to_index: int) -> bool:
+        """Moves an item from from_index (1-based) to to_index (1-based)."""
+        with self._lock:
+            if not (1 <= from_index <= len(self.queue)) or not (1 <= to_index <= len(self.queue)):
+                return False
+            item = self.queue.pop(from_index - 1)
+            self.queue.insert(to_index - 1, item)
+            for idx, it in enumerate(self.queue, start=1):
+                it.index = idx
+            return True
 
     def remove_items_by_indices(self, indices: set[int]):
         """Removes queue items whose indices are in the set and reindexes."""
         with self._lock:
             self.queue = [it for it in self.queue if it.index not in indices]
-            self.reindex_queue()
+            for idx, it in enumerate(self.queue, start=1):
+                it.index = idx
 
     def clear_queue(self):
         """Clears all items in queue."""
@@ -337,16 +378,17 @@ class BatchManager:
 
     def retry_failed_items(self) -> int:
         """Resets failed or cancelled items back to PENDING so they can be re-run."""
-        count = 0
-        for item in self.queue:
-            if item.status in (EpisodeStatus.FAILED, EpisodeStatus.CANCELLED):
-                item.status = EpisodeStatus.PENDING
-                item.progress = 0.0
-                item.status_detail = "Ready (Retry)"
-                item.error_message = ""
-                item.file_eta = ""
-                count += 1
-        return count
+        with self._lock:
+            count = 0
+            for item in self.queue:
+                if item.status in (EpisodeStatus.FAILED, EpisodeStatus.CANCELLED):
+                    item.status = EpisodeStatus.PENDING
+                    item.progress = 0.0
+                    item.status_detail = "Ready (Retry)"
+                    item.error_message = ""
+                    item.file_eta = ""
+                    count += 1
+            return count
 
     def save_manifest(self, filepath: str) -> bool:
         """Saves current queue state to a JSON manifest for session recovery."""
@@ -552,6 +594,7 @@ class BatchManager:
     def stop(self):
         """Requests cancellation of all active pipelines and stops the batch."""
         self._stop_requested = True
+        self._pause_event.set()
         with self._lock:
             for pipeline in list(self._active_pipelines):
                 pipeline.cancel()
@@ -584,19 +627,39 @@ class BatchManager:
         """Executes batch processing on queue with optional multi-worker concurrency."""
         self._is_running = True
         self._stop_requested = False
+        self._pause_event.set()
 
-        if target_indices:
-            selected_indices = set(target_indices)
-            items_to_run = [item for item in self.queue if item.index in selected_indices]
-        else:
-            items_to_run = list(self.queue)
+        selected_indices = set(target_indices) if target_indices else None
+        claimed_ids: set[str] = set()
 
-        total_items = len(items_to_run)
+        with self._lock:
+            if selected_indices:
+                total_items = sum(1 for item in self.queue if item.index in selected_indices)
+            else:
+                total_items = len(self.queue)
+
         completed_items = [0]
         # Progress notifications can arrive for every frame. Keep work per update
         # bounded by the active workers rather than the entire queued library.
         active_progress: dict[int, float] = {}
         t_batch_start = time.monotonic()
+
+        def get_next_item() -> QueueItem | None:
+            while not self._stop_requested:
+                if not self._pause_event.is_set():
+                    self._pause_event.wait(timeout=0.1)
+                    continue
+                with self._lock:
+                    if self._stop_requested:
+                        return None
+                    for it in self.queue:
+                        if selected_indices is not None and it.index not in selected_indices:
+                            continue
+                        if it.status in (EpisodeStatus.PENDING, EpisodeStatus.SKIPPED) and it.id not in claimed_ids:
+                            claimed_ids.add(it.id)
+                            return it
+                return None
+            return None
 
         def process_single_item(item: QueueItem):
             if self._stop_requested:

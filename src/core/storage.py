@@ -11,7 +11,9 @@ import os
 import shutil
 import threading
 import time
+import uuid
 
+_active_job_counts: dict[str, int] = {}
 _active_job_dirs: set[str] = set()
 _active_job_dirs_lock = threading.Lock()
 
@@ -20,6 +22,7 @@ def register_active_job_dir(work_dir: str, job_info: dict | None = None) -> None
     """Registers an active work directory to protect it from cleanup."""
     norm_path = os.path.normcase(os.path.abspath(work_dir))
     with _active_job_dirs_lock:
+        _active_job_counts[norm_path] = _active_job_counts.get(norm_path, 0) + 1
         _active_job_dirs.add(norm_path)
     create_job_lock(work_dir, job_info)
 
@@ -45,8 +48,39 @@ def create_job_lock(work_dir: str, job_info: dict | None = None) -> str:
 def unregister_active_job_dir(work_dir: str) -> None:
     """Unregisters an active work directory when work is finished."""
     norm_path = os.path.normcase(os.path.abspath(work_dir))
+    should_clean_lock = False
     with _active_job_dirs_lock:
-        _active_job_dirs.discard(norm_path)
+        cnt = _active_job_counts.get(norm_path, 0)
+        if cnt <= 1:
+            _active_job_counts.pop(norm_path, None)
+            _active_job_dirs.discard(norm_path)
+            should_clean_lock = True
+        else:
+            _active_job_counts[norm_path] = cnt - 1
+
+    if should_clean_lock:
+        lock_file = os.path.join(work_dir, ".job_lock")
+        try:
+            if os.path.isfile(lock_file):
+                os.remove(lock_file)
+        except Exception:
+            pass
+
+
+def is_dir_active(dir_path: str) -> bool:
+    """Checks whether a directory or any of its parents/children is actively in use."""
+    norm_path = os.path.normcase(os.path.abspath(dir_path))
+    with _active_job_dirs_lock:
+        for active in _active_job_counts:
+            if norm_path == active:
+                return True
+            # active directory is inside dir_path (dir_path is a parent)
+            if active.startswith(norm_path + os.sep):
+                return True
+            # dir_path is inside active directory (dir_path is a subfolder)
+            if norm_path.startswith(active + os.sep):
+                return True
+    return False
 
 
 def is_process_alive(pid: int) -> bool:
@@ -83,7 +117,7 @@ def cleanup_stale_temp_directories(
     """Scans and removes stale .temp_upscaler directories left over from terminated sessions.
 
     Safely protects active jobs:
-    1. Checks in-memory active job directories for the current process.
+    1. Checks in-memory active job directories for the current process, including parent/child relationships.
     2. Checks PID-based lease lock files (.job_lock) to avoid deleting directories
        of concurrent processes currently performing work.
     3. Uses a conservative default max age (24 hours instead of 15 minutes).
@@ -110,11 +144,9 @@ def cleanup_stale_temp_directories(
                     if not os.path.isdir(sub):
                         continue
 
-                    # 1. Skip if registered as active in current process
-                    norm_sub = os.path.normcase(os.path.abspath(sub))
-                    with _active_job_dirs_lock:
-                        if norm_sub in _active_job_dirs:
-                            continue
+                    # 1. Skip if registered as active in current process (or parent/child thereof)
+                    if is_dir_active(sub):
+                        continue
 
                     # 2. Check lock file for active foreign processes
                     lock_file = os.path.join(sub, ".job_lock")
@@ -150,31 +182,48 @@ def cleanup_stale_temp_directories(
     return cleaned
 
 
-def safe_atomic_move(src: str, dst: str) -> None:
+def safe_atomic_move(src: str, dst: str, max_retries: int = 5) -> None:
     """Atomically moves src to dst, with safe fallback for cross-filesystem moves.
 
     If src and dst live on different volumes/drives (WinError 17 on Windows or
     EXDEV errno 18 on POSIX), copies to a temporary file on the destination
-    directory first, then performs atomic replace.
+    directory first, then performs atomic replace. Uses per-thread unique temporary
+    names and retry backoff to survive Windows file locking contention.
     """
     os.makedirs(os.path.dirname(os.path.abspath(dst)), exist_ok=True)
-    try:
-        os.replace(src, dst)
-    except OSError as exc:
-        if exc.errno in (17, 18) or (hasattr(exc, "winerror") and exc.winerror == 17):
-            temp_dst = dst + f".tmp_{os.getpid()}_{int(time.time()*1000)}"
-            try:
-                shutil.copy2(src, temp_dst)
-                os.replace(temp_dst, dst)
+    for attempt in range(max_retries):
+        try:
+            os.replace(src, dst)
+            return
+        except OSError as exc:
+            if exc.errno in (17, 18) or (hasattr(exc, "winerror") and exc.winerror == 17):
+                temp_dst = dst + f".tmp_{os.getpid()}_{threading.get_ident()}_{uuid.uuid4().hex}"
                 try:
-                    os.remove(src)
-                except OSError:
-                    pass
-            finally:
-                if os.path.exists(temp_dst):
+                    shutil.copy2(src, temp_dst)
+                    for rep_attempt in range(max_retries):
+                        try:
+                            os.replace(temp_dst, dst)
+                            break
+                        except OSError as rep_exc:
+                            if rep_attempt == max_retries - 1:
+                                raise
+                            time.sleep(0.05 * (rep_attempt + 1))
                     try:
-                        os.remove(temp_dst)
+                        os.remove(src)
                     except OSError:
                         pass
-        else:
-            raise
+                    return
+                finally:
+                    if os.path.exists(temp_dst):
+                        try:
+                            os.remove(temp_dst)
+                        except OSError:
+                            pass
+            elif attempt < max_retries - 1 and (
+                (hasattr(exc, "winerror") and exc.winerror in (5, 32))
+                or exc.errno in (13, 16)
+            ):
+                time.sleep(0.05 * (attempt + 1))
+                continue
+            else:
+                raise

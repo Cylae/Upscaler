@@ -503,7 +503,7 @@ class VideoUpscalerPipeline:
                 if den <= 0 or num <= 0:
                     return False
                 r_val = num / den
-                if not (1.0 <= r_val <= 144.0):
+                if not (0.1 <= r_val <= 1000.0):
                     return False
                 return not (meta.fps > 0 and abs(r_val - meta.fps) > 0.5)
             except (ValueError, ZeroDivisionError):
@@ -559,12 +559,12 @@ class VideoUpscalerPipeline:
                 # Strictly omit bitmap subtitles (PGS, VobSub) and font attachments which break FFmpeg.
                 has_bitmap_subs = bool(
                     meta.subtitle_codecs and any(
-                        c in ("hdmv_pgs_subtitle", "dvd_subtitle", "pgssub", "dvdsub")
+                        c in ("hdmv_pgs_subtitle", "dvd_subtitle", "pgssub", "dvdsub", "xsub", "dvb_subtitle", "dvb_teletext", "arib_caption")
                         for c in meta.subtitle_codecs
                     )
                 )
                 if not has_bitmap_subs and meta.has_subtitles:
-                    cmd.extend(["-map", f"{sub_input_idx}:s?", "-c:s", "mov_text"])
+                    cmd.extend(["-map", f"{sub_input_idx}:s?", "-c:s", "mov_text", "-max_error_rate", "1.0"])
 
         # High-quality Lanczos resize with all CPU cores assigned
         cmd.extend([
@@ -675,7 +675,17 @@ class VideoUpscalerPipeline:
             elif audio_mode == "flac":
                 cmd.extend(["-c:a", "flac"])
             else:  # "copy"
-                cmd.extend(["-c:a", "copy"])
+                incompatible_mp4_copy = False
+                if is_mp4 and meta:
+                    all_codecs = getattr(meta, "audio_codecs", []) or ([meta.audio_codec] if meta.audio_codec else [])
+                    incompatible_tokens = ("pcm", "vorbis", "flac", "wma", "wavpack", "opus", "truehd", "ape")
+                    if any(any(tok in c.lower() for tok in incompatible_tokens) for c in all_codecs):
+                        incompatible_mp4_copy = True
+
+                if incompatible_mp4_copy:
+                    cmd.extend(["-c:a", "aac", "-b:a", "256k"])
+                else:
+                    cmd.extend(["-c:a", "copy"])
             cmd.append("-shortest")
 
         # movflags: faststart for MP4/MOV only (invalid for MKV)
@@ -683,7 +693,12 @@ class VideoUpscalerPipeline:
             cmd.extend(["-movflags", "+faststart"])
 
         # Preserve chapters from source container if an input stream was provided
-        cmd.extend(clean_metadata_args(include_video=True))
+        has_font_attachments = bool(
+            is_mkv
+            and meta
+            and meta.has_attachments
+        )
+        cmd.extend(clean_metadata_args(include_video=True, preserve_attachments=has_font_attachments))
         chapter_source_idx = audio_input_idx if audio_input_idx is not None else sub_input_idx
         if chapter_source_idx is not None:
             cmd.extend(["-map_chapters", str(chapter_source_idx)])

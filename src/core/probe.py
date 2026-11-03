@@ -50,6 +50,11 @@ class VideoMetadata:
     subtitle_codecs: list[str] = field(default_factory=list)
     has_attachments: bool = False
     audio_channels: int = 2
+    audio_codecs: list[str] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if not self.audio_codecs and self.audio_codec:
+            self.audio_codecs = [self.audio_codec.lower()]
 
     @property
     def is_10bit(self) -> bool:
@@ -230,12 +235,12 @@ def probe_video(filepath: str, ffprobe_bin: str | None = None) -> VideoMetadata:
                 den = float(denominator)
                 if den > 0:
                     val = float(numerator) / den
-                    if val > 0:
+                    if 0.1 <= val <= 1000.0:
                         fps = val
                         break
             else:
                 val = float(fps_val_str)
-                if val > 0:
+                if 0.1 <= val <= 1000.0:
                     fps = val
                     break
         except (TypeError, ValueError, ZeroDivisionError):
@@ -253,13 +258,19 @@ def probe_video(filepath: str, ffprobe_bin: str | None = None) -> VideoMetadata:
             continue
 
     nb_frames_raw = v_stream.get("nb_frames")
-    nb_frames = int(nb_frames_raw) if nb_frames_raw and str(nb_frames_raw).isdigit() else max(1, int(duration * fps))
-    if duration <= 0 and nb_frames > 0:
+    if nb_frames_raw and str(nb_frames_raw).isdigit():
+        nb_frames = int(nb_frames_raw)
+    elif duration > 0:
+        nb_frames = max(1, int(duration * fps))
+    else:
+        nb_frames = 0
+    if duration <= 0 and nb_frames > 0 and fps > 0:
         duration = nb_frames / fps
 
     a_streams = [s for s in data.get("streams", []) if s.get("codec_type") == "audio"]
     has_audio = len(a_streams) > 0
     audio_codec = a_streams[0].get("codec_name", "") if has_audio else ""
+    audio_codecs = [str(s.get("codec_name", "")).lower() for s in a_streams if s.get("codec_name")]
     audio_channels = 2
     if has_audio:
         try:
@@ -323,6 +334,7 @@ def probe_video(filepath: str, ffprobe_bin: str | None = None) -> VideoMetadata:
         subtitle_codecs=subtitle_codecs,
         has_attachments=has_attachments,
         audio_channels=audio_channels,
+        audio_codecs=audio_codecs,
     )
 
     return meta
@@ -366,10 +378,12 @@ def format_eta(seconds: float | None) -> str:
     return f"{hours}h {rem_m:02d}m"
 
 
-def clean_metadata_args(include_video: bool = True) -> list:
+def clean_metadata_args(include_video: bool = True, preserve_attachments: bool = False) -> list:
     """Returns FFmpeg command line arguments to strip and wipe all metadata."""
-    args = [
-        "-map_metadata", "-1",
+    args = []
+    if not preserve_attachments:
+        args.extend(["-map_metadata", "-1"])
+    args.extend([
         "-metadata", "title=",
         "-metadata", "comment=",
         "-metadata", "description=",
@@ -378,7 +392,7 @@ def clean_metadata_args(include_video: bool = True) -> list:
         "-metadata", "genre=",
         "-metadata", "artist=",
         "-metadata", "album="
-    ]
+    ])
     if include_video:
         args.extend([
             "-metadata:s:v:0", "title=",

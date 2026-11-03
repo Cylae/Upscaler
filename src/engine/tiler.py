@@ -7,11 +7,38 @@ Guarantees exact partition-of-unity blending, eliminating all edge and grid arti
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Callable
 
 import numpy as np
 from PIL import Image
+
+logger = logging.getLogger(__name__)
+
+
+def is_oom_exception(exc: Exception) -> bool:
+    """Detects if an exception represents GPU VRAM or host memory exhaustion."""
+    if isinstance(exc, (MemoryError,)):
+        return True
+    msg = str(exc).lower()
+    return any(
+        token in msg
+        for token in (
+            "out of memory",
+            "out_of_device_memory",
+            "vk_error_out_of_device_memory",
+            "vk_error_out_of_host_memory",
+            "cuda out of memory",
+            "failed to allocate",
+            "directml error",
+            "d3d12",
+            "bad_alloc",
+            "vkallocatememory failed",
+            "vkcreateimage failed",
+            "device removed",
+        )
+    )
 
 
 
@@ -142,37 +169,59 @@ def calculate_optimal_tile_size(
     scale: int = 4,
     vram_gb: float = 0.0,
     fp16: bool = True,
+    max_memory_mb: float | None = None,
 ) -> tuple[int, int]:
-    """Determines optimal (tile_size, overlap) based on image geometry and available GPU VRAM.
+    """Determines optimal (tile_size, overlap) based on image geometry, scale, and available GPU VRAM.
+
+    Enforces:
+    1. Small images (<= 512px) with >= 2GB VRAM require no tiling.
+    2. Tile sizes are clamped against extreme resolutions (8K / 16K) to avoid VRAM exhaustion.
+    3. Tile sizes are strictly quantized to multiples of 32 for CNN convolutional stride alignment.
+    4. Memory budgeters dynamically scale down tile sizes if max_memory_mb is provided.
 
     Returns:
         (tile_size, overlap)
     """
-    # If image is very small, no tiling needed
     max_dim = max(width, height)
     if max_dim <= 512 and vram_gb >= 2.0:
         return max_dim, 0
 
+    # Base tile allocation based on VRAM tier and image resolution
     if vram_gb >= 16.0:
-        tile_size = 1024
+        tile_size = 1024 if max_dim < 15360 else 768
         overlap = 64
     elif vram_gb >= 8.0:
-        tile_size = 768
+        tile_size = 768 if max_dim < 7680 else 512
         overlap = 64
     elif vram_gb >= 4.0:
-        tile_size = 512
-        overlap = 64
+        tile_size = 512 if max_dim < 7680 else 384
+        overlap = 64 if tile_size >= 512 else 48
     elif vram_gb >= 2.0:
-        tile_size = 384
-        overlap = 48
+        tile_size = 384 if max_dim < 7680 else 256
+        overlap = 48 if tile_size >= 384 else 32
     else:
-        tile_size = 256
+        tile_size = 256 if max_dim < 7680 else 192
         overlap = 32
+
+    # Memory budget constraint (estimated activation footprint per tile)
+    if max_memory_mb is not None and max_memory_mb > 0:
+        layer_depth = 16
+        while tile_size > 64:
+            out_dim = tile_size * scale
+            est_mb = (out_dim * out_dim * 3 * 4 * layer_depth) / (1024 * 1024)
+            if est_mb <= max_memory_mb:
+                break
+            tile_size = max(64, (tile_size // 2 // 32) * 32 or (tile_size // 2))
+            overlap = min(overlap, tile_size // 4)
 
     # If tile size exceeds dimensions, clamp
     if tile_size > max_dim:
-        tile_size = max(64, (max_dim // 32) * 32)
+        tile_size = max(64, (max_dim // 32) * 32 or max_dim)
         overlap = min(overlap, tile_size // 4)
+
+    # Ensure tile_size is a multiple of 32
+    tile_size = max(64, (tile_size // 32) * 32)
+    overlap = min(overlap, max(8, tile_size // 4))
 
     return tile_size, overlap
 
@@ -369,6 +418,15 @@ class SeamlessRecombiner:
         mask_3d = mask_2d[:, :, np.newaxis]
         arr_f32 = arr.astype(np.float32, copy=False)
 
+        # Guard against floating-point NaN or Inf propagation from numerical instability
+        if not np.all(np.isfinite(arr_f32)):
+            arr_f32 = np.nan_to_num(
+                arr_f32,
+                nan=0.0,
+                posinf=255.0 if np.issubdtype(self.dtype, np.integer) else 1.0,
+                neginf=0.0,
+            )
+
         # Accumulate weighted tile data and weight mask
         y0, y1 = loc.out_y0, loc.out_y1
         x0, x1 = loc.out_x0, loc.out_x1
@@ -376,24 +434,44 @@ class SeamlessRecombiner:
         self._accumulator[y0:y1, x0:x1] += arr_f32 * mask_3d
         self._weights[y0:y1, x0:x1] += mask_3d
 
+    def clear(self) -> None:
+        """Releases internal accumulator arrays immediately to reclaim RAM."""
+        self._accumulator = None
+        self._weights = None
+
     def finalize(self, clamp: bool = True) -> np.ndarray:
         """Finalizes partition-of-unity normalization and returns the reconstructed image.
+
+        Guarantees zero-allocation in-place normalization, freeing memory buffers immediately
+        to prevent RAM spikes on 8K and 16K canvases.
 
         Returns:
             Normalized NumPy array of shape (target_height, target_width, channels).
         """
-        # Safe normalization preventing divide-by-zero
-        safe_weights = np.maximum(self._weights, 1e-12)
-        blended = self._accumulator / safe_weights
+        if self._accumulator is None or self._weights is None:
+            raise RuntimeError("SeamlessRecombiner has already been finalized or cleared.")
+
+        # In-place safe normalization preventing divide-by-zero
+        np.maximum(self._weights, 1e-12, out=self._weights)
+        self._accumulator /= self._weights
+        self._weights = None  # Free weight buffer immediately
 
         if clamp:
-            blended = np.clip(blended, 0.0, 255.0 if np.issubdtype(self.dtype, np.integer) else 1.0)
+            np.clip(
+                self._accumulator,
+                0.0,
+                255.0 if np.issubdtype(self.dtype, np.integer) else 1.0,
+                out=self._accumulator,
+            )
 
         if np.issubdtype(self.dtype, np.integer):
             # Biased half-integer rounding for unbiased discrete casting
-            result = (blended + 0.5).astype(self.dtype)
+            self._accumulator += 0.5
+            result = self._accumulator.astype(self.dtype)
         else:
-            result = blended.astype(self.dtype)
+            result = self._accumulator.astype(self.dtype)
+
+        self._accumulator = None  # Free accumulator buffer immediately
 
         if self.channels == 1 and result.ndim == 3:
             result = result[:, :, 0]
@@ -446,14 +524,20 @@ class SpatialTiler:
         *,
         progress_callback: Callable[[int, int], None] | None = None,
         out_dtype: np.dtype | type = np.uint8,
+        adaptive_tile_on_oom: bool = True,
     ) -> np.ndarray:
         """Executes tiled neural upscaling across an entire image with streaming memory reuse.
+
+        Features adaptive runtime tile reduction: if an inference kernel encounters a GPU VRAM
+        or host memory OOM exception, the tiler catches the failure, frees memory, adjusts tile
+        bounds downwards, and seamlessly retries without crashing or dropping frames.
 
         Args:
             image: Source image (PIL Image or NumPy array HWC/HW).
             inference_fn: Inference callback taking an input tile (np.ndarray) and returning upscaled tile.
             progress_callback: Optional callback invoked with (completed_tiles, total_tiles).
             out_dtype: Data type for the final reconstructed array (default: uint8).
+            adaptive_tile_on_oom: Whether to dynamically shrink tile size if inference OOM occurs.
 
         Returns:
             Seamlessly reconstructed upscaled image as a C-contiguous NumPy ndarray.
@@ -486,8 +570,36 @@ class SpatialTiler:
             tile_in = src_arr[loc.in_y0 : loc.in_y1, loc.in_x0 : loc.in_x1]
             tile_in = np.ascontiguousarray(tile_in)
 
-            # Run inference kernel
-            tile_out = inference_fn(tile_in)
+            try:
+                # Run inference kernel
+                tile_out = inference_fn(tile_in)
+            except Exception as exc:
+                if adaptive_tile_on_oom and is_oom_exception(exc) and self.tile_size > 64:
+                    new_tile_size = max(64, (self.tile_size // 2 // 32) * 32 or (self.tile_size // 2))
+                    new_overlap = max(16, min(self.overlap // 2, new_tile_size // 4))
+                    logger.warning(
+                        "OOM encountered during tiled inference (tile %d/%d, tile_size=%d). "
+                        "Adapting tile size to %d and re-planning...",
+                        i + 1,
+                        total_tiles,
+                        self.tile_size,
+                        new_tile_size,
+                    )
+                    recombiner.clear()
+                    fallback_tiler = SpatialTiler(
+                        tile_size=new_tile_size,
+                        overlap=new_overlap,
+                        scale=self.scale,
+                    )
+                    return fallback_tiler.process(
+                        image,
+                        inference_fn,
+                        progress_callback=progress_callback,
+                        out_dtype=out_dtype,
+                        adaptive_tile_on_oom=adaptive_tile_on_oom,
+                    )
+                recombiner.clear()
+                raise
 
             # Blend into canvas
             recombiner.add_tile(tile_out, loc)
@@ -495,7 +607,8 @@ class SpatialTiler:
             if progress_callback:
                 progress_callback(i + 1, total_tiles)
 
-        return recombiner.finalize()
+        result = recombiner.finalize()
+        return result
 
 
 def upscale_with_tiling(

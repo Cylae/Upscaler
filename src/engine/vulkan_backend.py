@@ -168,8 +168,9 @@ class VulkanNCNNBackend:
         scale: int | None = None,
         tile_size: int | None = None,
         timeout: float = 300.0,
+        _retry_level: int = 0,
     ) -> None:
-        """Executes upscaling on a single image file or directory with process supervision."""
+        """Executes upscaling on a single image file or directory with process supervision and automatic OOM recovery."""
         if not os.path.exists(input_path):
             raise FileNotFoundError(f"Input path does not exist: {input_path}")
 
@@ -190,6 +191,52 @@ class VulkanNCNNBackend:
 
             if ret_code != 0:
                 err_msg = stderr.strip() if stderr else stdout.strip()
+                low_err = err_msg.lower()
+                is_oom = any(
+                    token in low_err
+                    for token in (
+                        "out of memory",
+                        "out_of_device_memory",
+                        "vk_error_out_of_device_memory",
+                        "vk_error_out_of_host_memory",
+                        "vkallocatememory failed",
+                        "vkcreateimage failed",
+                        "failed to allocate",
+                        "bad_alloc",
+                        "device memory",
+                    )
+                )
+                current_tile = tile_size if tile_size is not None else self.config.tile_size
+                if is_oom and _retry_level < 3:
+                    # 1. Try smaller tile size if current_tile > 64 or 0 (auto)
+                    if current_tile > 64 or current_tile == 0:
+                        new_tile = 200 if current_tile == 0 else max(64, (current_tile // 2 // 32) * 32 or (current_tile // 2))
+                        logger.warning(
+                            "Vulkan NCNN engine '%s' hit GPU OOM with tile_size=%d. "
+                            "Retrying with reduced tile_size=%d...",
+                            self.engine_type, current_tile, new_tile
+                        )
+                        return self.run_file(
+                            input_path, output_path, scale=scale, tile_size=new_tile,
+                            timeout=timeout, _retry_level=_retry_level + 1
+                        )
+                    # 2. Try CPU fallback if tile size is already minimal
+                    elif str(self.config.gpu_id) not in ("-1", "cpu"):
+                        logger.warning(
+                            "Vulkan NCNN engine '%s' exhausted GPU VRAM at minimum tile size. "
+                            "Falling back gracefully to CPU execution (-g -1)...",
+                            self.engine_type
+                        )
+                        orig_gpu = self.config.gpu_id
+                        try:
+                            self.config.gpu_id = -1
+                            return self.run_file(
+                                input_path, output_path, scale=scale, tile_size=64,
+                                timeout=timeout, _retry_level=_retry_level + 1
+                            )
+                        finally:
+                            self.config.gpu_id = orig_gpu
+
                 raise RuntimeError(
                     f"Vulkan NCNN engine '{self.engine_type}' exited with code {ret_code}: {err_msg}"
                 )
@@ -250,5 +297,19 @@ class VulkanNCNNBackend:
             with Image.open(out_file) as result_img:
                 result_img.load()
                 out_arr = np.asarray(result_img)
+
+            # Detect corrupted black frame if input was non-black (e.g. silent GPU device failure)
+            in_arr = np.asarray(pil_img)
+            if np.mean(in_arr) > 5.0 and np.mean(out_arr) == 0.0:
+                logger.warning(
+                    "Vulkan engine '%s' produced a corrupted black frame. Retrying with safe tile size...",
+                    self.engine_type,
+                )
+                current_tile = tile_size if tile_size is not None else self.config.tile_size
+                new_tile = 128 if current_tile in (0, None) else max(64, current_tile // 2)
+                self.run_file(in_file, out_file, scale=scale, tile_size=new_tile, timeout=timeout)
+                with Image.open(out_file) as result_img:
+                    result_img.load()
+                    out_arr = np.asarray(result_img)
 
         return np.ascontiguousarray(out_arr)
