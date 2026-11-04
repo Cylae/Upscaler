@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -101,6 +102,7 @@ class ONNXInferenceEngine:
         for k, v in kwargs.items():
             if hasattr(self.config, k):
                 setattr(self.config, k, v)
+        self._lock = threading.Lock()
         self.session: ort.InferenceSession | None = None
         self.active_provider: str = "None"
         self.active_provider_options: dict[str, Any] = {}
@@ -309,17 +311,20 @@ class ONNXInferenceEngine:
 
     def _fallback_to_cpu(self) -> None:
         """Emergency fallback replacing the active session with CPU execution."""
-        session_opts = self._create_session_options()
-        cpu_opts = self._build_provider_options("CPUExecutionProvider")
-        self.session = ort.InferenceSession(
-            self.model_path,
-            sess_options=session_opts,
-            providers=["CPUExecutionProvider"],
-            provider_options=[cpu_opts],
-        )
-        self.active_provider = "CPUExecutionProvider"
-        self.active_provider_options = cpu_opts
-        logger.warning("Session successfully migrated to CPUExecutionProvider fallback.")
+        with self._lock:
+            if self.active_provider == "CPUExecutionProvider":
+                return
+            session_opts = self._create_session_options()
+            cpu_opts = self._build_provider_options("CPUExecutionProvider")
+            self.session = ort.InferenceSession(
+                self.model_path,
+                sess_options=session_opts,
+                providers=["CPUExecutionProvider"],
+                provider_options=[cpu_opts],
+            )
+            self.active_provider = "CPUExecutionProvider"
+            self.active_provider_options = cpu_opts
+            logger.warning("Session successfully migrated to CPUExecutionProvider fallback.")
 
     def upscale_tile(self, tile_hwc: np.ndarray) -> np.ndarray:
         """Processes a single HWC uint8/float tile through tensor prep, inference, and conversion."""

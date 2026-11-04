@@ -10,6 +10,22 @@ except (ImportError, Exception):
 # This must be set before test modules import QApplication.
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
+# On Windows, suppress pytest's benign atexit PermissionError on pytest-current symlink cleanup
+if os.name == "nt":
+    try:
+        import _pytest.pathlib
+        _orig_cleanup_dead_symlinks = _pytest.pathlib.cleanup_dead_symlinks
+
+        def _safe_cleanup_dead_symlinks(root):
+            try:
+                _orig_cleanup_dead_symlinks(root)
+            except (OSError, PermissionError):
+                pass
+
+        _pytest.pathlib.cleanup_dead_symlinks = _safe_cleanup_dead_symlinks
+    except Exception:
+        pass
+
 import pytest
 from PyQt6.QtCore import QSettings, QTimer
 

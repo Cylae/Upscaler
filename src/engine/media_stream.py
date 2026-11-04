@@ -403,6 +403,11 @@ class VideoStreamDemuxer:
                     proc.stdout.close()
             except Exception:
                 pass
+            try:
+                if proc.stderr is not None:
+                    proc.stderr.close()
+            except Exception:
+                pass
 
             safe_kill_process_tree(proc)
 
@@ -518,11 +523,13 @@ class VideoStreamMuxer:
             pass
 
     def _cleanup_lock_file(self) -> None:
-        try:
-            if os.path.isfile(self.lock_path):
-                os.remove(self.lock_path)
-        except Exception:
-            pass
+        for _ in range(5):
+            try:
+                if os.path.isfile(self.lock_path):
+                    os.remove(self.lock_path)
+                break
+            except Exception:
+                time.sleep(0.05)
         unregister_active_job_dir(os.path.dirname(self.output_path))
 
     @property
@@ -845,9 +852,11 @@ class VideoStreamMuxer:
         if not os.path.isfile(self.part_path) or os.path.getsize(self.part_path) == 0:
             raise RuntimeError(f"Encoded output file was not created or is empty: {self.part_path}")
 
-        safe_atomic_move(self.part_path, self.output_path)
-        self._cleanup_lock_file()
-        self._is_finalized = True
+        try:
+            safe_atomic_move(self.part_path, self.output_path)
+            self._is_finalized = True
+        finally:
+            self._cleanup_lock_file()
         return self.output_path
 
     def __enter__(self) -> VideoStreamMuxer:
@@ -876,6 +885,11 @@ class VideoStreamMuxer:
                     proc.stdin.close()
             except Exception:
                 pass
+            try:
+                if proc.stderr is not None:
+                    proc.stderr.close()
+            except Exception:
+                pass
 
             safe_kill_process_tree(proc)
 
@@ -887,12 +901,12 @@ class VideoStreamMuxer:
 
         # Remove temporary unfinalized part file
         if not self._is_finalized and os.path.exists(self.part_path):
-            for _ in range(3):
+            for _ in range(10):
                 try:
                     os.remove(self.part_path)
                     break
                 except Exception:
-                    time.sleep(0.1)
+                    time.sleep(0.05)
 
         self._cleanup_lock_file()
 

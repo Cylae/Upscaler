@@ -167,6 +167,27 @@ class UpscaleWorker(QThread):
         self.target_indices = target_indices
         self.preview_duration_s = preview_duration_s
 
+    def stop(self) -> None:
+        """Stops the batch processing immediately."""
+        self.bm.stop()
+
+    def cancel(self) -> None:
+        """Alias for stop()."""
+        self.bm.stop()
+
+    def pause(self) -> None:
+        """Pauses the batch processing queue."""
+        self.bm.pause()
+
+    def resume(self) -> None:
+        """Resumes a paused batch processing queue."""
+        self.bm.resume()
+
+    @property
+    def is_paused(self) -> bool:
+        """Returns True if the batch processing queue is currently paused."""
+        return self.bm.is_paused
+
     def run(self):
         try:
             self.bm.run_batch(

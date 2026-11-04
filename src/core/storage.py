@@ -27,12 +27,12 @@ def register_active_job_dir(work_dir: str, job_info: dict | None = None) -> None
     create_job_lock(work_dir, job_info)
 
 
-def create_job_lock(work_dir: str, job_info: dict | None = None) -> str:
+def create_job_lock(work_dir: str, job_info: dict | None = None, pid: int | None = None) -> str:
     """Writes a PID-based lease lock file (.job_lock) inside the working directory."""
     os.makedirs(work_dir, exist_ok=True)
     lock_file = os.path.join(work_dir, ".job_lock")
     payload = {
-        "pid": os.getpid(),
+        "pid": pid if pid is not None else os.getpid(),
         "created_at": time.time(),
         "last_heartbeat": time.time(),
         "info": job_info or {}
@@ -204,7 +204,7 @@ def safe_atomic_move(src: str, dst: str, max_retries: int = 5) -> None:
                         try:
                             os.replace(temp_dst, dst)
                             break
-                        except OSError as rep_exc:
+                        except OSError:
                             if rep_attempt == max_retries - 1:
                                 raise
                             time.sleep(0.05 * (rep_attempt + 1))

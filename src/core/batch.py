@@ -857,46 +857,40 @@ class BatchManager:
                     batch_callback(cur_completed, total_items, pct, f"Overall progress: {cur_completed}/{total_items} completed")
 
         try:
-            effective_workers = max(1, min(max_workers, 4))
-            if effective_workers == 1:
-                for item in items_to_run:
-                    if self._stop_requested:
-                        break
-                    process_single_item(item)
-            else:
-                with concurrent.futures.ThreadPoolExecutor(max_workers=effective_workers) as executor:
-                    remaining_items = iter(items_to_run)
-                    futures = set()
+            effective_workers = max(1, min(max_workers, 16))
+            with concurrent.futures.ThreadPoolExecutor(max_workers=effective_workers) as executor:
+                futures = set()
 
-                    def submit_next():
-                        while not self._stop_requested:
-                            item = next(remaining_items, None)
-                            if item is None:
-                                return
-                            # Already validated files need callbacks, not worker
-                            # futures. Long resumed batches should stay cheap.
-                            if item.status == EpisodeStatus.SKIPPED and not overwrite and preview_duration_s is None:
-                                process_single_item(item)
-                                continue
-                            futures.add(executor.submit(process_single_item, item))
+                def submit_next():
+                    while not self._stop_requested:
+                        item = get_next_item()
+                        if item is None:
                             return
+                        # Already validated files need callbacks, not worker
+                        # futures. Long resumed batches should stay cheap.
+                        if item.status == EpisodeStatus.SKIPPED and not overwrite and preview_duration_s is None:
+                            process_single_item(item)
+                            continue
+                        futures.add(executor.submit(process_single_item, item))
+                        return
 
-                    for _ in range(effective_workers):
+                for _ in range(effective_workers):
+                    submit_next()
+
+                while futures:
+                    done, futures = concurrent.futures.wait(
+                        futures, return_when=concurrent.futures.FIRST_COMPLETED
+                    )
+                    for future in done:
+                        try:
+                            future.result()
+                        except (concurrent.futures.CancelledError, Exception):
+                            pass
+                    if self._stop_requested:
+                        for future in futures:
+                            future.cancel()
+                        break
+                    for _ in done:
                         submit_next()
-                    while futures:
-                        done, futures = concurrent.futures.wait(
-                            futures, return_when=concurrent.futures.FIRST_COMPLETED
-                        )
-                        for future in done:
-                            try:
-                                future.result()
-                            except (concurrent.futures.CancelledError, Exception):
-                                pass
-                        if self._stop_requested:
-                            for future in futures:
-                                future.cancel()
-                            break
-                        for _ in done:
-                            submit_next()
         finally:
             self._is_running = False

@@ -256,8 +256,8 @@ class VulkanNCNNBackend:
         """Terminates active running Vulkan subprocess cleanly."""
         if self._active_process is not None:
             try:
-                self._active_process.terminate()
-                self._active_process.wait(timeout=2.0)
+                from src.core.process import safe_kill_process_tree
+                safe_kill_process_tree(self._active_process)
             except Exception:
                 try:
                     self._active_process.kill()
